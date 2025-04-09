@@ -3,15 +3,35 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
+name = "inference_time_scaling"
+version = "0.1.0"
+description = "A Python library for inference-time scaling LLMs"
+authors = [
+    {name = "Kai Xu and the Red Hat AI Innovation Team", email = "xuk@redhat.com"}
+]
+readme = "README.md"
+requires-python = ">=3.8"
+license = "Apache-2.0"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
 dependencies = [
     "requests>=2.31.0",
     "tqdm>=4.65.0",
+    "typing-extensions>=4.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Red-Hat-AI-Innovation-Team/inference_time_scaling"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
 ]
+
+[tool.setuptools]
+packages = ["inference_time_scaling"]
 
 [tool.black]
 line-length = 88
@@ -20,4 +40,4 @@ include = '\.pyi?$'
 
 [tool.isort]
 profile = "black"
-multi_line_output = 3 
+multi_line_output = 3
