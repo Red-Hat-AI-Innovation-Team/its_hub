@@ -12,7 +12,7 @@ budget = 16
 prm = ...
 scaling_method = ParticleFiltering(prm, ...)
 
-scaling_method.inference(llm, prompt, budget) # => gives output
+scaling_method.infer(llm, prompt, budget) # => gives output
 ```
 
 `[1]`: Isha Puri, Shivchander Sudalairaj, Guangxuan Xu, Kai Xu, Akash Srivastava. “A Probabilistic Inference Approach to Inference-Time Scaling of LLMs using Particle-Based Monte Carlo Methods”, 2025.

@@ -2,6 +2,12 @@
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[project]
+dependencies = [
+    "requests>=2.31.0",
+    "tqdm>=4.65.0",
+]
+
 [tool.black]
 line-length = 88
 target-version = ['py38']
