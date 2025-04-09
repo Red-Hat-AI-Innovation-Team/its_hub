@@ -6,8 +6,8 @@ with open("README.md", "r", encoding="utf-8") as fh:
 setup(
     name="inference_time_scaling",
     version="0.1.0",
-    author="Red Hat AI Innovation Team",
-    author_email="ai-innovation@redhat.com",
+    author="Kai Xu and the Red Hat AI Innovation Team",
+    author_email="xuk@redhat.com",
     description="A Python library for inference-time scaling LLMs",
     long_description=long_description,
     long_description_content_type="text/markdown",
