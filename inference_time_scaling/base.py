@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, List
 from abc import ABC, abstractmethod
 
 
@@ -53,3 +53,22 @@ class AbstractScalingAlgorithm(ABC):
             the generated output string or the complete scaling result
         """
         pass 
+
+class AbstractRewardModel(ABC):
+    """abstract base class for reward models"""
+    
+class AbstractOutcomeRewardModel(AbstractRewardModel):
+    """abstract base class for outcome reward models"""
+
+    @abstractmethod
+    def reward(self, response: str) -> float:
+        """the reward for the given response"""
+        pass
+
+class AbstractProcessRewardModel(AbstractRewardModel):
+    """abstract base class for process reward models"""
+
+    @abstractmethod
+    def reward(self, steps: List[str]) -> List[float]:
+        """the reward for the given steps"""
+        pass

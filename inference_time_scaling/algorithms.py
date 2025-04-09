@@ -3,7 +3,7 @@ from collections import Counter
 from dataclasses import dataclass
 import random
 from tqdm import tqdm
-from .base import AbstractLanguageModel, AbstractScalingResult, AbstractScalingAlgorithm
+from .base import AbstractLanguageModel, AbstractScalingResult, AbstractScalingAlgorithm, AbstractOutcomeRewardModel, AbstractProcessRewardModel
 
 @dataclass
 class SelfConsistencyResult(AbstractScalingResult):
@@ -63,3 +63,15 @@ class SelfConsistency(AbstractScalingAlgorithm):
             selected_index=selected_index, 
         )
         return result.the_one if return_response_only else result
+
+class BestOfN(AbstractScalingAlgorithm):
+    def __init__(self, orm: AbstractOutcomeRewardModel):
+        self.orm = orm
+
+class BeamSearch(AbstractScalingAlgorithm):
+    def __init__(self, prm: AbstractProcessRewardModel):
+        self.prm = prm
+
+class ParticleFiltering(AbstractScalingAlgorithm):
+    def __init__(self, prm: AbstractProcessRewardModel):
+        self.prm = prm
