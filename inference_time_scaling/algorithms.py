@@ -15,6 +15,24 @@ class SelfConsistencyResult(AbstractScalingResult):
     def the_one(self) -> str:
         return self.responses[self.selected_index]
 
+def _select_most_common_or_random(list_to_select_from: List[str]) -> int:
+    # count occurrences of each element
+    counts = Counter(list_to_select_from)
+    
+    # find the element with maximum occurrences
+    max_count = max(counts.values())
+    
+    # find indices of the most common elements
+    most_common_indices = [i for i, r in enumerate(list_to_select_from) 
+                           if counts[r] == max_count]
+    
+    # select a random index from the most common ones
+    # note above implementation ensures that if there are multiple 
+    #      elements with the same count, a random one is selected
+    selected_index = random.choice(most_common_indices)
+
+    return counts, selected_index
+
 class SelfConsistency(AbstractScalingAlgorithm):
     def __init__(self, consistency_space_projection_func: Callable):
         self.consistency_space_projection_func = consistency_space_projection_func
@@ -34,21 +52,9 @@ class SelfConsistency(AbstractScalingAlgorithm):
         
         # project responses into consistency space
         responses_projected = [self.consistency_space_projection_func(r) for r in responses]
-        
-        # count occurrences of each projected response
-        response_counts = Counter(responses_projected)
-        
-        # find the response with maximum occurrences
-        max_count = max(response_counts.values())
-        
-        # find indices of the most common projected responses
-        most_common_indices = [i for i, r in enumerate(responses_projected) 
-                              if response_counts[r] == max_count]
-        
-        # select a random index from the most common ones
-        # note above implementation ensures that if there are multiple 
-        #      responses with the same count, a random one is selected
-        selected_index = random.choice(most_common_indices)
+
+        # select the most common or random response
+        response_counts, selected_index = _select_most_common_or_random(responses_projected)
         
         # return the result
         result = SelfConsistencyResult(

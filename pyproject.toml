@@ -8,6 +8,11 @@ dependencies = [
     "tqdm>=4.65.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
+
 [tool.black]
 line-length = 88
 target-version = ['py38']
