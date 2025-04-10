@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import random
 from tqdm import tqdm
 from .base import AbstractLanguageModel, AbstractScalingResult, AbstractScalingAlgorithm, AbstractOutcomeRewardModel, AbstractProcessRewardModel
-
+from .lms import StepGeneration
 @dataclass
 class SelfConsistencyResult(AbstractScalingResult):
     responses: List[str]
@@ -64,14 +64,83 @@ class SelfConsistency(AbstractScalingAlgorithm):
         )
         return result.the_one if return_response_only else result
 
+# TODO(GX) implement BestOfN
+class BestOfNResult(AbstractScalingResult):
+    pass
+
 class BestOfN(AbstractScalingAlgorithm):
     def __init__(self, orm: AbstractOutcomeRewardModel):
         self.orm = orm
 
+# TODO(GX) implement BeamSearch
+class BeamSearchResult(AbstractScalingResult):
+    pass
+
 class BeamSearch(AbstractScalingAlgorithm):
-    def __init__(self, prm: AbstractProcessRewardModel):
+    def __init__(self, step_generation: StepGeneration, prm: AbstractProcessRewardModel):
+        self.step_generation = step_generation
         self.prm = prm
 
+    def infer(
+        self, 
+        lm: AbstractLanguageModel, 
+        prompt: str, 
+        budget: int, 
+        show_progress: bool = False, 
+        return_response_only: bool = True, 
+    ) -> Union[str, BeamSearchResult]:
+        pass
+
+class ParticleFilteringResult(AbstractScalingResult):
+    pass
+
 class ParticleFiltering(AbstractScalingAlgorithm):
-    def __init__(self, prm: AbstractProcessRewardModel):
+    def __init__(self, step_generation: StepGeneration, prm: AbstractProcessRewardModel):
+        self.step_generation = step_generation
         self.prm = prm
+
+    def infer(
+        self, 
+        lm: AbstractLanguageModel, 
+        prompt: str, 
+        budget: int, 
+        show_progress: bool = False, 
+        return_response_only: bool = True, 
+    ) -> Union[str, ParticleFilteringResult]:
+        pass
+
+class MetropolisHastingsResult(AbstractScalingResult):
+    pass
+
+class MetropolisHastings(AbstractScalingAlgorithm):
+    def __init__(self, step_generation: StepGeneration, orm: AbstractOutcomeRewardModel):
+        self.step_generation = step_generation
+        self.orm = orm
+
+    def infer(
+        self, 
+        lm: AbstractLanguageModel, 
+        prompt: str, 
+        budget: int, 
+        show_progress: bool = False, 
+        return_response_only: bool = True, 
+    ) -> Union[str, MetropolisHastingsResult]:
+        pass
+
+class PGASResult(AbstractScalingResult):
+    pass
+
+class PGAS(AbstractScalingAlgorithm):
+    def __init__(self, step_generation: StepGeneration, prm: AbstractProcessRewardModel):
+        self.step_generation = step_generation
+        self.prm = prm
+
+    def infer(
+        self, 
+        lm: AbstractLanguageModel, 
+        prompt: str, 
+        budget: int, 
+        show_progress: bool = False, 
+        return_response_only: bool = True, 
+    ) -> Union[str, PGASResult]:
+        pass

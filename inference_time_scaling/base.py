@@ -6,7 +6,7 @@ class AbstractLanguageModel(ABC):
     """abstract base class for (autoregressive) language models"""
     
     @abstractmethod
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, stop: str = None) -> str:
         """
         generate a response from the model
         
@@ -15,6 +15,20 @@ class AbstractLanguageModel(ABC):
             
         Returns:
             the generated output string
+        """
+        pass
+
+    @abstractmethod
+    def evaluate(self, prompt: str, generation: str) -> List[float]:
+        """
+        evaluate the likelihoods of the generation given the prompt
+        
+        Args:
+            prompt: the input prompt
+            generation: the generated output string
+            
+        Returns:
+            the likelihoods of the generation per token
         """
         pass
 
@@ -54,10 +68,7 @@ class AbstractScalingAlgorithm(ABC):
         """
         pass 
 
-class AbstractRewardModel(ABC):
-    """abstract base class for reward models"""
-    
-class AbstractOutcomeRewardModel(AbstractRewardModel):
+class AbstractOutcomeRewardModel(ABC):
     """abstract base class for outcome reward models"""
 
     @abstractmethod
@@ -65,7 +76,7 @@ class AbstractOutcomeRewardModel(AbstractRewardModel):
         """the reward for the given response"""
         pass
 
-class AbstractProcessRewardModel(AbstractRewardModel):
+class AbstractProcessRewardModel(ABC):
     """abstract base class for process reward models"""
 
     @abstractmethod
