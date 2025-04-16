@@ -22,3 +22,9 @@ scaling_alg.infer(lm, prompt, budget) # => gives output
 ```sh
 pip install git+https://github.com/Red-Hat-AI-Innovation-Team/inference_time_scaling.git
 ```
+
+## Development
+
+```sh
+pytest tests
+```
