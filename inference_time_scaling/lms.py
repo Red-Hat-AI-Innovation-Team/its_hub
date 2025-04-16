@@ -1,14 +1,17 @@
-from typing import List
+from typing import List, Tuple
 import requests
 from .base import AbstractLanguageModel
 
 class StepGeneration:
-    def __init__(self, step: str, max_steps: int):
-        self.step = step
+    def __init__(self, step_token: str, max_steps: int, stop_token: str):
+        self.step_token = step_token
         self.max_steps = max_steps
+        self.stop_token = stop_token
 
-    def forward(self, lm: AbstractLanguageModel, prompt: str, steps_so_far: List[str] = []) -> str:
-        pass
+    def forward(self, lm: AbstractLanguageModel, prompt: str, steps_so_far: List[str] = []) -> Tuple[str, bool]:
+        next_step = lm.generate(self.step_token.join([prompt] + steps_so_far), stop=self.step_token)
+        is_stopped = self.stop_token in next_step or len(steps_so_far) >= self.max_steps
+        return next_step, is_stopped
 
 class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     def __init__(
@@ -37,7 +40,11 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 "stop": stop, 
             },
         )
-        return response.json()["choices"][0]["message"]["content"]
+        try:
+            return response.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            print(response.json())
+            raise e
     
     # TODO implement evaluation
     def evaluate(self, prompt: str, generation: str) -> List[float]:
