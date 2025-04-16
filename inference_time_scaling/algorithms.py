@@ -3,8 +3,11 @@ from collections import Counter
 from dataclasses import dataclass
 import random
 from tqdm import tqdm
+
 from .base import AbstractLanguageModel, AbstractScalingResult, AbstractScalingAlgorithm, AbstractOutcomeRewardModel, AbstractProcessRewardModel
 from .lms import StepGeneration
+
+
 @dataclass
 class SelfConsistencyResult(AbstractScalingResult):
     responses: List[str]
@@ -47,7 +50,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
     ) -> Union[str, SelfConsistencyResult]:
         # generate responses
         responses = []
-        for _ in tqdm(range(budget), desc="Generating responses", disable=(not show_progress)):
+        for _ in tqdm(range(budget), desc="Generating", disable=(not show_progress)):
             responses.append(lm.generate(prompt))
         
         # project responses into consistency space
@@ -64,13 +67,48 @@ class SelfConsistency(AbstractScalingAlgorithm):
         )
         return result.the_one if return_response_only else result
 
-# TODO(GX) implement BestOfN
+@dataclass
 class BestOfNResult(AbstractScalingResult):
-    pass
+    responses: List[str]
+    scores: List[float]
+    selected_index: int
+
+    @property
+    def the_one(self) -> str:
+        return self.responses[self.selected_index]
 
 class BestOfN(AbstractScalingAlgorithm):
     def __init__(self, orm: AbstractOutcomeRewardModel):
         self.orm = orm
+
+    def infer(
+        self, 
+        lm: AbstractLanguageModel, 
+        prompt: str, 
+        budget: int, 
+        show_progress: bool = False, 
+        return_response_only: bool = True, 
+    ) -> Union[str, BestOfNResult]:
+        # generate responses
+        responses = []
+        for _ in tqdm(range(budget), desc="Generating", disable=(not show_progress)):
+            responses.append(lm.generate(prompt))
+
+        # score responses
+        scores = [] 
+        for r in tqdm(responses, desc="Scoring", disable=(not show_progress)):
+            scores.append(self.orm.score(prompt, r))
+
+        # select the best response
+        selected_index = scores.index(max(scores))
+
+        # return the result
+        result = BestOfNResult(
+            responses=responses, 
+            scores=scores, 
+            selected_index=selected_index, 
+        )
+        return result.the_one if return_response_only else result
 
 # TODO(GX) implement BeamSearch
 class BeamSearchResult(AbstractScalingResult):
