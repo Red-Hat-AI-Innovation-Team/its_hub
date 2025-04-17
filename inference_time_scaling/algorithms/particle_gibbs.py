@@ -1,6 +1,8 @@
 from typing import Union, List
+from enum import Enum
 import copy
 from dataclasses import dataclass
+import random
 import numpy as np
 from tqdm import tqdm
 
@@ -10,13 +12,14 @@ from ..lms import StepGeneration
 
 @dataclass
 class ParticleGibbsResult(AbstractScalingResult):
-    responses: List[str]
-    log_weights: List[float]
+    responses_lst: List[List[str]]
+    log_weights_lst: List[List[float]]
+    ref_indices_lst: List[List[int]]
     selected_index: int
 
     @property
     def the_one(self) -> str:
-        return self.responses[self.selected_index]
+        return self.responses_lst[-1][self.selected_index]
 
 @dataclass
 class Particle:
@@ -43,6 +46,10 @@ def _softmax(x):
     x_shifted = x - np.max(x)
     return np.exp(x_shifted) / np.sum(np.exp(x_shifted))
 
+class SelectionMethod(Enum):
+    SAMPLE = "sample"
+    ARGMAX = "argmax"
+
 class ParticleGibbs(AbstractScalingAlgorithm):
     """
     Particle-based Monte Carlo methods for inference time scaling.
@@ -56,11 +63,18 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         sg: StepGeneration, 
         prm: AbstractProcessRewardModel, 
         num_iterations: int = 1, 
+        selection_method: Union[str, SelectionMethod] = SelectionMethod.SAMPLE,
+        num_ref_particles: int = 1, 
         does_ancestor_sampling: bool = False, 
     ):
+        if isinstance(selection_method, str):
+            selection_method = SelectionMethod(selection_method)
+
         self.sg = sg
         self.prm = prm
         self.num_iterations = num_iterations
+        self.selection_method = selection_method
+        self.num_ref_particles = num_ref_particles
         self.does_ancestor_sampling = does_ancestor_sampling
 
     def infer(
@@ -73,50 +87,78 @@ class ParticleGibbs(AbstractScalingAlgorithm):
     ) -> Union[str, ParticleGibbsResult]:
         assert budget % self.num_iterations == 0, "budget must be divisible by num_iterations"
 
-        if self.num_iterations > 1:
-            raise NotImplementedError("Particle Gibbs is not implemented")
-        
         num_particles = budget // self.num_iterations
-        particles = [Particle(steps=[], is_stopped=False, log_weight=0) 
-                      for _ in range(num_particles)]
-        
-        # create progress bar with total steps from sg.max_steps
-        progress_bar = tqdm(total=self.sg.max_steps, desc="Stepping", disable=(not show_progress))
-        
-        while not all(p.is_stopped for p in particles):
-            for p in particles:
-                if p.is_stopped:
-                    continue
-                
-                next_step, is_stopped = self.sg.forward(lm, prompt, p.steps)
-                p.steps.append(next_step)
-                p.is_stopped = is_stopped
-                score = self.prm.score(prompt, p.steps)
-                # TODO generalize the PRM score aggregation
-                p.log_weight = _inv_sigmoid(score[-1])
 
-            # resampling
+        ref_particles = []
+        responses_lst = []
+        log_weights_lst = []
+        ref_indices_lst = []
+        
+        for _ in range(self.num_iterations):
+            num_free_particles = num_particles - len(ref_particles)
+            
+            particles = [Particle(steps=[], is_stopped=False, log_weight=0) 
+                        for _ in range(num_free_particles)] + ref_particles
+            
+            # create progress bar with total steps from sg.max_steps
+            progress_bar = tqdm(total=self.sg.max_steps, desc="Stepping", disable=(not show_progress))
+            
+            while not all(p.is_stopped for p in particles):
+                # forward each particle
+                for p in particles:
+                    if p.is_stopped:
+                        continue
+                    
+                    next_step, is_stopped = self.sg.forward(lm, prompt, p.steps)
+                    p.steps.append(next_step)
+                    p.is_stopped = is_stopped
+                    score = self.prm.score(prompt, p.steps)
+                    # TODO generalize the PRM score aggregation
+                    p.log_weight = _inv_sigmoid(score[-1])
+
+                # resampling (free) particles
+                log_weights = [p.log_weight for p in particles]
+                probabilities = _softmax(log_weights)
+                resampled_particles = random.choices(particles, weights=probabilities, k=num_free_particles)
+                
+                # add reference particles
+                particles = resampled_particles + ref_particles
+
+                if self.does_ancestor_sampling:
+                    raise NotImplementedError("Ancestor sampling is not implemented")
+                
+                # duplicate the particles
+                particles = [p.deepcopy() for p in particles]
+                
+                # update progress bar
+                progress_bar.update(1)
+            
+            # close the progress bar
+            progress_bar.close()
+            
+            # select the reference particles
             log_weights = [p.log_weight for p in particles]
             probabilities = _softmax(log_weights)
-            particles = np.random.choice(particles, size=num_particles, p=probabilities)
-
-            if self.does_ancestor_sampling:
-                raise NotImplementedError("Ancestor sampling is not implemented")
+            ref_indices = random.choices(range(len(particles)), weights=probabilities, k=self.num_ref_particles)
+            ref_particles = [particles[i] for i in ref_indices]
             
-            # duplicate the particles
-            particles = [p.deepcopy() for p in particles]
+            responses_lst.append([self.sg.step_token.join(p.steps) for p in particles])
+            log_weights_lst.append(log_weights)
+            ref_indices_lst.append(ref_indices)
+        
+        # select the chosen particle based on selection method
+        # log_weights and probabilities are from the last iteration
+        match self.selection_method:
+            case SelectionMethod.SAMPLE:
+                selected_index = random.choices(range(len(particles)), weights=probabilities, k=1)[0]
+            case SelectionMethod.ARGMAX:
+                selected_index = np.argmax(log_weights).item()
             
-            # update progress bar
-            progress_bar.update(1)
-        
-        # close the progress bar
-        progress_bar.close()
-        
-        log_weights = [p.log_weight for p in particles]
         result = ParticleGibbsResult(
-            responses=[self.sg.step_token.join(p.steps) for p in particles],
-            log_weights=log_weights,
-            selected_index=int(np.argmax(log_weights)),
+            responses_lst=responses_lst,
+            log_weights_lst=log_weights_lst,
+            ref_indices_lst=ref_indices_lst,
+            selected_index=selected_index,
         )
-        return result if not return_response_only else result.the_one
-
+            
+        return result.the_one if return_response_only else result
