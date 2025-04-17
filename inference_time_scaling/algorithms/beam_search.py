@@ -1,6 +1,7 @@
 from typing import Union, List
 import copy
 from dataclasses import dataclass
+import numpy as np
 from tqdm import tqdm
 
 from ..base import AbstractLanguageModel, AbstractScalingResult, AbstractScalingAlgorithm, AbstractProcessRewardModel
@@ -52,8 +53,10 @@ class BeamSearch(AbstractScalingAlgorithm):
     ) -> Union[str, BeamSearchResult]:
         assert budget % self.beam_width == 0, "budget must be divisible by beam_width"
         assert budget >= self.beam_width, "budget must be greater than or equal to beam_width"
+
+        num_beams = budget // self.beam_width
         
-        candidates = [Path(steps=[], is_stopped=False, score=0) for _ in range(budget)]
+        candidates = [Path(steps=[], is_stopped=False, score=0) for _ in range(num_beams)]
         
         # create progress bar with total steps from sg.max_steps
         progress_bar = tqdm(total=self.sg.max_steps, desc="Stepping", disable=(not show_progress))
@@ -67,6 +70,7 @@ class BeamSearch(AbstractScalingAlgorithm):
                 c.steps.append(next_step)
                 c.is_stopped = is_stopped
                 score = self.prm.score(prompt, c.steps)
+                # TODO generalize the PRM score aggregation
                 c.score = score[-1]
 
             # get the top beam_width candidates
@@ -75,7 +79,7 @@ class BeamSearch(AbstractScalingAlgorithm):
             
             # duplicate the candidates with the highest score
             new_candidates = []
-            for _ in range(budget // self.beam_width):
+            for _ in range(num_beams):
                 for c in candidates:
                     new_candidates.append(c.deepcopy())
             candidates = new_candidates
@@ -90,6 +94,6 @@ class BeamSearch(AbstractScalingAlgorithm):
         result = BeamSearchResult(
             responses=[self.sg.step_token.join(c.steps) for c in candidates],
             scores=scores,
-            selected_index=scores.index(max(scores)),
+            selected_index=int(np.argmax(scores)),
         )
         return result if not return_response_only else result.the_one
