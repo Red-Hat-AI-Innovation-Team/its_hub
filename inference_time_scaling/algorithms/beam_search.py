@@ -96,4 +96,4 @@ class BeamSearch(AbstractScalingAlgorithm):
             scores=scores,
             selected_index=int(np.argmax(scores)),
         )
-        return result if not return_response_only else result.the_one
+        return result.the_one if return_response_only else result
