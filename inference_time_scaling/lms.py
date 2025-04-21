@@ -43,7 +43,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         try:
             return response.json()["choices"][0]["message"]["content"]
         except Exception as e:
-            print(response.json())
+            print(f"Cannot decode response:\n{response.json()=}")
             raise e
     
     # TODO implement evaluation
