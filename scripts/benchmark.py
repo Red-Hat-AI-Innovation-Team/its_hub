@@ -6,7 +6,6 @@ import click
 import datasets
 import pandas as pd
 import math_verify
-from reward_hub.vllm.reward import VLLMProcessRM
 
 from inference_time_scaling.lms import OpenAICompatibleLanguageModel
 from inference_time_scaling.algorithms import SelfConsistency, BeamSearch, ParticleGibbs, StepGeneration
@@ -18,6 +17,8 @@ class AggregationMethod(Enum):
 
 class GuangxuanPRM:
     def __init__(self, model_name: str, device: str, aggregation_method: AggregationMethod):
+        from reward_hub.vllm.reward import VLLMProcessRM
+
         self.model = VLLMProcessRM(
             model_name=model_name,
             device_map=device
@@ -81,6 +82,15 @@ def init_algorithm(alg: ScalingAlgorithm, rm_name: str, rm_device: str, rm_agg_m
         prm = GuangxuanPRM(model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method)
         return ParticleGibbs(sg, prm, num_iterations=1)
 
+def display_results(df: pd.DataFrame):
+    if len(df) == 0:
+        print("no results to display")
+        return
+    # print accuracy per budget using groupby and mean
+    accuracy_by_budget = df.groupby("budget")["correct"].agg(["mean", "count"])
+    for n, (accuracy, count) in accuracy_by_budget.iterrows():
+        print(f"budget={n:3d}: accuracy={accuracy:.4f} ({int(accuracy * count):2d}/{int(count):2d})")
+
 @click.command()
 @click.option("--benchmark", type=click.Choice([e.value for e in BenchmarkDataset]), required=True, 
               callback=lambda ctx, param, value: BenchmarkDataset(value),
@@ -104,6 +114,7 @@ def init_algorithm(alg: ScalingAlgorithm, rm_name: str, rm_device: str, rm_agg_m
 @click.option("--shuffle_seed", type=int, default=None, help="random seed to use for shuffling")
 @click.option("--force_run", is_flag=True, default=False, help="whether to force re-running")
 @click.option("--does_eval", is_flag=True, default=False, help="whether to evaluate the results")
+@click.option("--display_only", is_flag=True, default=False, help="whether to show only the results")
 def main(
     benchmark: BenchmarkDataset, 
     model_name: str, 
@@ -119,12 +130,31 @@ def main(
     shuffle_seed: int,
     force_run: bool,
     does_eval: bool,
+    display_only: bool,
 ):
     # print all arguments using click context
     ctx = click.get_current_context()
     print("running with arguments:")
     for param_name, param_value in ctx.params.items():
         print(f"  {param_name}: {param_value}")
+
+    print("loading existing results...")
+    model_name_dashed = model_name.replace("/", "-")
+    if alg == ScalingAlgorithm.BEAM_SEARCH or alg == ScalingAlgorithm.PARTICLE_FILTERING:
+        rm_name_dashed = rm_name.replace("/", "-")
+        alg_str = f"{alg.value}-{rm_name_dashed}-{rm_agg_method.value}"
+    else:
+        alg_str = alg.value
+    output_file = os.path.join(output_dir, f"{model_name_dashed}-{alg_str}-{benchmark.value}.jsonl")
+    if os.path.exists(output_file):
+        df_existing = pd.read_json(output_file, orient='records', lines=True)
+        print(f"loaded {len(df_existing)} existing results from {output_file}")
+    else:
+        df_existing = pd.DataFrame()
+    
+    if display_only:
+        display_results(df_existing)
+        return
 
     print("loading benchmark dataset...")
     dataset = load_benchmark_dataset(benchmark)
@@ -166,21 +196,8 @@ def main(
     if not os.path.exists(output_dir):
         print(f"creating output directory: {output_dir}")
         os.makedirs(output_dir)
-
-    print(f"running inference-time scaling for {budgets=}...")
-    model_name_dashed = model_name.replace("/", "-")
-    if alg == ScalingAlgorithm.BEAM_SEARCH or alg == ScalingAlgorithm.PARTICLE_FILTERING:
-        rm_name_dashed = rm_name.replace("/", "-")
-        alg_str = f"{alg.value}-{rm_name_dashed}-{rm_agg_method.value}"
-    else:
-        alg_str = alg.value
-    output_file = os.path.join(output_dir, f"{model_name_dashed}-{alg_str}-{benchmark.value}.jsonl")
-    if os.path.exists(output_file):
-        df_existing = pd.read_json(output_file, orient='records', lines=True)
-        print(f"loaded {len(df_existing)} existing results from {output_file}")
-    else:
-        df_existing = pd.DataFrame()
     
+    print(f"running inference-time scaling for {budgets=}...")
     rows = []
     try:
         for n in budgets:
@@ -220,15 +237,10 @@ def main(
     df = pd.concat([df_existing, pd.DataFrame(rows)])
     # deduplicate rows with the same unique_id and budget, keeping the updated correctness
     df = df.drop_duplicates(subset=['unique_id', 'budget', 'response'], keep='last')
-    if does_eval:
-        # print accuracy per budget using groupby and mean
-        accuracy_by_budget = df.groupby("budget")["correct"].agg(["mean", "count"])
-        for n, (accuracy, count) in accuracy_by_budget.iterrows():
-            print(f"budget={n}: accuracy={accuracy:.4f} ({int(accuracy * count)}/{count})")
-    df.to_json(output_file, orient='records', lines=True)
+    
+    display_results(df)
 
-    if does_eval:
-        pass
+    df.to_json(output_file, orient='records', lines=True)
 
 if __name__ == "__main__":
     main()
