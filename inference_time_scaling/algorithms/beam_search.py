@@ -70,8 +70,7 @@ class BeamSearch(AbstractScalingAlgorithm):
                 c.steps.append(next_step)
                 c.is_stopped = is_stopped
                 score = self.prm.score(prompt, c.steps)
-                # TODO generalize the PRM score aggregation
-                c.score = score[-1]
+                c.score = score
 
             # get the top beam_width candidates
             candidates.sort(key=lambda x: x.score, reverse=True)

@@ -8,8 +8,12 @@ class StepGeneration:
         self.max_steps = max_steps
         self.stop_token = stop_token
 
-    def forward(self, lm: AbstractLanguageModel, prompt: str, steps_so_far: List[str] = []) -> Tuple[str, bool]:
-        next_step = lm.generate(self.step_token.join([prompt] + steps_so_far), stop=self.step_token)
+    def forward(
+        self, lm: AbstractLanguageModel, prompt: str, steps_so_far: List[str] = []
+    ) -> Tuple[str, bool]:
+        next_step = lm.generate(
+            self.step_token.join([prompt] + steps_so_far), stop=self.step_token, temperature=0.8
+        )
         is_stopped = self.stop_token in next_step or len(steps_so_far) >= self.max_steps
         return next_step, is_stopped
 
@@ -26,19 +30,26 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     def _chat_completion_endpoint(self) -> str:
         return self.endpoint.rstrip("/") + "/chat/completions"
 
-    def generate(self, prompt: str, stop: str = None) -> str:
+    def generate(self, prompt: str, stop: str = None, max_tokens: int = None, temperature: float = None) -> str:
         messages = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
         messages.append({"role": "user", "content": prompt})
+        request_data = {
+            "model": self.model_name,
+            "messages": messages,
+        }
+        if stop is not None:
+            request_data["stop"] = stop
+        if max_tokens is not None:
+            request_data["max_tokens"] = max_tokens
+        if temperature is not None:
+            request_data["temperature"] = temperature
+        
         response = requests.post(
             self._chat_completion_endpoint,
             headers={"Authorization": f"Bearer {self.api_key}"},
-            json={
-                "model": self.model_name,
-                "messages": messages,
-                "stop": stop, 
-            },
+            json=request_data,
         )
         try:
             return response.json()["choices"][0]["message"]["content"]
