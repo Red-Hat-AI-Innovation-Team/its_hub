@@ -63,7 +63,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         sg: StepGeneration, 
         prm: AbstractProcessRewardModel, 
         num_iterations: int = 1, 
-        selection_method: Union[str, SelectionMethod] = SelectionMethod.SAMPLE,
+        selection_method: Union[str, SelectionMethod] = SelectionMethod.ARGMAX,
         num_ref_particles: int = 1, 
         does_ancestor_sampling: bool = False, 
     ):
@@ -113,8 +113,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
                     p.steps.append(next_step)
                     p.is_stopped = is_stopped
                     score = self.prm.score(prompt, p.steps)
-                    # TODO generalize the PRM score aggregation
-                    p.log_weight = _inv_sigmoid(score[-1])
+                    p.log_weight = _inv_sigmoid(score)
 
                 # resampling (free) particles
                 log_weights = [p.log_weight for p in particles]
