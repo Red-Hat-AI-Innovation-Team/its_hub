@@ -1,9 +1,7 @@
-
 from .self_consistency import SelfConsistency, SelfConsistencyResult
 from .bon import BestOfN, BestOfNResult
 from .beam_search import BeamSearch, BeamSearchResult
-from .particle_gibbs import ParticleGibbs, ParticleGibbsResult
-
+from .particle_gibbs import ParticleGibbs, ParticleGibbsResult, ParticleFiltering
 
 ###
 

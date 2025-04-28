@@ -220,3 +220,23 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         )
             
         return result.the_one if return_response_only else result
+
+class ParticleFiltering(ParticleGibbs):
+    """
+    Particle filtering being a special case of particle Gibbs with num_iterations=1
+    """
+    def __init__(
+        self,
+        sg: StepGeneration,
+        prm: AbstractProcessRewardModel,
+        selection_method: Union[str, SelectionMethod] = SelectionMethod.ARGMAX,
+    ):
+        # initialize with num_iterations=1
+        super().__init__(
+            sg=sg,
+            prm=prm,
+            num_iterations=1,
+            selection_method=selection_method,
+            num_ref_particles=0,
+            does_ancestor_sampling=False,
+        )
