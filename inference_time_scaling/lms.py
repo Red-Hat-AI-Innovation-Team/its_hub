@@ -87,6 +87,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json=request_data,
             ) as response:
+                response_json = None
                 try:
                     response_json = await response.json()
                     return response_json["choices"][0]["message"]["content"]
