@@ -1,4 +1,4 @@
-from inference_time_scaling.algorithms.self_consistency import _select_most_common_or_random
+from its_hub.algorithms.self_consistency import _select_most_common_or_random
 from collections import Counter
 
 

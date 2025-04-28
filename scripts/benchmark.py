@@ -5,11 +5,12 @@ import re
 import click
 import datasets
 import pandas as pd
+from tqdm import tqdm
 import math_verify
 
-from inference_time_scaling.lms import OpenAICompatibleLanguageModel
-from inference_time_scaling.algorithms import SelfConsistency, BeamSearch, ParticleGibbs, StepGeneration
-from inference_time_scaling.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
+from its_hub.lms import OpenAICompatibleLanguageModel
+from its_hub.algorithms import SelfConsistency, BeamSearch, ParticleFiltering, StepGeneration
+from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
 
 class AggregationMethod(Enum):
     PRODUCT = "prod"
@@ -85,7 +86,7 @@ def init_algorithm(alg: ScalingAlgorithm, rm_name: str, rm_device: str, rm_agg_m
     elif alg == ScalingAlgorithm.PARTICLE_FILTERING:
         sg = StepGeneration(r"\n\n", 32, r"\boxed")
         prm = GuangxuanPRM(model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method)
-        return ParticleGibbs(sg, prm, num_iterations=1)
+        return ParticleFiltering(sg, prm)
 
 def display_results(df: pd.DataFrame):
     if len(df) == 0:
@@ -205,7 +206,7 @@ def main(
     print(f"running inference-time scaling for {budgets=}...")
     rows = []
     try:
-        for n in budgets:
+        for n in tqdm(budgets):
             for x in dataset:
                 y = None
                 if not force_run and len(df_existing) > 0:
@@ -217,7 +218,7 @@ def main(
                         y = df_existing.loc[match, "response"].values[0]
                 if y is None:
                     try:
-                        y = scaling_alg.infer(lm, x["problem"], n, show_progress=True)
+                        y = scaling_alg.infer(lm, x["problem"], n)
                     except KeyboardInterrupt:
                         raise
                     except Exception as e:
