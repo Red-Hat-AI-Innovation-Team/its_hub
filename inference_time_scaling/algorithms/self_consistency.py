@@ -48,9 +48,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
         return_response_only: bool = True, 
     ) -> Union[str, SelfConsistencyResult]:
         # generate responses
-        responses = []
-        for _ in tqdm(range(budget), desc="Generating", disable=(not show_progress)):
-            responses.append(lm.generate(prompt))
+        responses = lm.generate([prompt] * budget)
         
         # project responses into consistency space
         responses_projected = [self.consistency_space_projection_func(r) for r in responses]

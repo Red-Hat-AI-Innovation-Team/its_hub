@@ -28,9 +28,7 @@ class BestOfN(AbstractScalingAlgorithm):
         return_response_only: bool = True, 
     ) -> Union[str, BestOfNResult]:
         # generate responses
-        responses = []
-        for _ in tqdm(range(budget), desc="Generating", disable=(not show_progress)):
-            responses.append(lm.generate(prompt))
+        responses = lm.generate([prompt] * budget)
 
         # score responses
         scores = [] 

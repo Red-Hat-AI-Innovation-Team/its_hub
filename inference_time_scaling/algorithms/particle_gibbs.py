@@ -77,6 +77,74 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         self.num_ref_particles = num_ref_particles
         self.does_ancestor_sampling = does_ancestor_sampling
 
+    def _propagate(
+        self, 
+        lm: AbstractLanguageModel, 
+        particles: List[Particle], 
+        prompt: str, 
+        batched: bool = False
+    ) -> List[Particle]:
+        if not batched:
+            # forward each particle
+            for p in particles:
+                if p.is_stopped:
+                    continue
+                
+                next_step, is_stopped = self.sg.forward(lm, prompt, p.steps)
+                p.steps.append(next_step)
+                p.is_stopped = is_stopped
+                score = self.prm.score(prompt, p.steps)
+                p.log_weight = _inv_sigmoid(score)
+
+            return particles
+        
+        is_stopped_in_the_beginning = [p.is_stopped for p in particles]
+        
+        # collect batch inputs
+        prompts, steps_so_far = [], []
+        for p, is_stopped in zip(particles, is_stopped_in_the_beginning):
+            if is_stopped:
+                continue
+            
+            prompts.append(prompt)
+            steps_so_far.append(p.steps)
+        
+        # collect batch outputs
+        sg_forward_results = self.sg.forward(lm, prompts, steps_so_far)
+    
+        # update particles
+        i = 0
+        for p, is_stopped in zip(particles, is_stopped_in_the_beginning):
+            if is_stopped:
+                continue
+            
+            next_step, is_stopped = sg_forward_results[i]
+            p.steps.append(next_step)
+            p.is_stopped = is_stopped
+            i += 1
+
+        # collect batch inputs for scoring
+        steps_so_far = []
+        for p, is_stopped in zip(particles, is_stopped_in_the_beginning):
+            if is_stopped:
+                continue
+            
+            steps_so_far.append(p.steps)
+
+        # collect batch outputs for scoring
+        scores = self.prm.score(prompt, steps_so_far)
+        
+        # update particles
+        i = 0
+        for p, is_stopped in zip(particles, is_stopped_in_the_beginning):
+            if is_stopped:
+                continue
+            
+            p.log_weight = _inv_sigmoid(scores[i])
+            i += 1
+        
+        return particles
+
     def infer(
         self, 
         lm: AbstractLanguageModel, 
@@ -104,16 +172,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             progress_bar = tqdm(total=self.sg.max_steps, desc="Stepping", disable=(not show_progress))
             
             while not all(p.is_stopped for p in particles):
-                # forward each particle
-                for p in particles:
-                    if p.is_stopped:
-                        continue
-                    
-                    next_step, is_stopped = self.sg.forward(lm, prompt, p.steps)
-                    p.steps.append(next_step)
-                    p.is_stopped = is_stopped
-                    score = self.prm.score(prompt, p.steps)
-                    p.log_weight = _inv_sigmoid(score)
+                particles = self._propagate(lm, particles, prompt, batched=True)
 
                 # resampling (free) particles
                 log_weights = [p.log_weight for p in particles]
