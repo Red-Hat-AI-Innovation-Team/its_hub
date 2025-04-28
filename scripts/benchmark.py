@@ -1,4 +1,4 @@
-from typing import List
+from typing import Union, List
 from enum import Enum
 import os
 import re
@@ -28,14 +28,19 @@ class GuangxuanPRM:
         else:
             self.agg_str = "prod"
 
-    def score(self, prompt: str, steps: List[str]) -> float:
-        return self.model.score(
+    def score(self, prompt: str, steps: Union[List[str], List[List[str]]]) -> float:
+        is_single_prompt = isinstance(steps[0], str)
+        res = self.model.score(
             question=prompt,
-            responses=["\n\n".join(steps)],
+            responses=["\n\n".join(steps)] if is_single_prompt else ["\n\n".join(s) for s in steps],
             aggregate_method=self.agg_str,
             return_full_prm_result=False,
             batch_size=1
-        )[0]
+        )
+        if is_single_prompt:
+            return res[0]
+        else:
+            return res
 
 class BenchmarkDataset(Enum):
     MATH500 = "math500"
@@ -76,7 +81,7 @@ def init_algorithm(alg: ScalingAlgorithm, rm_name: str, rm_device: str, rm_agg_m
     elif alg == ScalingAlgorithm.BEAM_SEARCH:
         sg = StepGeneration(r"\n\n", 32, r"\boxed")
         prm = GuangxuanPRM(model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method)
-        return BeamSearch(sg, prm, beam_width=16)
+        return BeamSearch(sg, prm, beam_width=4)
     elif alg == ScalingAlgorithm.PARTICLE_FILTERING:
         sg = StepGeneration(r"\n\n", 32, r"\boxed")
         prm = GuangxuanPRM(model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method)
