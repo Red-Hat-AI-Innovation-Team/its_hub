@@ -76,7 +76,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             request_data["temperature"] = temperature
         return request_data
 
-    async def generate_batch(
+    async def _generate(
         self, prompts: List[str], stop: str = None, max_tokens: int = None, temperature: float = None
     ) -> List[str]:
         async def fetch_response(session, prompt):
@@ -104,7 +104,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     ) -> Union[str, List[str]]:
         is_single_prompt = isinstance(prompt_or_prompts, str)
         prompts = [prompt_or_prompts] if is_single_prompt else prompt_or_prompts
-        response_or_responses = asyncio.run(self.generate_batch(prompts, stop, max_tokens, temperature))
+        response_or_responses = asyncio.run(self._generate(prompts, stop, max_tokens, temperature))
         return response_or_responses[0] if is_single_prompt else response_or_responses
     
     # TODO implement evaluation
