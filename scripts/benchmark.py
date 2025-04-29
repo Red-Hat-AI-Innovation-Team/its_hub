@@ -8,35 +8,31 @@ import pandas as pd
 from tqdm import tqdm
 import math_verify
 
+from reward_hub.base import AggregationMethod
+
 from its_hub.lms import OpenAICompatibleLanguageModel
 from its_hub.algorithms import SelfConsistency, BeamSearch, ParticleFiltering, StepGeneration
 from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
 
-class AggregationMethod(Enum):
-    PRODUCT = "prod"
-    MODEL = "model"
-
 class GuangxuanPRM:
     def __init__(self, model_name: str, device: str, aggregation_method: AggregationMethod):
-        from reward_hub.vllm.reward import VLLMProcessRM
+        from reward_hub.vllm.reward import VllmProcessRewardModel
 
-        self.model = VLLMProcessRM(
-            model_name=model_name,
-            device_map=device
+        self.model = VllmProcessRewardModel(
+            model_name=model_name, device=device
         )
-        if aggregation_method == AggregationMethod.MODEL:
-            self.agg_str = "model_aggregate"
-        else:
-            self.agg_str = "prod"
+        self.aggregation_method = aggregation_method
 
     def score(self, prompt: str, steps: Union[List[str], List[List[str]]]) -> float:
         is_single_prompt = isinstance(steps[0], str)
+        messages = [
+            [{"role": "user", "content": prompt}, {"role": "assistant", "content": "\n\n".join(s)}]
+            for s in ([steps] if is_single_prompt else steps)
+        ]
         res = self.model.score(
-            question=prompt,
-            responses=["\n\n".join(steps)] if is_single_prompt else ["\n\n".join(s) for s in steps],
-            aggregate_method=self.agg_str,
+            messages=messages,
+            aggregation_method=self.aggregation_method,
             return_full_prm_result=False,
-            batch_size=1
         )
         if is_single_prompt:
             return res[0]
