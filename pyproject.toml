@@ -36,7 +36,11 @@ package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["its_hub"]
+include = [
+    "its_hub",
+    "its_hub.algorithms",
+    "its_hub.integration",
+]
 
 [tool.black]
 line-length = 88
