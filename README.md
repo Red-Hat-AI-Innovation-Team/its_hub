@@ -28,13 +28,13 @@ scaling_alg.infer(lm, prompt, budget, show_progress=True) # => gives output
 
 ## Installation
 
-Lastest release from PyPI
+Latest release from PyPI
 
 ```sh
 pip install its_hub
 ```
 
-Lastest main branch
+Latest main branch
 ```sh
 pip install git+https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 ```
