@@ -72,8 +72,8 @@ class AbstractOutcomeRewardModel(ABC):
     """abstract base class for outcome reward models"""
 
     @abstractmethod
-    def score(self, response: str) -> float:
-        """the score for the given response"""
+    def score(self, prompt: str, response: str) -> float:
+        """the score for a given prompt and response"""
         pass
 
 # TODO(GX) deal with aggregation of PRM scores somehow in a common place, e.g. here
@@ -81,6 +81,6 @@ class AbstractProcessRewardModel(ABC):
     """abstract base class for process reward models"""
 
     @abstractmethod
-    def score(self, steps: List[str]) -> List[float]:
-        """the score for the given steps"""
+    def score(self, prompt: str, steps: List[str]) -> List[float]:
+        """the score for a given prompt and steps"""
         pass

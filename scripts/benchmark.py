@@ -8,36 +8,10 @@ import pandas as pd
 from tqdm import tqdm
 import math_verify
 
-from reward_hub.base import AggregationMethod
-
 from its_hub.lms import OpenAICompatibleLanguageModel
 from its_hub.algorithms import SelfConsistency, BeamSearch, ParticleFiltering, StepGeneration
 from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
-
-class GuangxuanPRM:
-    def __init__(self, model_name: str, device: str, aggregation_method: AggregationMethod):
-        from reward_hub.vllm.reward import VllmProcessRewardModel
-
-        self.model = VllmProcessRewardModel(
-            model_name=model_name, device=device
-        )
-        self.aggregation_method = aggregation_method
-
-    def score(self, prompt: str, steps: Union[List[str], List[List[str]]]) -> float:
-        is_single_prompt = isinstance(steps[0], str)
-        messages = [
-            [{"role": "user", "content": prompt}, {"role": "assistant", "content": "\n\n".join(s)}]
-            for s in ([steps] if is_single_prompt else steps)
-        ]
-        res = self.model.score(
-            messages=messages,
-            aggregation_method=self.aggregation_method,
-            return_full_prm_result=False,
-        )
-        if is_single_prompt:
-            return res[0]
-        else:
-            return res
+from its_hub.integration.reward_hub import AggregationMethod, LocalVllmProcessRewardModel
 
 class BenchmarkDataset(Enum):
     MATH500 = "math500"
@@ -77,11 +51,15 @@ def init_algorithm(alg: ScalingAlgorithm, rm_name: str, rm_device: str, rm_agg_m
         return SelfConsistency(_extract_boxed)
     elif alg == ScalingAlgorithm.BEAM_SEARCH:
         sg = StepGeneration(r"\n\n", 32, r"\boxed")
-        prm = GuangxuanPRM(model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method)
+        prm = LocalVllmProcessRewardModel(
+            model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
+        )
         return BeamSearch(sg, prm, beam_width=4)
     elif alg == ScalingAlgorithm.PARTICLE_FILTERING:
         sg = StepGeneration(r"\n\n", 32, r"\boxed")
-        prm = GuangxuanPRM(model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method)
+        prm = LocalVllmProcessRewardModel(
+            model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
+        )
         return ParticleFiltering(sg, prm)
 
 def display_results(df: pd.DataFrame):
