@@ -1,11 +1,11 @@
-# `its_hub`: A Python library for inference-time scaling LLMs
+# A Python library for inference-time scaling LLMs
 
 Example: Using the particle filtering from `[1]` for inference-time scaling
 
 ```python
 from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
 from its_hub.lms import OpenAICompatibleLanguageModel, StepGeneration
-from its_hub import ParticleFiltering
+from its_hub.algorithms import ParticleFiltering
 from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
 
 # NOTE launched via `CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen2.5-Math-1.5B-Instruct --dtype float16`
