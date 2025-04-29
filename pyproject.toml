@@ -26,20 +26,17 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/Red-Hat-AI-Innovation-Team/its_hub"
 
-[tool.setuptools]
-package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["its_hub"]
-
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
 ]
 
 [tool.setuptools]
-packages = ["its_hub"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["its_hub"]
 
 [tool.black]
 line-length = 88
