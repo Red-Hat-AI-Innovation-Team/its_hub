@@ -6,6 +6,7 @@ Example: Using the particle filtering from `[1]` for inference-time scaling
 from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
 from its_hub.lms import OpenAICompatibleLanguageModel, StepGeneration
 from its_hub import ParticleFiltering
+from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
 
 # NOTE launched via `CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen2.5-Math-1.5B-Instruct --dtype float16`
 lm = OpenAICompatibleLanguageModel(
@@ -18,7 +19,7 @@ prompt = r"Let $a$ be a positive real number such that all the roots of \[x^3 + 
 budget = 8
 
 sg = StepGeneration(r"\n\n", 32, r"\boxed")
-prm = GuangxuanPRM(model_name="Qwen/Qwen2.5-Math-PRM-7B", device="cuda:1")
+prm = LocalVllmProcessRewardModel(model_name="Qwen/Qwen2.5-Math-PRM-7B", device="cuda:1")
 scaling_alg = ParticleFiltering(sg, prm)
 
 scaling_alg.infer(lm, prompt, budget, show_progress=True) # => gives output
