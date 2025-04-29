@@ -19,7 +19,9 @@ prompt = r"Let $a$ be a positive real number such that all the roots of \[x^3 + 
 budget = 8
 
 sg = StepGeneration(r"\n\n", 32, r"\boxed")
-prm = LocalVllmProcessRewardModel(model_name="Qwen/Qwen2.5-Math-PRM-7B", device="cuda:1")
+prm = LocalVllmProcessRewardModel(
+    model_name="Qwen/Qwen2.5-Math-PRM-7B", device="cuda:1", aggregation_method="prod"
+)
 scaling_alg = ParticleFiltering(sg, prm)
 
 scaling_alg.infer(lm, prompt, budget, show_progress=True) # => gives output
