@@ -1,10 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=42", "wheel", "setuptools_scm>=8.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "its_hub"
-version = "0.1.0a2"
 description = "A Python library for inference-time scaling LLMs"
 authors = [
     {name = "Kai Xu and the Red Hat AI Innovation Team", email = "xuk@redhat.com"}
@@ -14,14 +15,23 @@ requires-python = ">=3.11"
 license = "Apache-2.0"
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+dynamic = ["version"]
 dependencies = [
     "requests>=2.31.0",
     "tqdm>=4.65.0",
     "typing-extensions>=4.0.0",
     "reward-hub==0.1.0a1",
 ]
+
+[tool.setuptools_scm]
+version_file = "its_hub/_version.py"
+# do not include +gREV local version, required for Test PyPI upload
+local_scheme = "no-local-version"
 
 [project.urls]
 Homepage = "https://github.com/Red-Hat-AI-Innovation-Team/its_hub"
