@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "its_hub"
-version = "0.1.0a2t1"
+version = "0.1.0a2.dev1"
 description = "A Python library for inference-time scaling LLMs"
 authors = [
     {name = "Kai Xu and the Red Hat AI Innovation Team", email = "xuk@redhat.com"}
