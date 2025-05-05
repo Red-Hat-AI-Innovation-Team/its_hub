@@ -47,12 +47,13 @@ class StepGeneration:
 
 class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     def __init__(
-        self, endpoint: str, api_key: str, model_name: str, system_prompt: str = None
+        self, endpoint: str, api_key: str, model_name: str, system_prompt: str = None, is_async: bool = False
     ):
         self.endpoint = endpoint
         self.api_key = api_key
         self.model_name = model_name
         self.system_prompt = system_prompt
+        self.is_async = is_async
 
     @property
     def _chat_completion_endpoint(self) -> str:
@@ -104,7 +105,21 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     ) -> Union[str, List[str]]:
         is_single_prompt = isinstance(prompt_or_prompts, str)
         prompts = [prompt_or_prompts] if is_single_prompt else prompt_or_prompts
-        response_or_responses = asyncio.run(self._generate(prompts, stop, max_tokens, temperature))
+        if self.is_async:
+            response_or_responses = asyncio.run(self._generate(prompts, stop, max_tokens, temperature))
+        else:
+            responses = []
+            for prompt in prompts:
+                request_data = self._prepare_request_data(prompt, stop, max_tokens, temperature)
+                print(request_data)
+                response = requests.post(
+                    self._chat_completion_endpoint,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    json=request_data,
+                )
+                print(response)
+                responses.append(response.json()["choices"][0]["message"]["content"])
+            response_or_responses = responses
         return response_or_responses[0] if is_single_prompt else response_or_responses
     
     # TODO implement evaluation
