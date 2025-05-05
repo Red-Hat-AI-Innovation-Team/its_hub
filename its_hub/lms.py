@@ -95,6 +95,14 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         # override runtime parameters
         if stop is not None:
             request_data["stop"] = stop
+        
+        # set default runtime parameters
+        if self.max_tokens is not None:
+            request_data["max_tokens"] = self.max_tokens
+        if self.temperature is not None:
+            request_data["temperature"] = self.temperature
+        
+        # override runtime parameters
         if max_tokens is not None:
             request_data["max_tokens"] = max_tokens
         if temperature is not None:
