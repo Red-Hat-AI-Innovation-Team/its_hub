@@ -47,13 +47,27 @@ class StepGeneration:
 
 class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     def __init__(
-        self, endpoint: str, api_key: str, model_name: str, system_prompt: str = None, is_async: bool = False
+        self, 
+        endpoint: str, 
+        api_key: str, 
+        model_name: str, 
+        system_prompt: str = None, 
+        is_async: bool = False,
+        # default runtime parameters
+        stop: str = None,
+        max_tokens: int = None,
+        temperature: float = None,
     ):
         self.endpoint = endpoint
         self.api_key = api_key
         self.model_name = model_name
         self.system_prompt = system_prompt
         self.is_async = is_async
+        
+        # runtime parameters
+        self.stop = stop
+        self.max_tokens = max_tokens
+        self.temperature = temperature
 
     @property
     def _chat_completion_endpoint(self) -> str:
@@ -69,6 +83,16 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             "model": self.model_name,
             "messages": messages,
         }
+
+        # set default runtime parameters
+        if self.stop is not None:
+            request_data["stop"] = self.stop
+        if self.max_tokens is not None:
+            request_data["max_tokens"] = self.max_tokens
+        if self.temperature is not None:
+            request_data["temperature"] = self.temperature
+        
+        # override runtime parameters
         if stop is not None:
             request_data["stop"] = stop
         if max_tokens is not None:

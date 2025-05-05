@@ -77,6 +77,8 @@ def display_results(df: pd.DataFrame):
               help="dataset to use for benchmarking")
 @click.option("--model_name", type=str, required=True, help="model to inference-time scale")
 @click.option("--is_async", is_flag=True, default=False, help="whether to use async mode")
+@click.option("--max_tokens", type=int, default=None, help="max tokens to use for inference-time scaling")
+@click.option("--temperature", type=float, default=None, help="temperature to use for inference-time scaling")
 @click.option("--endpoint", type=str, help="endpoint to use for inference-time scaling")
 @click.option("--api_key", type=str, default="NO_API_KEY", help="api key to use for inference-time scaling")
 @click.option("--rm_name", type=str, default="Qwen/Qwen2.5-Math-PRM-7B", help="name of reward model to use")
@@ -100,6 +102,8 @@ def main(
     benchmark: BenchmarkDataset, 
     model_name: str, 
     is_async: bool,
+    max_tokens: int,
+    temperature: float,
     endpoint: str, 
     api_key: str, 
     rm_name: str,
@@ -170,6 +174,8 @@ def main(
             model_name=model_name, 
             system_prompt=SAL_STEP_BY_STEP_SYSTEM_PROMPT, 
             is_async=is_async,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
 
     print("initializing algorithm...")
