@@ -39,6 +39,7 @@ Homepage = "https://github.com/Red-Hat-AI-Innovation-Team/its_hub"
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
+    "pytest-cov>=4.1.0",
 ]
 
 [tool.setuptools]
