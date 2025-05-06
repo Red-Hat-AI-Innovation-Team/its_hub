@@ -111,13 +111,11 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             responses = []
             for prompt in prompts:
                 request_data = self._prepare_request_data(prompt, stop, max_tokens, temperature)
-                print(request_data)
                 response = requests.post(
                     self._chat_completion_endpoint,
                     headers={"Authorization": f"Bearer {self.api_key}"},
                     json=request_data,
                 )
-                print(response)
                 responses.append(response.json()["choices"][0]["message"]["content"])
             response_or_responses = responses
         return response_or_responses[0] if is_single_prompt else response_or_responses
