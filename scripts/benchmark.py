@@ -50,13 +50,13 @@ def init_algorithm(alg: ScalingAlgorithm, rm_name: str, rm_device: str, rm_agg_m
     if alg == ScalingAlgorithm.SELF_CONSISTENCY:
         return SelfConsistency(_extract_boxed)
     elif alg == ScalingAlgorithm.BEAM_SEARCH:
-        sg = StepGeneration(r"\n\n", 32, r"\boxed")
+        sg = StepGeneration("\n\n", 32, "\\boxed")
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
         return BeamSearch(sg, prm, beam_width=4)
     elif alg == ScalingAlgorithm.PARTICLE_FILTERING:
-        sg = StepGeneration(r"\n\n", 32, r"\boxed")
+        sg = StepGeneration("\n\n", 32, "\\boxed")
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
