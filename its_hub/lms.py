@@ -129,41 +129,15 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         return request_data
 
     async def _generate(
-        self, messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None
+        self, messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, max_retries: int = 3
     ) -> List[str]:
         # use openai's async client for batch requests
         async def fetch_response(messages):
             request_data = self._prepare_request_data(messages, stop, max_tokens, temperature)
-            try:
-                response = await self._openai_client.chat.completions.create(
-                    model=request_data["model"],
-                    messages=request_data["messages"],
-                    stop=request_data.get("stop"),
-                    max_tokens=request_data.get("max_tokens"),
-                    temperature=request_data.get("temperature"),
-                    extra_body=request_data.get("extra_body", {}),
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                print(f"cannot decode response for async openai client:\n{e}")
-                raise e
-
-        # gather all responses asynchronously
-        return await asyncio.gather(*(fetch_response(messages) for messages in messages_lst))
-    
-    def generate(
-        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None
-    ) -> Union[str, List[str]]:
-        is_single = isinstance(messages_or_messages_lst[0], dict)
-        messages_lst = [messages_or_messages_lst] if is_single else messages_or_messages_lst
-        if self.is_async:
-            response_or_responses = asyncio.run(self._generate(messages_lst, stop, max_tokens, temperature))
-        else:
-            responses = []
-            for messages in messages_lst:
-                request_data = self._prepare_request_data(messages, stop, max_tokens, temperature)
+            retries = 0
+            while retries <= max_retries:
                 try:
-                    response = self._openai_client.chat.completions.create(
+                    response = await self._openai_client.chat.completions.create(
                         model=request_data["model"],
                         messages=request_data["messages"],
                         stop=request_data.get("stop"),
@@ -171,10 +145,52 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         temperature=request_data.get("temperature"),
                         extra_body=request_data.get("extra_body", {}),
                     )
-                    responses.append(response.choices[0].message.content)
+                    return response.choices[0].message.content
                 except Exception as e:
-                    print(f"cannot decode response for openai client:\n{e}")
-                    raise e
+                    retries += 1
+                    if retries > max_retries:
+                        print(f"[OpenAICompatibleLanguageModel] failed after {max_retries} retries: {e}")
+                        raise e
+                    wait_time = 2 ** retries  # exponential backoff
+                    print(f"[OpenAICompatibleLanguageModel] retry {retries}/{max_retries} after {wait_time}s: {e}")
+                    await asyncio.sleep(wait_time)
+
+        # gather all responses asynchronously
+        return await asyncio.gather(*(fetch_response(messages) for messages in messages_lst))
+    
+    def generate(
+        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, max_retries: int = 3
+    ) -> Union[str, List[str]]:
+        is_single = isinstance(messages_or_messages_lst[0], dict)
+        messages_lst = [messages_or_messages_lst] if is_single else messages_or_messages_lst
+        if self.is_async:
+            response_or_responses = asyncio.run(self._generate(messages_lst, stop, max_tokens, temperature, max_retries))
+        else:
+            responses = []
+            for messages in messages_lst:
+                request_data = self._prepare_request_data(messages, stop, max_tokens, temperature)
+                retries = 0
+                while retries <= max_retries:
+                    try:
+                        response = self._openai_client.chat.completions.create(
+                            model=request_data["model"],
+                            messages=request_data["messages"],
+                            stop=request_data.get("stop"),
+                            max_tokens=request_data.get("max_tokens"),
+                            temperature=request_data.get("temperature"),
+                            extra_body=request_data.get("extra_body", {}),
+                        )
+                        responses.append(response.choices[0].message.content)
+                        break
+                    except Exception as e:
+                        retries += 1
+                        if retries > max_retries:
+                            print(f"[OpenAICompatibleLanguageModel] failed after {max_retries} retries: {e}")
+                            raise e
+                        wait_time = 2 ** retries  # exponential backoff
+                        print(f"[OpenAICompatibleLanguageModel] retry {retries}/{max_retries} after {wait_time}s: {e}")
+                        import time
+                        time.sleep(wait_time)
             response_or_responses = responses
         return response_or_responses[0] if is_single else response_or_responses
     
