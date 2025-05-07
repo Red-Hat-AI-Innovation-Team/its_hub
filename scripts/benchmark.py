@@ -10,7 +10,7 @@ import math_verify
 
 from its_hub.lms import OpenAICompatibleLanguageModel
 from its_hub.algorithms import SelfConsistency, BeamSearch, ParticleFiltering, StepGeneration
-from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
+from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT, QWEN_SYSTEM_PROMPT
 from its_hub.integration.reward_hub import AggregationMethod, LocalVllmProcessRewardModel
 
 class BenchmarkDataset(Enum):
@@ -50,13 +50,13 @@ def init_algorithm(alg: ScalingAlgorithm, rm_name: str, rm_device: str, rm_agg_m
     if alg == ScalingAlgorithm.SELF_CONSISTENCY:
         return SelfConsistency(_extract_boxed)
     elif alg == ScalingAlgorithm.BEAM_SEARCH:
-        sg = StepGeneration("\n\n", 32, "\\boxed")
+        sg = StepGeneration("\n\n", 50, "\\boxed")
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
         return BeamSearch(sg, prm, beam_width=4)
     elif alg == ScalingAlgorithm.PARTICLE_FILTERING:
-        sg = StepGeneration("\n\n", 32, "\\boxed")
+        sg = StepGeneration("\n\n", 50, "\\boxed")
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
@@ -172,7 +172,7 @@ def main(
             endpoint=endpoint, 
             api_key=api_key, 
             model_name=model_name, 
-            system_prompt=SAL_STEP_BY_STEP_SYSTEM_PROMPT, 
+            system_prompt=QWEN_SYSTEM_PROMPT if "qwen" in model_name.lower() else SAL_STEP_BY_STEP_SYSTEM_PROMPT, 
             is_async=is_async,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -225,7 +225,7 @@ def main(
     print(f"saving results to {output_file}...")
     df = pd.concat([df_existing, pd.DataFrame(rows)])
     # deduplicate rows with the same unique_id and budget, keeping the updated correctness
-    df = df.drop_duplicates(subset=['unique_id', 'budget', 'response'], keep='last')
+    df = df.drop_duplicates(subset=['unique_id', 'budget'], keep='last')
     
     display_results(df)
 
