@@ -129,7 +129,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         return request_data
 
     async def _generate(
-        self, messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, max_retries: int = 3
+        self, messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, max_retries: int = 5
     ) -> List[str]:
         # use openai's async client for batch requests
         async def fetch_response(messages):
@@ -159,7 +159,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         return await asyncio.gather(*(fetch_response(messages) for messages in messages_lst))
     
     def generate(
-        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, max_retries: int = 3
+        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, max_retries: int = 5
     ) -> Union[str, List[str]]:
         is_single = isinstance(messages_or_messages_lst[0], dict)
         messages_lst = [messages_or_messages_lst] if is_single else messages_or_messages_lst
