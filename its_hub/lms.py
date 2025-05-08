@@ -1,5 +1,6 @@
 from typing import Union, List, Tuple
 import asyncio
+import backoff
 from openai import OpenAI, AsyncOpenAI
 from .base import AbstractLanguageModel
 
@@ -55,6 +56,11 @@ class StepGeneration:
             is_stopped = [self.stop_token in next_step or len(steps_so_far_per_prompt) >= self.max_steps 
                           for next_step, steps_so_far_per_prompt in zip(next_steps, steps_so_far)]
             return list(zip(next_steps, is_stopped))
+
+def _on_backoff(details):
+    print ("Backing off {wait:0.1f} seconds after {tries} tries "
+           "calling function {target} with args {args} and kwargs "
+           "{kwargs}".format(**details))
 
 class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     def __init__(
@@ -129,68 +135,47 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         return request_data
 
     async def _generate(
-        self, messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, max_retries: int = 5
+        self, messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, max_tries: int = 5
     ) -> List[str]:
         # use openai's async client for batch requests
+        @backoff.on_exception(backoff.expo, Exception, max_tries=max_tries, on_backoff=_on_backoff)
         async def fetch_response(messages):
             request_data = self._prepare_request_data(messages, stop, max_tokens, temperature)
-            retries = 0
-            while retries <= max_retries:
-                try:
-                    response = await self._openai_client.chat.completions.create(
-                        model=request_data["model"],
-                        messages=request_data["messages"],
-                        stop=request_data.get("stop"),
-                        max_tokens=request_data.get("max_tokens"),
-                        temperature=request_data.get("temperature"),
-                        extra_body=request_data.get("extra_body", {}),
-                    )
-                    return response.choices[0].message.content
-                except Exception as e:
-                    retries += 1
-                    if retries > max_retries:
-                        print(f"[OpenAICompatibleLanguageModel] failed after {max_retries} retries: {e}")
-                        raise e
-                    wait_time = 2 ** retries  # exponential backoff
-                    print(f"[OpenAICompatibleLanguageModel] retry {retries}/{max_retries} after {wait_time}s: {e}")
-                    await asyncio.sleep(wait_time)
+            response = await self._openai_client.chat.completions.create(
+                model=request_data["model"],
+                messages=request_data["messages"],
+                stop=request_data.get("stop"),
+                max_tokens=request_data.get("max_tokens"),
+                temperature=request_data.get("temperature"),
+                extra_body=request_data.get("extra_body", {}),
+            )
+            return response.choices[0].message.content
 
         # gather all responses asynchronously
         return await asyncio.gather(*(fetch_response(messages) for messages in messages_lst))
     
     def generate(
-        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, max_retries: int = 5
+        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, max_tries: int = 5
     ) -> Union[str, List[str]]:
         is_single = isinstance(messages_or_messages_lst[0], dict)
         messages_lst = [messages_or_messages_lst] if is_single else messages_or_messages_lst
         if self.is_async:
-            response_or_responses = asyncio.run(self._generate(messages_lst, stop, max_tokens, temperature, max_retries))
+            response_or_responses = asyncio.run(self._generate(messages_lst, stop, max_tokens, temperature, max_tries))
         else:
-            responses = []
-            for messages in messages_lst:
+            @backoff.on_exception(backoff.expo, Exception, max_tries=max_tries, on_backoff=_on_backoff)
+            def fetch_single_response(messages):
                 request_data = self._prepare_request_data(messages, stop, max_tokens, temperature)
-                retries = 0
-                while retries <= max_retries:
-                    try:
-                        response = self._openai_client.chat.completions.create(
-                            model=request_data["model"],
-                            messages=request_data["messages"],
-                            stop=request_data.get("stop"),
-                            max_tokens=request_data.get("max_tokens"),
-                            temperature=request_data.get("temperature"),
-                            extra_body=request_data.get("extra_body", {}),
-                        )
-                        responses.append(response.choices[0].message.content)
-                        break
-                    except Exception as e:
-                        retries += 1
-                        if retries > max_retries:
-                            print(f"[OpenAICompatibleLanguageModel] failed after {max_retries} retries: {e}")
-                            raise e
-                        wait_time = 2 ** retries  # exponential backoff
-                        print(f"[OpenAICompatibleLanguageModel] retry {retries}/{max_retries} after {wait_time}s: {e}")
-                        import time
-                        time.sleep(wait_time)
+                response = self._openai_client.chat.completions.create(
+                    model=request_data["model"],
+                    messages=request_data["messages"],
+                    stop=request_data.get("stop"),
+                    max_tokens=request_data.get("max_tokens"),
+                    temperature=request_data.get("temperature"),
+                    extra_body=request_data.get("extra_body", {}),
+                )
+                return response.choices[0].message.content
+            
+            responses = [fetch_single_response(messages) for messages in messages_lst]
             response_or_responses = responses
         return response_or_responses[0] if is_single else response_or_responses
     
