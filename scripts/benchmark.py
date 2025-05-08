@@ -46,17 +46,18 @@ def _extract_boxed(s: str) -> str:
     # return the last match if any were found
     return boxed_matches[-1] if boxed_matches else ""
 
-def init_algorithm(alg: ScalingAlgorithm, rm_name: str, rm_device: str, rm_agg_method: AggregationMethod):
+def init_algorithm(alg: ScalingAlgorithm, model_name: str, rm_name: str, rm_device: str, rm_agg_method: AggregationMethod):
+    step_token = "\n\n##" if "llama" in model_name.lower() else "\n\n"
     if alg == ScalingAlgorithm.SELF_CONSISTENCY:
         return SelfConsistency(_extract_boxed)
     elif alg == ScalingAlgorithm.BEAM_SEARCH:
-        sg = StepGeneration("\n\n", 50, "\\boxed")
+        sg = StepGeneration(step_token, 50, "\\boxed")
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
         return BeamSearch(sg, prm, beam_width=4)
     elif alg == ScalingAlgorithm.PARTICLE_FILTERING:
-        sg = StepGeneration("\n\n", 50, "\\boxed")
+        sg = StepGeneration(step_token, 50, "\\boxed")
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
@@ -179,7 +180,7 @@ def main(
         )
 
     print("initializing algorithm...")
-    scaling_alg = init_algorithm(alg, rm_name, rm_device, rm_agg_method)
+    scaling_alg = init_algorithm(alg, model_name, rm_name, rm_device, rm_agg_method)
 
     # ensure output directory exists
     if not os.path.exists(output_dir):
