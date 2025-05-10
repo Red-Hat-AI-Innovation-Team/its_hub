@@ -10,7 +10,7 @@ import math_verify
 
 from its_hub.lms import OpenAICompatibleLanguageModel
 from its_hub.algorithms import SelfConsistency, BeamSearch, ParticleFiltering, StepGeneration
-from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
+from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT, QWEN_SYSTEM_PROMPT
 from its_hub.integration.reward_hub import AggregationMethod, LocalVllmProcessRewardModel
 
 class BenchmarkDataset(Enum):
@@ -46,17 +46,18 @@ def _extract_boxed(s: str) -> str:
     # return the last match if any were found
     return boxed_matches[-1] if boxed_matches else ""
 
-def init_algorithm(alg: ScalingAlgorithm, rm_name: str, rm_device: str, rm_agg_method: AggregationMethod):
+def init_algorithm(alg: ScalingAlgorithm, model_name: str, rm_name: str, rm_device: str, rm_agg_method: AggregationMethod):
+    step_token = "\n\n##" if "llama" in model_name.lower() else "\n\n"
     if alg == ScalingAlgorithm.SELF_CONSISTENCY:
         return SelfConsistency(_extract_boxed)
     elif alg == ScalingAlgorithm.BEAM_SEARCH:
-        sg = StepGeneration("\n\n", 32, "\\boxed")
+        sg = StepGeneration(step_token, 50, "\\boxed")
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
         return BeamSearch(sg, prm, beam_width=4)
     elif alg == ScalingAlgorithm.PARTICLE_FILTERING:
-        sg = StepGeneration("\n\n", 32, "\\boxed")
+        sg = StepGeneration(step_token, 50, "\\boxed")
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
@@ -172,14 +173,14 @@ def main(
             endpoint=endpoint, 
             api_key=api_key, 
             model_name=model_name, 
-            system_prompt=SAL_STEP_BY_STEP_SYSTEM_PROMPT, 
+            system_prompt=QWEN_SYSTEM_PROMPT if "qwen" in model_name.lower() else SAL_STEP_BY_STEP_SYSTEM_PROMPT, 
             is_async=is_async,
             temperature=temperature,
             max_tokens=max_tokens,
         )
 
     print("initializing algorithm...")
-    scaling_alg = init_algorithm(alg, rm_name, rm_device, rm_agg_method)
+    scaling_alg = init_algorithm(alg, model_name, rm_name, rm_device, rm_agg_method)
 
     # ensure output directory exists
     if not os.path.exists(output_dir):
@@ -225,7 +226,7 @@ def main(
     print(f"saving results to {output_file}...")
     df = pd.concat([df_existing, pd.DataFrame(rows)])
     # deduplicate rows with the same unique_id and budget, keeping the updated correctness
-    df = df.drop_duplicates(subset=['unique_id', 'budget', 'response'], keep='last')
+    df = df.drop_duplicates(subset=['unique_id', 'budget'], keep='last')
     
     display_results(df)
 
