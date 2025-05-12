@@ -80,6 +80,7 @@ def display_results(df: pd.DataFrame):
 @click.option("--is_async", is_flag=True, default=False, help="whether to use async mode")
 @click.option("--max_tokens", type=int, default=None, help="max tokens to use for inference-time scaling")
 @click.option("--temperature", type=float, default=None, help="temperature to use for inference-time scaling")
+@click.option("--max_concurrency", type=int, default=8, help="max concurrency to use for inference-time scaling")
 @click.option("--endpoint", type=str, help="endpoint to use for inference-time scaling")
 @click.option("--api_key", type=str, default="NO_API_KEY", help="api key to use for inference-time scaling")
 @click.option("--rm_name", type=str, default="Qwen/Qwen2.5-Math-PRM-7B", help="name of reward model to use")
@@ -105,6 +106,7 @@ def main(
     is_async: bool,
     max_tokens: int,
     temperature: float,
+    max_concurrency: int,
     endpoint: str, 
     api_key: str, 
     rm_name: str,
@@ -177,6 +179,7 @@ def main(
             is_async=is_async,
             temperature=temperature,
             max_tokens=max_tokens,
+            max_concurrency=max_concurrency,
         )
 
     print("initializing algorithm...")
