@@ -74,18 +74,22 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         stop: str = None,
         max_tokens: int = None,
         temperature: float = None,
+        max_tries: int = 8,
+        max_concurrency: int = 8,
     ):
         self.endpoint = endpoint
         self.api_key = api_key
         self.model_name = model_name
         self.system_prompt = system_prompt
         self.is_async = is_async
-        
+        self.max_tries = max_tries
+        self.max_concurrency = max_concurrency
+
         # runtime parameters
         self.stop = stop
         self.max_tokens = max_tokens
         self.temperature = temperature
-
+        
         # set up openai clients for sync and async
         if self.is_async:
             self._openai_client = AsyncOpenAI(
@@ -135,13 +139,13 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         return request_data
 
     async def _generate(
-        self, messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, max_tries: int = 5, max_concurrency: int = 8
+        self, messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None
     ) -> List[str]:
         # use openai's async client for batch requests
         # limit concurrency to max_concurrency using a semaphore
-        semaphore = asyncio.Semaphore(max_concurrency)
+        semaphore = asyncio.Semaphore(self.max_concurrency)
 
-        @backoff.on_exception(backoff.expo, Exception, max_tries=max_tries, on_backoff=_on_backoff)
+        @backoff.on_exception(backoff.expo, Exception, max_tries=self.max_tries, on_backoff=_on_backoff)
         async def fetch_response(messages):
             async with semaphore:
                 request_data = self._prepare_request_data(messages, stop, max_tokens, temperature)
@@ -159,14 +163,14 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         return await asyncio.gather(*(fetch_response(messages) for messages in messages_lst))
     
     def generate(
-        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, max_tries: int = 5
+        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None
     ) -> Union[str, List[str]]:
         is_single = isinstance(messages_or_messages_lst[0], dict)
         messages_lst = [messages_or_messages_lst] if is_single else messages_or_messages_lst
         if self.is_async:
-            response_or_responses = asyncio.run(self._generate(messages_lst, stop, max_tokens, temperature, max_tries))
+            response_or_responses = asyncio.run(self._generate(messages_lst, stop, max_tokens, temperature))
         else:
-            @backoff.on_exception(backoff.expo, Exception, max_tries=max_tries, on_backoff=_on_backoff)
+            @backoff.on_exception(backoff.expo, Exception, max_tries=self.max_tries, on_backoff=_on_backoff)
             def fetch_single_response(messages):
                 request_data = self._prepare_request_data(messages, stop, max_tokens, temperature)
                 response = self._openai_client.chat.completions.create(
