@@ -4,20 +4,23 @@ import backoff
 from openai import OpenAI, AsyncOpenAI
 from .base import AbstractLanguageModel
 
+# TODO make it robust such that one of the particle dead (e.g. due to max tokens), the whole generation is not stopped
+# TODO support multiple step_token
 class StepGeneration:
-    def __init__(self, step_token: str, max_steps: int, stop_token: str):
+    def __init__(self, step_token: str, max_steps: int, stop_token: str = None, include_stop_str_in_output: bool = True):
         self.step_token = step_token
         self.max_steps = max_steps
         self.stop_token = stop_token
+        self.include_stop_str_in_output = include_stop_str_in_output
 
-    def _forward(
-        self, lm: AbstractLanguageModel, prompt: str, steps_so_far: List[str] = []
-    ) -> Tuple[str, bool]:
-        next_step = lm.generate(
-            self.step_token.join([prompt] + steps_so_far), stop=self.step_token, temperature=0.8
-        )
-        is_stopped = self.stop_token in next_step or len(steps_so_far) >= self.max_steps
-        return next_step, is_stopped
+    def _post_process(self, steps: str, stopped: bool = False) -> str:
+        if self.include_stop_str_in_output:
+            return "".join(steps)
+        else:
+            response = self.step_token.join(steps)
+            if not stopped:
+                response += self.step_token
+            return response
     
     def forward(
         self, 
@@ -33,11 +36,13 @@ class StepGeneration:
             ]
             if steps_so_far:
                 messages.append({"role": "assistant", 
-                                 "content": self.step_token.join(steps_so_far) + self.step_token})
+                                 "content": self._post_process(steps_so_far)})
             next_step = lm.generate(
-                messages, stop=self.step_token, temperature=0.8
+                messages, stop=self.step_token, temperature=0.8, include_stop_str_in_output=self.include_stop_str_in_output
             )
-            is_stopped = self.stop_token in next_step or len(steps_so_far) >= self.max_steps
+            is_stopped = len(steps_so_far) >= self.max_steps or len(next_step.strip()) == 0
+            if self.stop_token:
+                is_stopped = is_stopped or self.stop_token in next_step
             return next_step, is_stopped
         else:
             prompts = prompt_or_prompts
@@ -48,13 +53,16 @@ class StepGeneration:
                 ]
                 if steps_so_far_per_prompt:
                     messages.append({"role": "assistant", 
-                                     "content": self.step_token.join(steps_so_far_per_prompt) + self.step_token})
+                                     "content": self._post_process(steps_so_far_per_prompt)})
                 messages_lst.append(messages)
             next_steps = lm.generate(
-                messages_lst, stop=self.step_token, temperature=0.8
+                messages_lst, stop=self.step_token, temperature=0.8, include_stop_str_in_output=self.include_stop_str_in_output
             )
-            is_stopped = [self.stop_token in next_step or len(steps_so_far_per_prompt) >= self.max_steps 
-                          for next_step, steps_so_far_per_prompt in zip(next_steps, steps_so_far)]
+            is_stopped = [len(steps_so_far_per_prompt) >= self.max_steps or len(next_step.strip()) == 0
+                          for steps_so_far_per_prompt, next_step in zip(steps_so_far, next_steps)]
+            if self.stop_token:
+                is_stopped = [is_stopped_per_prompt or self.stop_token in next_step
+                             for is_stopped_per_prompt, next_step in zip(is_stopped, next_steps)]
             return list(zip(next_steps, is_stopped))
 
 def _on_backoff(details):
@@ -107,7 +115,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         # not used with openai client, but kept for compatibility
         return self.endpoint.rstrip("/") + "/chat/completions"
     
-    def _prepare_request_data(self, messages, stop=None, max_tokens=None, temperature=None):
+    def _prepare_request_data(
+        self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None
+):
         # helper method to prepare request data for both sync and async methods
         if self.system_prompt:
             messages = [{"role": "system", "content": self.system_prompt}] + messages
@@ -136,10 +146,13 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             request_data["max_tokens"] = max_tokens
         if temperature is not None:
             request_data["temperature"] = temperature
+        if include_stop_str_in_output is not None:
+            request_data["extra_body"]["include_stop_str_in_output"] = include_stop_str_in_output
+        
         return request_data
 
     async def _generate(
-        self, messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None
+        self, messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, include_stop_str_in_output: bool = None
     ) -> List[str]:
         # use openai's async client for batch requests
         # limit concurrency to max_concurrency using a semaphore
@@ -148,7 +161,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         @backoff.on_exception(backoff.expo, Exception, max_tries=self.max_tries, on_backoff=_on_backoff)
         async def fetch_response(messages):
             async with semaphore:
-                request_data = self._prepare_request_data(messages, stop, max_tokens, temperature)
+                request_data = self._prepare_request_data(
+                    messages, stop, max_tokens, temperature, include_stop_str_in_output
+                )
                 response = await self._openai_client.chat.completions.create(
                     model=request_data["model"],
                     messages=request_data["messages"],
@@ -163,16 +178,18 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         return await asyncio.gather(*(fetch_response(messages) for messages in messages_lst))
     
     def generate(
-        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None
+        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, include_stop_str_in_output: bool = None
     ) -> Union[str, List[str]]:
         is_single = isinstance(messages_or_messages_lst[0], dict)
         messages_lst = [messages_or_messages_lst] if is_single else messages_or_messages_lst
         if self.is_async:
-            response_or_responses = asyncio.run(self._generate(messages_lst, stop, max_tokens, temperature))
+            response_or_responses = asyncio.run(self._generate(messages_lst, stop, max_tokens, temperature, include_stop_str_in_output))
         else:
             @backoff.on_exception(backoff.expo, Exception, max_tries=self.max_tries, on_backoff=_on_backoff)
             def fetch_single_response(messages):
-                request_data = self._prepare_request_data(messages, stop, max_tokens, temperature)
+                request_data = self._prepare_request_data(
+                    messages, stop, max_tokens, temperature, include_stop_str_in_output
+                )
                 response = self._openai_client.chat.completions.create(
                     model=request_data["model"],
                     messages=request_data["messages"],
