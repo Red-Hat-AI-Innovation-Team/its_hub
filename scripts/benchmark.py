@@ -202,6 +202,7 @@ def main(
     try:
         for n in tqdm(budgets):
             for x in dataset:
+                y_full = None
                 y = None
                 if not force_run and len(df_existing) > 0:
                     # only skip if both the unique_id and budget matches
@@ -210,13 +211,20 @@ def main(
                     if match.any():
                         assert match.sum() == 1, f"expected exactly one match, got {match.sum()}"
                         if eval_expected_pass_at_one:
-                            y_full = df_existing.loc[match, "responses"].values[0]
+                            y_full = {
+                                "responses": df_existing.loc[match, "responses"].values[0],
+                                "log_probs": df_existing.loc[match, "log_probs"].values[0],
+                            }
                         else:
                             y = df_existing.loc[match, "response"].values[0]
-                if y is None:
+                if (y_full is None if eval_expected_pass_at_one else y is None):
                     try:
                         if eval_expected_pass_at_one:
                             y_full = scaling_alg.infer(lm, x["problem"], n, return_response_only=False)
+                            y_full = {
+                                "responses": y_full.responses_lst[-1],
+                                "log_probs": y_full.log_weights_lst[-1],
+                            }
                         else:
                             y = scaling_alg.infer(lm, x["problem"], n)
                     except KeyboardInterrupt:
@@ -228,8 +236,8 @@ def main(
                     row = {
                         "unique_id": x["unique_id"],
                         "budget": n,
-                        "responses": y_full.responses_lst[-1],
-                        "log_probs": y_full.log_weights_lst[-1],
+                        "responses": y_full["responses"],
+                        "log_probs": y_full["log_probs"],
                         "correct": None,
                     }
                 else:
