@@ -7,7 +7,7 @@ from .base import AbstractLanguageModel
 # TODO make it robust such that one of the particle dead (e.g. due to max tokens), the whole generation is not stopped
 class StepGeneration:
     def __init__(self, step_token: Union[str, List[str]], max_steps: int, stop_token: str = None, include_stop_str_in_output: bool = True):
-        if include_stop_str_in_output:
+        if not include_stop_str_in_output:
             assert type(stop_token) == str, "stop_token must be a string if include_stop_str_in_output is True"
         self.step_token = step_token
         self.max_steps = max_steps
