@@ -4,6 +4,14 @@ import backoff
 from openai import OpenAI, AsyncOpenAI
 from .base import AbstractLanguageModel
 
+def rstrip_iff_entire(s, subs):
+  if s.endswith(subs):
+    # If s ends with subs, return the string without the length of subs at the end
+    return s[:-len(subs)]
+  else:
+    # Otherwise, return the original string
+    return s
+
 # TODO make it robust such that one of the particle dead (e.g. due to max tokens), the whole generation is not stopped
 # TODO change stop_token to be a function called is_stopped
 class StepGeneration:
@@ -49,7 +57,7 @@ class StepGeneration:
             if self.stop_token:
                 is_stopped = is_stopped or self.stop_token in next_step
                 if self.include_stop_str_in_output:
-                    next_step = next_step.rstrip(self.stop_token)
+                    next_step = rstrip_iff_entire(next_step, self.stop_token)
             return next_step, is_stopped
         else:
             prompts = prompt_or_prompts
@@ -71,7 +79,7 @@ class StepGeneration:
                 is_stopped = [is_stopped_per_prompt or self.stop_token in next_step
                              for is_stopped_per_prompt, next_step in zip(is_stopped, next_steps)]
                 if self.include_stop_str_in_output:
-                    next_steps = [next_step.rstrip(self.stop_token) for next_step in next_steps]
+                    next_steps = [rstrip_iff_entire(next_step, self.stop_token) for next_step in next_steps]
             return list(zip(next_steps, is_stopped))
 
 def _on_backoff(details):
