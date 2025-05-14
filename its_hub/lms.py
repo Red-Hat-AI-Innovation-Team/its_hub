@@ -5,13 +5,17 @@ from openai import OpenAI, AsyncOpenAI
 from .base import AbstractLanguageModel
 
 # TODO make it robust such that one of the particle dead (e.g. due to max tokens), the whole generation is not stopped
+# TODO change stop_token to be a function called is_stopped
 class StepGeneration:
-    def __init__(self, step_token: Union[str, List[str]], max_steps: int, stop_token: str = None, include_stop_str_in_output: bool = True):
+    def __init__(self, step_token: Union[str, List[str]], max_steps: int, stop_token: str = None, temperature: float = 0.8, include_stop_str_in_output: bool = False):
         if not include_stop_str_in_output:
-            assert type(stop_token) == str, "stop_token must be a string if include_stop_str_in_output is True"
+            assert type(step_token) == str, "step_token must be a string if include_stop_str_in_output is False"
+        else:
+            assert step_token is not None, "step_token must be provided if include_stop_str_in_output is True"
         self.step_token = step_token
         self.max_steps = max_steps
         self.stop_token = stop_token
+        self.temperature = temperature
         self.include_stop_str_in_output = include_stop_str_in_output
 
     def _post_process(self, steps: str, stopped: bool = False) -> str:
@@ -39,11 +43,13 @@ class StepGeneration:
                 messages.append({"role": "assistant", 
                                  "content": self._post_process(steps_so_far)})
             next_step = lm.generate(
-                messages, stop=self.step_token, temperature=0.8, include_stop_str_in_output=self.include_stop_str_in_output
+                messages, stop=self.step_token, temperature=self.temperature, include_stop_str_in_output=self.include_stop_str_in_output
             )
-            is_stopped = len(steps_so_far) >= self.max_steps or len(next_step.strip()) == 0
+            is_stopped = len(steps_so_far) >= self.max_steps
             if self.stop_token:
                 is_stopped = is_stopped or self.stop_token in next_step
+                if self.include_stop_str_in_output:
+                    next_step = next_step.rstrip(self.stop_token)
             return next_step, is_stopped
         else:
             prompts = prompt_or_prompts
@@ -57,13 +63,15 @@ class StepGeneration:
                                      "content": self._post_process(steps_so_far_per_prompt)})
                 messages_lst.append(messages)
             next_steps = lm.generate(
-                messages_lst, stop=self.step_token, temperature=0.8, include_stop_str_in_output=self.include_stop_str_in_output
+                messages_lst, stop=self.step_token, temperature=self.temperature, include_stop_str_in_output=self.include_stop_str_in_output
             )
-            is_stopped = [len(steps_so_far_per_prompt) >= self.max_steps or len(next_step.strip()) == 0
+            is_stopped = [len(steps_so_far_per_prompt) >= self.max_steps
                           for steps_so_far_per_prompt, next_step in zip(steps_so_far, next_steps)]
             if self.stop_token:
                 is_stopped = [is_stopped_per_prompt or self.stop_token in next_step
                              for is_stopped_per_prompt, next_step in zip(is_stopped, next_steps)]
+                if self.include_stop_str_in_output:
+                    next_steps = [next_step.rstrip(self.stop_token) for next_step in next_steps]
             return list(zip(next_steps, is_stopped))
 
 def _on_backoff(details):
