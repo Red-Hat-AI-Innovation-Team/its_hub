@@ -166,18 +166,18 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     async def _generate(
         self, messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, include_stop_str_in_output: bool = None
     ) -> List[str]:
-        # use aiohttp for batch requests
         # limit concurrency to max_concurrency using a semaphore
         semaphore = asyncio.Semaphore(self.max_concurrency)
-
-        @backoff.on_exception(backoff.expo, Exception, max_tries=self.max_tries, on_backoff=_on_backoff)
-        async def fetch_response(messages):
-            async with semaphore:
-                request_data = self._prepare_request_data(
-                    messages, stop, max_tokens, temperature, include_stop_str_in_output
-                )
-                
-                async with aiohttp.ClientSession() as session:
+        
+        # create a single session for all requests in this call
+        async with aiohttp.ClientSession() as session:
+            @backoff.on_exception(backoff.expo, Exception, max_tries=self.max_tries, on_backoff=_on_backoff)
+            async def fetch_response(messages):
+                async with semaphore:
+                    request_data = self._prepare_request_data(
+                        messages, stop, max_tokens, temperature, include_stop_str_in_output
+                    )
+                    
                     async with session.post(
                         self._chat_completion_endpoint,
                         headers=self.headers,
@@ -190,8 +190,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         response_json = await response.json()
                         return response_json["choices"][0]["message"]["content"]
 
-        # gather all responses asynchronously, with concurrency limited to max_concurrency
-        return await asyncio.gather(*(fetch_response(messages) for messages in messages_lst))
+            # gather all responses asynchronously, with concurrency limited to max_concurrency
+            return await asyncio.gather(*(fetch_response(messages) for messages in messages_lst))
     
     def generate(
         self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, include_stop_str_in_output: bool = None
