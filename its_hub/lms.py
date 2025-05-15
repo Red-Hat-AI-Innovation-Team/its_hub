@@ -1,7 +1,9 @@
 from typing import Union, List, Tuple
 import asyncio
 import backoff
-from openai import OpenAI, AsyncOpenAI
+import requests
+import aiohttp
+
 from .base import AbstractLanguageModel
 
 def rstrip_iff_entire(s, subs):
@@ -115,21 +117,14 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         self.max_tokens = max_tokens
         self.temperature = temperature
         
-        # set up openai clients for sync and async
-        if self.is_async:
-            self._openai_client = AsyncOpenAI(
-                api_key=self.api_key,
-                base_url=self.endpoint.rstrip("/"),
-            )
-        else:
-            self._openai_client = OpenAI(
-                api_key=self.api_key,
-                base_url=self.endpoint.rstrip("/"),
-            )
+        # set up headers for API requests
+        self.headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
 
     @property
     def _chat_completion_endpoint(self) -> str:
-        # not used with openai client, but kept for compatibility
         return self.endpoint.rstrip("/") + "/chat/completions"
     
     def _prepare_request_data(
@@ -171,28 +166,32 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     async def _generate(
         self, messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, include_stop_str_in_output: bool = None
     ) -> List[str]:
-        # use openai's async client for batch requests
         # limit concurrency to max_concurrency using a semaphore
         semaphore = asyncio.Semaphore(self.max_concurrency)
+        
+        # create a single session for all requests in this call
+        async with aiohttp.ClientSession() as session:
+            @backoff.on_exception(backoff.expo, Exception, max_tries=self.max_tries, on_backoff=_on_backoff)
+            async def fetch_response(messages):
+                async with semaphore:
+                    request_data = self._prepare_request_data(
+                        messages, stop, max_tokens, temperature, include_stop_str_in_output
+                    )
+                    
+                    async with session.post(
+                        self._chat_completion_endpoint,
+                        headers=self.headers,
+                        json=request_data
+                    ) as response:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            raise Exception(f"API request failed with status {response.status}: {error_text}")
+                        
+                        response_json = await response.json()
+                        return response_json["choices"][0]["message"]["content"]
 
-        @backoff.on_exception(backoff.expo, Exception, max_tries=self.max_tries, on_backoff=_on_backoff)
-        async def fetch_response(messages):
-            async with semaphore:
-                request_data = self._prepare_request_data(
-                    messages, stop, max_tokens, temperature, include_stop_str_in_output
-                )
-                response = await self._openai_client.chat.completions.create(
-                    model=request_data["model"],
-                    messages=request_data["messages"],
-                    stop=request_data.get("stop"),
-                    max_tokens=request_data.get("max_tokens"),
-                    temperature=request_data.get("temperature"),
-                    extra_body=request_data.get("extra_body", {}),
-                )
-                return response.choices[0].message.content
-
-        # gather all responses asynchronously, with concurrency limited to max_concurrency
-        return await asyncio.gather(*(fetch_response(messages) for messages in messages_lst))
+            # gather all responses asynchronously, with concurrency limited to max_concurrency
+            return await asyncio.gather(*(fetch_response(messages) for messages in messages_lst))
     
     def generate(
         self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, include_stop_str_in_output: bool = None
@@ -207,15 +206,18 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 request_data = self._prepare_request_data(
                     messages, stop, max_tokens, temperature, include_stop_str_in_output
                 )
-                response = self._openai_client.chat.completions.create(
-                    model=request_data["model"],
-                    messages=request_data["messages"],
-                    stop=request_data.get("stop"),
-                    max_tokens=request_data.get("max_tokens"),
-                    temperature=request_data.get("temperature"),
-                    extra_body=request_data.get("extra_body", {}),
+                
+                response = requests.post(
+                    self._chat_completion_endpoint,
+                    headers=self.headers,
+                    json=request_data
                 )
-                return response.choices[0].message.content
+                
+                if response.status_code != 200:
+                    raise Exception(f"API request failed with status {response.status_code}: {response.text}")
+                
+                response_json = response.json()
+                return response_json["choices"][0]["message"]["content"]
             
             responses = [fetch_single_response(messages) for messages in messages_lst]
             response_or_responses = responses
