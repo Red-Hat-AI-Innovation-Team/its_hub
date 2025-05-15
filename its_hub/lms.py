@@ -104,7 +104,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         max_tries: int = 8,
         max_concurrency: int = -1,
     ):
-        assert max_concurrency == -1 or max_concurrency > 0, "max_concurrency must be -1 or a positive integer"
+        assert max_concurrency == -1 or max_concurrency > 0, \
+            "max_concurrency must be -1 (unlimited concurrency) or a positive integer"
         
         self.endpoint = endpoint
         self.api_key = api_key
