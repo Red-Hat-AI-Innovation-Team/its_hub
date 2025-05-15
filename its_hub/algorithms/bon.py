@@ -28,7 +28,7 @@ class BestOfN(AbstractScalingAlgorithm):
         return_response_only: bool = True, 
     ) -> Union[str, BestOfNResult]:
         # generate responses
-        responses = lm.generate([prompt] * budget)
+        responses = lm.generate([[{"role": "user", "content": prompt}]] * budget)
 
         # score responses
         scores = [] 

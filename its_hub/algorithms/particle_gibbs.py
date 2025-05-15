@@ -200,7 +200,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             ref_indices = random.choices(range(len(particles)), weights=probabilities, k=self.num_ref_particles)
             ref_particles = [particles[i] for i in ref_indices]
             
-            responses_lst.append([self.sg.step_token.join(p.steps) for p in particles])
+            responses_lst.append([self.sg._post_process(p.steps, stopped=True) for p in particles])
             log_weights_lst.append(log_weights)
             ref_indices_lst.append(ref_indices)
         

@@ -4,13 +4,15 @@ import os
 import re
 import click
 import datasets
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import math_verify
 
 from its_hub.lms import OpenAICompatibleLanguageModel
 from its_hub.algorithms import SelfConsistency, BeamSearch, ParticleFiltering, StepGeneration
-from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
+from its_hub.algorithms.particle_gibbs import _softmax
+from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT, QWEN_SYSTEM_PROMPT
 from its_hub.integration.reward_hub import AggregationMethod, LocalVllmProcessRewardModel
 
 class BenchmarkDataset(Enum):
@@ -46,17 +48,18 @@ def _extract_boxed(s: str) -> str:
     # return the last match if any were found
     return boxed_matches[-1] if boxed_matches else ""
 
-def init_algorithm(alg: ScalingAlgorithm, rm_name: str, rm_device: str, rm_agg_method: AggregationMethod):
+def init_algorithm(alg: ScalingAlgorithm, model_name: str, rm_name: str, rm_device: str, rm_agg_method: AggregationMethod):
+    step_token = "\n\n##" if "llama" in model_name.lower() else "\n\n"
     if alg == ScalingAlgorithm.SELF_CONSISTENCY:
         return SelfConsistency(_extract_boxed)
     elif alg == ScalingAlgorithm.BEAM_SEARCH:
-        sg = StepGeneration("\n\n", 32, "\\boxed")
+        sg = StepGeneration(step_token, 50, "\\boxed")
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
         return BeamSearch(sg, prm, beam_width=4)
     elif alg == ScalingAlgorithm.PARTICLE_FILTERING:
-        sg = StepGeneration("\n\n", 32, "\\boxed")
+        sg = StepGeneration(step_token, 50, "\\boxed")
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
@@ -79,6 +82,7 @@ def display_results(df: pd.DataFrame):
 @click.option("--is_async", is_flag=True, default=False, help="whether to use async mode")
 @click.option("--max_tokens", type=int, default=None, help="max tokens to use for inference-time scaling")
 @click.option("--temperature", type=float, default=None, help="temperature to use for inference-time scaling")
+@click.option("--max_concurrency", type=int, default=8, help="max concurrency to use for inference-time scaling")
 @click.option("--endpoint", type=str, help="endpoint to use for inference-time scaling")
 @click.option("--api_key", type=str, default="NO_API_KEY", help="api key to use for inference-time scaling")
 @click.option("--rm_name", type=str, default="Qwen/Qwen2.5-Math-PRM-7B", help="name of reward model to use")
@@ -97,6 +101,7 @@ def display_results(df: pd.DataFrame):
 @click.option("--shuffle_seed", type=int, default=None, help="random seed to use for shuffling")
 @click.option("--force_run", is_flag=True, default=False, help="whether to force re-running")
 @click.option("--does_eval", is_flag=True, default=False, help="whether to evaluate the results")
+@click.option("--eval_expected_pass_at_one", is_flag=True, default=False, help="whether to evaluate expected pass at one")
 @click.option("--display_only", is_flag=True, default=False, help="whether to show only the results")
 def main(
     benchmark: BenchmarkDataset, 
@@ -104,6 +109,7 @@ def main(
     is_async: bool,
     max_tokens: int,
     temperature: float,
+    max_concurrency: int,
     endpoint: str, 
     api_key: str, 
     rm_name: str,
@@ -116,6 +122,7 @@ def main(
     shuffle_seed: int,
     force_run: bool,
     does_eval: bool,
+    eval_expected_pass_at_one: bool,
     display_only: bool,
 ):
     # print all arguments using click context
@@ -123,6 +130,9 @@ def main(
     print("running with arguments:")
     for param_name, param_value in ctx.params.items():
         print(f"  {param_name}: {param_value}")
+
+    if eval_expected_pass_at_one:
+        assert alg == ScalingAlgorithm.PARTICLE_FILTERING, "expected pass at one is only supported for particle filtering"
 
     print("loading existing results...")
     model_name_dashed = model_name.replace("/", "-")
@@ -172,14 +182,15 @@ def main(
             endpoint=endpoint, 
             api_key=api_key, 
             model_name=model_name, 
-            system_prompt=SAL_STEP_BY_STEP_SYSTEM_PROMPT, 
+            system_prompt=QWEN_SYSTEM_PROMPT if "qwen" in model_name.lower() else SAL_STEP_BY_STEP_SYSTEM_PROMPT, 
             is_async=is_async,
             temperature=temperature,
             max_tokens=max_tokens,
+            max_concurrency=max_concurrency,
         )
 
     print("initializing algorithm...")
-    scaling_alg = init_algorithm(alg, rm_name, rm_device, rm_agg_method)
+    scaling_alg = init_algorithm(alg, model_name, rm_name, rm_device, rm_agg_method)
 
     # ensure output directory exists
     if not os.path.exists(output_dir):
@@ -191,6 +202,7 @@ def main(
     try:
         for n in tqdm(budgets):
             for x in dataset:
+                y_full = None
                 y = None
                 if not force_run and len(df_existing) > 0:
                     # only skip if both the unique_id and budget matches
@@ -198,25 +210,53 @@ def main(
                             (df_existing["budget"] == n)
                     if match.any():
                         assert match.sum() == 1, f"expected exactly one match, got {match.sum()}"
-                        y = df_existing.loc[match, "response"].values[0]
-                if y is None:
+                        if eval_expected_pass_at_one:
+                            y_full = {
+                                "responses": df_existing.loc[match, "responses"].values[0],
+                                "log_probs": df_existing.loc[match, "log_probs"].values[0],
+                            }
+                        else:
+                            y = df_existing.loc[match, "response"].values[0]
+                if (y_full is None if eval_expected_pass_at_one else y is None):
                     try:
-                        y = scaling_alg.infer(lm, x["problem"], n)
+                        if eval_expected_pass_at_one:
+                            y_full = scaling_alg.infer(lm, x["problem"], n, return_response_only=False)
+                            y_full = {
+                                "responses": y_full.responses_lst[-1],
+                                "log_probs": y_full.log_weights_lst[-1],
+                            }
+                        else:
+                            y = scaling_alg.infer(lm, x["problem"], n)
                     except KeyboardInterrupt:
                         raise
                     except Exception as e:
                         print(f"error scaling example {x['unique_id']}: {e}")
                         continue
-                row = {
-                    "unique_id": x["unique_id"],
-                    "budget": n,
-                    "response": y,
-                    "correct": None,
-                }
+                if eval_expected_pass_at_one:
+                    row = {
+                        "unique_id": x["unique_id"],
+                        "budget": n,
+                        "responses": y_full["responses"],
+                        "log_probs": y_full["log_probs"],
+                        "correct": None,
+                    }
+                else:
+                    row = {
+                        "unique_id": x["unique_id"],
+                        "budget": n,
+                        "response": y,
+                        "correct": None,
+                    }
                 if does_eval:
-                    row["correct"] = math_verify.verify(
-                        math_verify.parse(x["answer"]), math_verify.parse(row["response"])
-                    )
+                    if eval_expected_pass_at_one:
+                        c = [math_verify.verify(math_verify.parse(x["answer"]), math_verify.parse(y)) 
+                             for y in row["responses"]]
+                        p = _softmax(row["log_probs"])
+                        row["correct"] = np.dot(p, c)
+                    else:
+                        row["correct"] = math_verify.verify(
+                            math_verify.parse(x["answer"]), math_verify.parse(row["response"])
+                        )
                 rows.append(row)
     except KeyboardInterrupt:
         print("\nkeyboard interrupt detected, saving partial results")
@@ -225,7 +265,7 @@ def main(
     print(f"saving results to {output_file}...")
     df = pd.concat([df_existing, pd.DataFrame(rows)])
     # deduplicate rows with the same unique_id and budget, keeping the updated correctness
-    df = df.drop_duplicates(subset=['unique_id', 'budget', 'response'], keep='last')
+    df = df.drop_duplicates(subset=['unique_id', 'budget'], keep='last')
     
     display_results(df)
 

@@ -150,7 +150,7 @@ class BeamSearch(AbstractScalingAlgorithm):
         
         scores = [c.score for c in candidates]
         result = BeamSearchResult(
-            responses=[self.sg.step_token.join(c.steps) for c in candidates],
+            responses=[self.sg._post_process(c.steps, stopped=True) for c in candidates],
             scores=scores,
             selected_index=int(np.argmax(scores)),
         )
