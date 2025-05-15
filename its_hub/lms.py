@@ -17,7 +17,7 @@ def rstrip_iff_entire(s, subs):
 class StepGeneration:
     def __init__(self, step_token: Union[str, List[str]], max_steps: int, stop_token: str = None, temperature: float = 0.8, include_stop_str_in_output: bool = False):
         if not include_stop_str_in_output:
-            assert type(step_token) == str, "step_token must be a string if include_stop_str_in_output is False"
+            assert isinstance(step_token, str), "step_token must be a string if include_stop_str_in_output is False"
         else:
             assert step_token is not None, "step_token must be provided if include_stop_str_in_output is True"
         self.step_token = step_token
