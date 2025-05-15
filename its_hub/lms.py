@@ -102,8 +102,10 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         max_tokens: int = None,
         temperature: float = None,
         max_tries: int = 8,
-        max_concurrency: int = 8,
+        max_concurrency: int = -1,
     ):
+        assert max_concurrency == -1 or max_concurrency > 0, "max_concurrency must be -1 or a positive integer"
+        
         self.endpoint = endpoint
         self.api_key = api_key
         self.model_name = model_name
@@ -167,7 +169,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         self, messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, include_stop_str_in_output: bool = None
     ) -> List[str]:
         # limit concurrency to max_concurrency using a semaphore
-        semaphore = asyncio.Semaphore(self.max_concurrency)
+        semaphore = asyncio.Semaphore(len(messages_lst) if self.max_concurrency == -1 else self.max_concurrency)
         
         # create a single session for all requests in this call
         async with aiohttp.ClientSession() as session:

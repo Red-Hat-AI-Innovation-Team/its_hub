@@ -2,9 +2,11 @@ import unittest
 import json
 import threading
 import asyncio
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import socket
 from typing import List, Dict, Any
+from unittest.mock import patch
 
 from its_hub.lms import OpenAICompatibleLanguageModel
 
@@ -19,12 +21,35 @@ def find_free_port():
 class DummyOpenAIHandler(BaseHTTPRequestHandler):
     """A dummy HTTP handler that mimics the OpenAI API."""
     
+    # Class-level variables to track concurrent requests
+    active_requests = 0
+    max_concurrent_requests = 0
+    request_lock = threading.Lock()
+    
+    @classmethod
+    def reset_stats(cls):
+        """Reset the request statistics."""
+        with cls.request_lock:
+            cls.active_requests = 0
+            cls.max_concurrent_requests = 0
+    
     def do_POST(self):
         """Handle POST requests to the /chat/completions endpoint."""
         if self.path == "/chat/completions":
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
             request_data = json.loads(post_data.decode('utf-8'))
+            
+            # Track concurrent requests
+            with self.__class__.request_lock:
+                self.__class__.active_requests += 1
+                self.__class__.max_concurrent_requests = max(
+                    self.__class__.max_concurrent_requests, 
+                    self.__class__.active_requests
+                )
+            
+            # Simulate some processing time
+            time.sleep(0.1)
             
             # Check if we should simulate an error
             if "trigger_error" in request_data.get("messages", [{}])[-1].get("content", ""):
@@ -39,6 +64,11 @@ class DummyOpenAIHandler(BaseHTTPRequestHandler):
                     }
                 }
                 self.wfile.write(json.dumps(error_response).encode('utf-8'))
+                
+                # Decrement active requests
+                with self.__class__.request_lock:
+                    self.__class__.active_requests -= 1
+                
                 return
             
             # extract the messages from the request
@@ -77,6 +107,10 @@ class DummyOpenAIHandler(BaseHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(response).encode('utf-8'))
+            
+            # Decrement active requests
+            with self.__class__.request_lock:
+                self.__class__.active_requests -= 1
         else:
             self.send_response(404)
             self.end_headers()
@@ -232,3 +266,50 @@ class TestOpenAICompatibleLanguageModel(unittest.TestCase):
             async_model_with_retries.generate(messages)
         
         self.assertIn("API request failed", str(context.exception))
+    
+    def test_max_concurrency(self):
+        """Test that the max_concurrency parameter limits concurrent requests."""
+        # Instead of testing actual concurrency (which is hard in a single process),
+        # we'll check that the semaphore is created with the correct value
+        
+        # Test with limited concurrency
+        with patch('asyncio.Semaphore') as mock_semaphore:
+            limited_model = OpenAICompatibleLanguageModel(
+                endpoint=self.endpoint,
+                api_key="dummy-api-key",
+                model_name="dummy-model",
+                is_async=True,
+                max_concurrency=2
+            )
+            
+            # Create messages to send
+            messages_lst = [
+                [{"role": "user", "content": f"Message {i}"}] for i in range(5)
+            ]
+            
+            # Generate responses
+            limited_model.generate(messages_lst)
+            
+            # Check that the semaphore was created with value=2
+            mock_semaphore.assert_called_once_with(2)
+        
+        # Test with unlimited concurrency
+        with patch('asyncio.Semaphore') as mock_semaphore:
+            unlimited_model = OpenAICompatibleLanguageModel(
+                endpoint=self.endpoint,
+                api_key="dummy-api-key",
+                model_name="dummy-model",
+                is_async=True,
+                max_concurrency=-1
+            )
+            
+            # Create messages to send
+            messages_lst = [
+                [{"role": "user", "content": f"Message {i}"}] for i in range(5)
+            ]
+            
+            # Generate responses
+            unlimited_model.generate(messages_lst)
+            
+            # Check that the semaphore was created with value=5 (length of messages_lst)
+            mock_semaphore.assert_called_once_with(5)
