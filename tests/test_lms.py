@@ -76,12 +76,10 @@ class DummyOpenAIHandler(BaseHTTPRequestHandler):
             
             # prepare a response based on the messages
             response_content = f"Response to: {messages[-1]['content']}"
-            if "include_stop_str_in_output" in request_data and request_data["include_stop_str_in_output"]:
-                response_content += "STOP"
             
             # check if there's a stop sequence and we should include it
             stop = request_data.get("stop")
-            include_stop = request_data.get("extra_body", {}).get("include_stop_str_in_output", False)
+            include_stop = request_data.get("include_stop_str_in_output", False)
             
             if stop and include_stop:
                 response_content += stop
