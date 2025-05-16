@@ -8,7 +8,7 @@ import socket
 from typing import List, Dict, Any
 from unittest.mock import patch
 
-from its_hub.lms import OpenAICompatibleLanguageModel
+from its_hub.lms import OpenAICompatibleLanguageModel, StepGeneration
 
 
 def find_free_port():
@@ -313,3 +313,123 @@ class TestOpenAICompatibleLanguageModel(unittest.TestCase):
             
             # Check that the semaphore was created with value=5 (length of messages_lst)
             mock_semaphore.assert_called_once_with(5)
+
+
+class MockLanguageModel:
+    def __init__(self, responses):
+        self.responses = responses
+        self.call_count = 0
+
+    def generate(self, messages, stop=None, temperature=None, include_stop_str_in_output=None):
+        # handle both single message and list of messages
+        if isinstance(messages[0], dict):
+            response = self.responses[self.call_count]
+            self.call_count += 1
+            return response
+        else:
+            # for multiple messages, return a list of responses
+            responses = self.responses[self.call_count:self.call_count + len(messages)]
+            self.call_count += len(messages)
+            return responses
+
+
+class TestStepGeneration(unittest.TestCase):
+    """Test the StepGeneration class."""
+    
+    def test_init(self):
+        # test basic initialization
+        step_gen = StepGeneration(step_token="\n", max_steps=5)
+        self.assertEqual(step_gen.step_token, "\n")
+        self.assertEqual(step_gen.max_steps, 5)
+        self.assertIsNone(step_gen.stop_token)
+        self.assertEqual(step_gen.temperature, 0.8)
+        self.assertFalse(step_gen.include_stop_str_in_output)
+
+        # test with custom parameters
+        step_gen = StepGeneration(
+            step_token="\n",
+            max_steps=3,
+            stop_token="END",
+            temperature=0.5,
+            include_stop_str_in_output=True
+        )
+        self.assertEqual(step_gen.step_token, "\n")
+        self.assertEqual(step_gen.max_steps, 3)
+        self.assertEqual(step_gen.stop_token, "END")
+        self.assertEqual(step_gen.temperature, 0.5)
+        self.assertTrue(step_gen.include_stop_str_in_output)
+
+        # test validation
+        with self.assertRaises(AssertionError):
+            StepGeneration(step_token=None, max_steps=5, include_stop_str_in_output=True)
+
+    def test_post_process(self):
+        step_gen = StepGeneration(step_token="\n", max_steps=5)
+        
+        # test without stop token
+        steps = ["step1", "step2", "step3"]
+        result = step_gen._post_process(steps)
+        self.assertEqual(result, "step1\nstep2\nstep3\n")
+        
+        # test with stop token
+        result = step_gen._post_process(steps, stopped=True)
+        self.assertEqual(result, "step1\nstep2\nstep3")
+        
+        # test with include_stop_str_in_output
+        step_gen = StepGeneration(step_token="\n", max_steps=5, include_stop_str_in_output=True)
+        result = step_gen._post_process(steps)
+        self.assertEqual(result, "step1step2step3")
+
+    def test_forward_single_prompt(self):
+        # test basic forward with single prompt
+        mock_lm = MockLanguageModel(["response1"])
+        step_gen = StepGeneration(step_token="\n", max_steps=5)
+        
+        next_step, is_stopped = step_gen.forward(mock_lm, "test prompt")
+        self.assertEqual(next_step, "response1")
+        self.assertFalse(is_stopped)
+        
+        # test with steps_so_far
+        mock_lm = MockLanguageModel(["response2"])
+        next_step, is_stopped = step_gen.forward(mock_lm, "test prompt", steps_so_far=["step1"])
+        self.assertEqual(next_step, "response2")
+        self.assertFalse(is_stopped)
+        
+        # test max steps reached
+        mock_lm = MockLanguageModel(["response3"])
+        next_step, is_stopped = step_gen.forward(mock_lm, "test prompt", steps_so_far=["step1"] * 5)
+        self.assertEqual(next_step, "response3")
+        self.assertTrue(is_stopped)
+        
+        # test stop token
+        step_gen = StepGeneration(step_token="\n", max_steps=5, stop_token="END")
+        mock_lm = MockLanguageModel(["response with END"])
+        next_step, is_stopped = step_gen.forward(mock_lm, "test prompt")
+        self.assertEqual(next_step, "response with END")
+        self.assertTrue(is_stopped)
+
+    def test_forward_multiple_prompts(self):
+        # test forward with multiple prompts
+        mock_lm = MockLanguageModel(["response1", "response2"])
+        step_gen = StepGeneration(step_token="\n", max_steps=5)
+        
+        prompts = ["prompt1", "prompt2"]
+        steps_so_far = [["step1"], ["step2"]]
+        results = step_gen.forward(mock_lm, prompts, steps_so_far)
+        
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0][0], "response1")
+        self.assertFalse(results[0][1])
+        self.assertEqual(results[1][0], "response2")
+        self.assertFalse(results[1][1])
+        
+        # test with stop token in multiple prompts
+        step_gen = StepGeneration(step_token="\n", max_steps=5, stop_token="END")
+        mock_lm = MockLanguageModel(["response1", "response with END"])
+        results = step_gen.forward(mock_lm, prompts, steps_so_far)
+        
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0][0], "response1")
+        self.assertFalse(results[0][1])
+        self.assertEqual(results[1][0], "response with END")
+        self.assertTrue(results[1][1])
