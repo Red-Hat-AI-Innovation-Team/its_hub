@@ -162,7 +162,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         if temperature is not None:
             request_data["temperature"] = temperature
         if include_stop_str_in_output is not None:
-            request_data["extra_body"]["include_stop_str_in_output"] = include_stop_str_in_output
+            request_data["include_stop_str_in_output"] = include_stop_str_in_output
         
         return request_data
 
