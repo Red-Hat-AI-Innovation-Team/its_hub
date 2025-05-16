@@ -76,7 +76,7 @@ class StepGeneration:
                 messages_lst, stop=self.step_token, temperature=self.temperature, include_stop_str_in_output=self.include_stop_str_in_output
             )
             is_stopped = [len(steps_so_far_per_prompt) >= self.max_steps
-                          for steps_so_far_per_prompt, next_step in zip(steps_so_far, next_steps)]
+                          for steps_so_far_per_prompt in steps_so_far]
             if self.stop_token:
                 is_stopped = [is_stopped_per_prompt or self.stop_token in next_step
                              for is_stopped_per_prompt, next_step in zip(is_stopped, next_steps)]
