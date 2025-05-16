@@ -30,6 +30,10 @@ class StepGeneration:
 
     def _post_process(self, steps: str, stopped: bool = False) -> str:
         if self.include_stop_str_in_output:
+            if stopped:
+                last_step = steps[-1]
+                last_step = rstrip_iff_entire(last_step, self.stop_token)
+                steps = steps[:-1] + [last_step]
             return "".join(steps)
         else:
             response = self.step_token.join(steps)
@@ -58,8 +62,6 @@ class StepGeneration:
             is_stopped = len(steps_so_far) >= self.max_steps
             if self.stop_token:
                 is_stopped = is_stopped or self.stop_token in next_step
-                if self.include_stop_str_in_output:
-                    next_step = rstrip_iff_entire(next_step, self.stop_token)
             return next_step, is_stopped
         else:
             prompts = prompt_or_prompts
@@ -80,8 +82,6 @@ class StepGeneration:
             if self.stop_token:
                 is_stopped = [is_stopped_per_prompt or self.stop_token in next_step
                              for is_stopped_per_prompt, next_step in zip(is_stopped, next_steps)]
-                if self.include_stop_str_in_output:
-                    next_steps = [rstrip_iff_entire(next_step, self.stop_token) for next_step in next_steps]
             return list(zip(next_steps, is_stopped))
 
 def _on_backoff(details):
