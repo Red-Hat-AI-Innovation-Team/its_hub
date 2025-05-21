@@ -150,7 +150,6 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         lm: AbstractLanguageModel, 
         prompt: str, 
         budget: int, 
-        show_progress: bool = False, 
         return_response_only: bool = True, 
     ) -> Union[str, ParticleGibbsResult]:
         assert budget % self.num_iterations == 0, "budget must be divisible by num_iterations"
@@ -168,9 +167,6 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             particles = [Particle(steps=[], is_stopped=False, log_weight=0) 
                         for _ in range(num_free_particles)] + ref_particles
             
-            # create progress bar with total steps from sg.max_steps
-            progress_bar = tqdm(total=self.sg.max_steps, desc="Stepping", disable=(not show_progress))
-            
             while not all(p.is_stopped for p in particles):
                 particles = self._propagate(lm, particles, prompt, batched=True)
 
@@ -187,12 +183,6 @@ class ParticleGibbs(AbstractScalingAlgorithm):
                 
                 # duplicate the particles
                 particles = [p.deepcopy() for p in particles]
-                
-                # update progress bar
-                progress_bar.update(1)
-            
-            # close the progress bar
-            progress_bar.close()
             
             # select the reference particles
             log_weights = [p.log_weight for p in particles]

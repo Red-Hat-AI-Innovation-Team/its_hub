@@ -24,7 +24,6 @@ class BestOfN(AbstractScalingAlgorithm):
         lm: AbstractLanguageModel, 
         prompt: str, 
         budget: int, 
-        show_progress: bool = False, 
         return_response_only: bool = True, 
     ) -> Union[str, BestOfNResult]:
         # generate responses
@@ -32,7 +31,7 @@ class BestOfN(AbstractScalingAlgorithm):
 
         # score responses
         scores = [] 
-        for r in tqdm(responses, desc="Scoring", disable=(not show_progress)):
+        for r in responses:
             scores.append(self.orm.score(prompt, r))
 
         # select the best response

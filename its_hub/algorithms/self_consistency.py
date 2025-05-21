@@ -44,7 +44,6 @@ class SelfConsistency(AbstractScalingAlgorithm):
         lm: AbstractLanguageModel, 
         prompt: str, 
         budget: int, 
-        show_progress: bool = False, 
         return_response_only: bool = True, 
     ) -> Union[str, SelfConsistencyResult]:
         # generate responses

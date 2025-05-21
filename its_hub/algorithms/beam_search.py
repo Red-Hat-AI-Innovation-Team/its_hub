@@ -115,7 +115,6 @@ class BeamSearch(AbstractScalingAlgorithm):
         lm: AbstractLanguageModel, 
         prompt: str, 
         budget: int, 
-        show_progress: bool = False, 
         return_response_only: bool = True, 
     ) -> Union[str, BeamSearchResult]:
         assert budget % self.beam_width == 0, "budget must be divisible by beam_width"
@@ -124,9 +123,6 @@ class BeamSearch(AbstractScalingAlgorithm):
         num_beams = budget // self.beam_width
         
         candidates = [Path(steps=[], is_stopped=False, score=0) for _ in range(num_beams)]
-        
-        # create progress bar with total steps from sg.max_steps
-        progress_bar = tqdm(total=self.sg.max_steps, desc="Stepping", disable=(not show_progress))
         
         while not all(c.is_stopped for c in candidates):
             candidates = self._search_one_level(lm, candidates, prompt, batched=True)
@@ -141,12 +137,6 @@ class BeamSearch(AbstractScalingAlgorithm):
                 for c in candidates:
                     new_candidates.append(c.deepcopy())
             candidates = new_candidates
-            
-            # update progress bar
-            progress_bar.update(1)
-        
-        # close the progress bar
-        progress_bar.close()
         
         scores = [c.score for c in candidates]
         result = BeamSearchResult(
