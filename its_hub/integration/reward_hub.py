@@ -13,18 +13,18 @@ class LocalVllmProcessRewardModel(AbstractProcessRewardModel):
         )
         self.aggregation_method = aggregation_method
 
-    def score(self, prompt: str, steps: Union[List[str], List[List[str]]]) -> float:
-        is_single_prompt = isinstance(steps[0], str)
+    def score(self, prompt: str, response_or_responses: Union[str, List[str]]) -> float:
+        is_single_response = isinstance(response_or_responses, str)
         messages = [
-            [{"role": "user", "content": prompt}, {"role": "assistant", "content": "\n\n".join(s)}]
-            for s in ([steps] if is_single_prompt else steps)
+            [{"role": "user", "content": prompt}, {"role": "assistant", "content": r}]
+            for r in ([response_or_responses] if is_single_response else response_or_responses)
         ]
         res = self.model.score(
             messages=messages,
             aggregation_method=self.aggregation_method,
             return_full_prm_result=False,
         )
-        if is_single_prompt:
+        if is_single_response:
             return res[0]
         else:
             return res

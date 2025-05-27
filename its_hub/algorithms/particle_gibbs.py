@@ -93,7 +93,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
                 next_step, is_stopped = self.sg.forward(lm, prompt, p.steps)
                 p.steps.append(next_step)
                 p.is_stopped = is_stopped
-                score = self.prm.score(prompt, p.steps)
+                score = self.prm.score(prompt, self.sg._post_process(p.steps, stopped=True))
                 p.log_weight = _inv_sigmoid(score)
 
             return particles
@@ -132,7 +132,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             steps_so_far.append(p.steps)
 
         # collect batch outputs for scoring
-        scores = self.prm.score(prompt, steps_so_far)
+        scores = self.prm.score(prompt, self.sg._post_process(steps_so_far, stopped=True))
         
         # update particles
         i = 0

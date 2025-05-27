@@ -58,7 +58,7 @@ class BeamSearch(AbstractScalingAlgorithm):
                 next_step, is_stopped = self.sg.forward(lm, prompt, c.steps)
                 c.steps.append(next_step)
                 c.is_stopped = is_stopped
-                score = self.prm.score(prompt, c.steps)
+                score = self.prm.score(prompt, self.sg._post_process(c.steps, stopped=True))
                 c.score = score
             
             return candidates
@@ -97,7 +97,7 @@ class BeamSearch(AbstractScalingAlgorithm):
             steps_so_far.append(c.steps)
 
         # collect batch outputs for scoring
-        scores = self.prm.score(prompt, steps_so_far)
+        scores = self.prm.score(prompt, self.sg._post_process(steps_so_far, stopped=True))
         
         # update candidates
         i = 0
