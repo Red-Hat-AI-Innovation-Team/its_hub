@@ -27,7 +27,14 @@ dependencies = [
     "typing-extensions>=4.0.0",
     "reward-hub==0.1.1",
     "backoff>=2.2.0",
+    "click>=8.1.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "pydantic>=2.11.0"
 ]
+
+[project.scripts]
+its-iaas = "its_hub.integration.iaas:main"
 
 [tool.setuptools_scm]
 version_file = "its_hub/_version.py"
