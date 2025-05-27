@@ -6,7 +6,6 @@ import aiohttp
 
 from .base import AbstractLanguageModel
 
-
 def rstrip_iff_entire(s, subs):
   if s.endswith(subs):
     # If s ends with subs, return the string without the length of subs at the end
@@ -190,7 +189,6 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         if response.status != 200:
                             error_text = await response.text()
                             raise Exception(f"API request failed with status {response.status}: {error_text}")
-                        print("status code: ", response.status)
                         response_json = await response.json()
                         return response_json["choices"][0]["message"]["content"]
 
