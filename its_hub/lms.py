@@ -28,7 +28,7 @@ class StepGeneration:
         self.temperature = temperature
         self.include_stop_str_in_output = include_stop_str_in_output
 
-    def _post_process(self, steps: str, stopped: bool = False) -> str:
+    def _post_process(self, steps: List[str], stopped: bool = False) -> str:
         if self.include_stop_str_in_output:
             if stopped:
                 last_step = steps[-1]
