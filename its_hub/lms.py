@@ -3,11 +3,9 @@ import asyncio
 import backoff
 import requests
 import aiohttp
-import uvloop
 
 from .base import AbstractLanguageModel
 
-uvloop.install()
 
 def rstrip_iff_entire(s, subs):
   if s.endswith(subs):
@@ -192,7 +190,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         if response.status != 200:
                             error_text = await response.text()
                             raise Exception(f"API request failed with status {response.status}: {error_text}")
-                        
+                        print("status code: ", response.status)
                         response_json = await response.json()
                         return response_json["choices"][0]["message"]["content"]
 
