@@ -137,7 +137,10 @@ def main(host: str, port: int, endpoint: str, api_key: str, model: str,
     
     # start the server
     print(f"starting IaaS API server on {host}:{port}")
-    uvicorn.run(app, host=host, port=port, reload=dev)
+    if dev:
+        uvicorn.run("its_hub.integration.iaas:app", host=host, port=port, reload=True)
+    else:
+        uvicorn.run(app, host=host, port=port)
 
 if __name__ == "__main__":
     main()
