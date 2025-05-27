@@ -132,7 +132,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             steps_so_far.append(p.steps)
 
         # collect batch outputs for scoring
-        scores = self.prm.score(prompt, self.sg._post_process(steps_so_far, stopped=True))
+        scores = self.prm.score(prompt, [self.sg._post_process(steps_so_far_per_prompt, stopped=True) for steps_so_far_per_prompt in steps_so_far])
         
         # update particles
         i = 0
