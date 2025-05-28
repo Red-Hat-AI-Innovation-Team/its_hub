@@ -1,7 +1,7 @@
 # Inference-as-a-Service (IaaS) integration
 
 import asyncio
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import time
@@ -23,6 +23,8 @@ class ConfigRequest(BaseModel):
     api_key: str
     model: str
     alg: str
+    step_token: str
+    stop_token: str
     rm_name: str
     rm_device: str
     rm_agg_method: str
@@ -32,17 +34,27 @@ async def config_service(request: ConfigRequest):
     from its_hub.integration.reward_hub import LocalVllmProcessRewardModel, AggregationMethod
 
     global LM_DICT, SCALING_ALG
+
+    print(f"{request=}")
     
     # configure language model
     LM = OpenAICompatibleLanguageModel(
         endpoint=request.endpoint,
         api_key=request.api_key,
         model_name=request.model,
+        # is_async=True,
     )
     LM_DICT[request.model] = LM
     
     # configure scaling algorithm
-    sg = StepGeneration("\n", 50, "<|end|>", temperature=0.2, include_stop_str_in_output=True)
+    sg = StepGeneration(
+        request.step_token, 
+        50, 
+        request.stop_token, 
+        temperature=0.001, 
+        include_stop_str_in_output=True,
+        temperature_switch=(0.8, "<boi>", "<eoi>"), # switch to 0.8 when outputing the thinking tokens
+    )
     prm = LocalVllmProcessRewardModel(
         model_name=request.rm_name, 
         device=request.rm_device, 
@@ -81,7 +93,13 @@ class ChatCompletionResponse(BaseModel):
 async def chat_completions(request: ChatCompletionRequest):
     assert len(request.messages) in [1, 2] and request.messages[-1].role == "user", \
         "Only one user message with optional system message is supported"
-    lm = LM_DICT[request.model]
+    try:
+        lm = LM_DICT[request.model]
+    except KeyError:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Model {request.model} not found. Please configure the model first or use an avaiable from {LM_DICT.keys()}."
+        )
     if len(request.messages) == 2:
         lm.system_prompt = request.messages[0].content
     else:
@@ -110,32 +128,8 @@ async def chat_completions(request: ChatCompletionRequest):
 @click.command()
 @click.option('--host', default='127.0.0.1', help='host to bind the server to')
 @click.option('--port', default=8000, help='port to bind the server to')
-@click.option('--endpoint', required=True, help='endpoint for the language model')
-@click.option('--api-key', required=True, help='api key for the language model')
-@click.option('--model', required=True, help='model name to use')
-@click.option('--alg', default='particle_filtering', help='scaling algorithm to use')
-@click.option('--rm-name', required=True, help='reward model name')
-@click.option('--rm-device', default='cuda:0', help='device to run reward model on')
-@click.option('--rm-agg-method', default='mean', help='reward model aggregation method')
 @click.option('--dev', is_flag=True, help='run in development mode')
-def main(host: str, port: int, endpoint: str, api_key: str, model: str, 
-               alg: str, rm_name: str, rm_device: str, rm_agg_method: str, dev: bool):
-    """start the IaaS service with the specified configuration"""
-    # configure the service
-    config_request = ConfigRequest(
-        endpoint=endpoint,
-        api_key=api_key,
-        model=model,
-        alg=alg,
-        rm_name=rm_name,
-        rm_device=rm_device,
-        rm_agg_method=rm_agg_method
-    )
-    
-    # run the initialization
-    asyncio.run(config_service(config_request))
-    
-    # start the server
+def main(host: str, port: int, dev: bool):
     print(f"starting IaaS API server on {host}:{port}")
     if dev:
         uvicorn.run("its_hub.integration.iaas:app", host=host, port=port, reload=True)
