@@ -17,7 +17,15 @@ def rstrip_iff_entire(s, subs):
 # TODO make it robust such that one of the particle dead (e.g. due to max tokens), the whole generation is not stopped
 # TODO change stop_token to be a function called is_stopped
 class StepGeneration:
-    def __init__(self, step_token: Union[str, List[str]], max_steps: int, stop_token: str = None, temperature: float = 0.8, include_stop_str_in_output: bool = False):
+    def __init__(
+        self, 
+        step_token: Union[str, List[str]], 
+        max_steps: int, 
+        stop_token: str = None, 
+        temperature: float = 0.8, 
+        include_stop_str_in_output: bool = False, 
+        temperature_switch: tuple = None, # (temperature, open_token, close_token)
+    ):
         if not include_stop_str_in_output:
             assert isinstance(step_token, str), "step_token must be a string if include_stop_str_in_output is False"
         else:
@@ -27,6 +35,7 @@ class StepGeneration:
         self.stop_token = stop_token
         self.temperature = temperature
         self.include_stop_str_in_output = include_stop_str_in_output
+        self.temperature_switch = temperature_switch
 
     def _post_process(self, steps: List[str], stopped: bool = False) -> str:
         if self.include_stop_str_in_output:
@@ -40,6 +49,24 @@ class StepGeneration:
             if not stopped:
                 response += self.step_token
             return response
+        
+    def _get_temperature(self, messages_or_messages_lst: Union[List[dict], List[List[dict]]]) -> float:
+        if self.temperature_switch is None:
+            return self.temperature
+        else:
+            is_single = isinstance(messages_or_messages_lst[0], dict)
+            if is_single:
+                messages = messages_or_messages_lst
+                if messages[-1]["role"] == "assistant":
+                    temperature, open_token, close_token = self.temperature_switch
+                    if open_token in messages[-1]["content"] and close_token not in messages[-1]["content"]:
+                        return temperature
+                    else:
+                        return self.temperature
+                else:
+                    return self.temperature
+            else:
+                return [self._get_temperature(messages) for messages in messages_or_messages_lst]
     
     def forward(
         self, 
@@ -57,7 +84,7 @@ class StepGeneration:
                 messages.append({"role": "assistant", 
                                  "content": self._post_process(steps_so_far)})
             next_step = lm.generate(
-                messages, stop=self.step_token, temperature=self.temperature, include_stop_str_in_output=self.include_stop_str_in_output
+                messages, stop=self.step_token, temperature=self._get_temperature(messages), include_stop_str_in_output=self.include_stop_str_in_output
             )
             is_stopped = len(steps_so_far) >= self.max_steps
             if self.stop_token:
@@ -75,7 +102,7 @@ class StepGeneration:
                                      "content": self._post_process(steps_so_far_per_prompt)})
                 messages_lst.append(messages)
             next_steps = lm.generate(
-                messages_lst, stop=self.step_token, temperature=self.temperature, include_stop_str_in_output=self.include_stop_str_in_output
+                messages_lst, stop=self.step_token, temperature=self._get_temperature(messages_lst), include_stop_str_in_output=self.include_stop_str_in_output
             )
             is_stopped = [len(steps_so_far_per_prompt) >= self.max_steps
                           for steps_so_far_per_prompt in steps_so_far]
@@ -145,6 +172,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         if "assistant" == messages[-1]["role"]:
             request_data["extra_body"]["add_generation_prompt"] = False
             request_data["extra_body"]["continue_final_message"] = True
+            request_data["add_generation_prompt"] = False
+            request_data["continue_final_message"] = True
         
         # set default runtime parameters
         if self.stop is not None:
@@ -162,6 +191,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         if temperature is not None:
             request_data["temperature"] = temperature
         if include_stop_str_in_output is not None:
+            request_data["extra_body"]["include_stop_str_in_output"] = include_stop_str_in_output
             request_data["include_stop_str_in_output"] = include_stop_str_in_output
         
         return request_data
@@ -175,10 +205,10 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         # create a single session for all requests in this call
         async with aiohttp.ClientSession() as session:
             @backoff.on_exception(backoff.expo, Exception, max_tries=self.max_tries, on_backoff=_on_backoff)
-            async def fetch_response(messages):
+            async def fetch_response(messages, _temperature):
                 async with semaphore:
                     request_data = self._prepare_request_data(
-                        messages, stop, max_tokens, temperature, include_stop_str_in_output
+                        messages, stop, max_tokens, _temperature, include_stop_str_in_output
                     )
                     
                     async with session.post(
@@ -193,10 +223,12 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         return response_json["choices"][0]["message"]["content"]
 
             # gather all responses asynchronously, with concurrency limited to max_concurrency
-            return await asyncio.gather(*(fetch_response(messages) for messages in messages_lst))
+            temperature_lst = temperature if isinstance(temperature, list) else [temperature] * len(messages_lst)
+            return await asyncio.gather(*(fetch_response(messages, _temperature) 
+                                          for messages, _temperature in zip(messages_lst, temperature_lst)))
     
     def generate(
-        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: float = None, include_stop_str_in_output: bool = None
+        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: Union[float, List[float]] = None, include_stop_str_in_output: bool = None
     ) -> Union[str, List[str]]:
         is_single = isinstance(messages_or_messages_lst[0], dict)
         messages_lst = [messages_or_messages_lst] if is_single else messages_or_messages_lst
@@ -205,9 +237,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             response_or_responses = loop.run_until_complete(self._generate(messages_lst, stop, max_tokens, temperature, include_stop_str_in_output))
         else:
             @backoff.on_exception(backoff.expo, Exception, max_tries=self.max_tries, on_backoff=_on_backoff)
-            def fetch_single_response(messages):
+            def fetch_single_response(messages, _temperature):
                 request_data = self._prepare_request_data(
-                    messages, stop, max_tokens, temperature, include_stop_str_in_output
+                    messages, stop, max_tokens, _temperature, include_stop_str_in_output
                 )
                 
                 response = requests.post(
@@ -222,7 +254,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 response_json = response.json()
                 return response_json["choices"][0]["message"]["content"]
             
-            responses = [fetch_single_response(messages) for messages in messages_lst]
+            temperature_lst = temperature if isinstance(temperature, list) else [temperature] * len(messages_lst)
+            responses = [fetch_single_response(messages, _temperature) for messages, _temperature in zip(messages_lst, temperature_lst)]
             response_or_responses = responses
         return response_or_responses[0] if is_single else response_or_responses
     
