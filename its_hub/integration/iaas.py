@@ -9,8 +9,8 @@ import uuid
 import uvicorn
 import click
 
-from ..lms import OpenAICompatibleLanguageModel
-from ..algorithms import ParticleFiltering, StepGeneration
+from ..lms import OpenAICompatibleLanguageModel, StepGeneration
+from ..algorithms import BestOfN, ParticleFiltering
 
 app = FastAPI()
 
@@ -23,11 +23,11 @@ class ConfigRequest(BaseModel):
     api_key: str
     model: str
     alg: str
-    step_token: str
-    stop_token: str
+    step_token: Optional[str] = None
+    stop_token: Optional[str] = None
     rm_name: str
     rm_device: str
-    rm_agg_method: str
+    rm_agg_method: Optional[str] = None
 
 @app.post("/configure")
 async def config_service(request: ConfigRequest):
@@ -47,20 +47,29 @@ async def config_service(request: ConfigRequest):
     LM_DICT[request.model] = LM
     
     # configure scaling algorithm
-    sg = StepGeneration(
-        request.step_token, 
-        50, 
-        request.stop_token, 
-        temperature=0.001, 
-        include_stop_str_in_output=True,
-        temperature_switch=(0.8, "<boi>", "<eoi>"), # switch to 0.8 when outputing the thinking tokens
-    )
-    prm = LocalVllmProcessRewardModel(
-        model_name=request.rm_name, 
-        device=request.rm_device, 
-        aggregation_method=AggregationMethod(request.rm_agg_method)
-    )
-    SCALING_ALG = ParticleFiltering(sg, prm)
+    if request.alg == "particle-filtering":
+        sg = StepGeneration(
+            request.step_token, 
+            50, 
+            request.stop_token, 
+            temperature=0.001, 
+            include_stop_str_in_output=True,
+            temperature_switch=(0.8, "<boi>", "<eoi>"), # switch to 0.8 when outputing the thinking tokens
+        )
+        prm = LocalVllmProcessRewardModel(
+            model_name=request.rm_name, 
+            device=request.rm_device, 
+            aggregation_method=AggregationMethod(request.rm_agg_method)
+        )
+        SCALING_ALG = ParticleFiltering(sg, prm)
+    if request.alg == "best-of-n":
+        prm = LocalVllmProcessRewardModel(
+            model_name=request.rm_name, 
+            device=request.rm_device, 
+            aggregation_method=AggregationMethod("model")
+        )
+        orm = prm
+        SCALING_ALG = BestOfN(orm)
     
     return {"status": "success", 
             "message": "initialized language model and inference-time scaling algorithm"}
@@ -77,7 +86,7 @@ class ChatCompletionRequest(BaseModel):
     model: str
     messages: List[ChatMessage]
     budget: int = 8
-    temperature: Optional[float] = 1.0
+    temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     stream: Optional[bool] = False
 
@@ -100,6 +109,7 @@ async def chat_completions(request: ChatCompletionRequest):
             status_code=404, 
             detail=f"Model {request.model} not found. Please configure the model first or use an avaiable from {LM_DICT.keys()}."
         )
+    lm.temperature = request.temperature
     if len(request.messages) == 2:
         lm.system_prompt = request.messages[0].content
     else:
