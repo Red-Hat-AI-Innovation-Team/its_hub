@@ -30,9 +30,13 @@ class BestOfN(AbstractScalingAlgorithm):
         responses = lm.generate([[{"role": "user", "content": prompt}]] * budget)
 
         # score responses
-        scores = [] 
-        for r in responses:
-            scores.append(self.orm.score(prompt, r))
+        batched = True
+        if batched:
+            scores = self.orm.score(prompt, responses)
+        else:
+            scores = [] 
+            for r in responses:
+                scores.append(self.orm.score(prompt, r))
 
         # select the best response
         selected_index = scores.index(max(scores))
