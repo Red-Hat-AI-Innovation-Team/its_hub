@@ -48,7 +48,8 @@ python scripts/benchmark.py --help
 - `AbstractLanguageModel`: Interface for LM generation and evaluation
 - `AbstractScalingAlgorithm`: Base for all scaling algorithms with unified `infer()` method
 - `AbstractScalingResult`: Base for algorithm results with `the_one` property
-- `AbstractOutcomeRewardModel` / `AbstractProcessRewardModel`: Reward model interfaces
+- `AbstractOutcomeRewardModel`: Interface for outcome-based reward models
+- `AbstractProcessRewardModel`: Interface for process-based reward models (step-by-step scoring)
 
 ### Main Components
 
@@ -69,9 +70,10 @@ All algorithms follow the same interface: `infer(lm, prompt, budget, return_resp
 - `LocalVllmProcessRewardModel`: Integrates with reward_hub library for process-based scoring
 
 ### Budget Interpretation
-- **Self-Consistency/Best-of-N**: Number of parallel generations
-- **Beam Search**: Total generations divided by beam width  
-- **Particle Filtering**: Number of particles
+The budget parameter controls computational resources allocated to each algorithm. Different algorithms interpret budget as follows:
+- **Self-Consistency/Best-of-N**: Number of parallel generations to create
+- **Beam Search**: Total generations divided by beam width (controls search depth)
+- **Particle Filtering**: Number of particles maintained during sampling
 
 ### Step Generation Pattern
 The `StepGeneration` class enables incremental text generation:
