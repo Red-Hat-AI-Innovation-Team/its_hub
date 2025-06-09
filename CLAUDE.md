@@ -31,6 +31,14 @@ black its_hub/
 isort its_hub/
 ```
 
+### Git Workflow
+```bash
+# Create commits with sign-off
+git commit -s -m "commit message"
+
+# For any git commits, always use the sign-off flag (-s)
+```
+
 ### Running Examples
 ```bash
 # Test basic functionality
