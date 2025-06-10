@@ -3,6 +3,13 @@
 [![Tests](https://github.com/Red-Hat-AI-Innovation-Team/its_hub/actions/workflows/tests.yml/badge.svg)](https://github.com/Red-Hat-AI-Innovation-Team/its_hub/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/Red-Hat-AI-Innovation-Team/its_hub/graph/badge.svg?token=6WD8NB9YPN)](https://codecov.io/gh/Red-Hat-AI-Innovation-Team/its_hub)
 
+**its_hub** provides inference-time scaling for LLMs through multiple approaches:
+
+1. **Direct Library Usage** - For Python integration
+2. **Inference-as-a-Service (IaaS) API** - OpenAI-compatible HTTP API (⚠️ Alpha)
+
+## Direct Library Usage
+
 Example: Using the particle filtering from `[1]` for inference-time scaling
 
 ```python
@@ -28,6 +35,89 @@ prm = LocalVllmProcessRewardModel(
 scaling_alg = ParticleFiltering(sg, prm)
 
 scaling_alg.infer(lm, prompt, budget) # => gives output
+```
+
+## Inference-as-a-Service (IaaS) API ⚠️ Alpha
+
+The IaaS integration provides an OpenAI-compatible HTTP API server that wraps inference-time scaling algorithms. This allows external applications to use scaling techniques through familiar chat completion endpoints.
+
+### Starting the IaaS Server
+
+```bash
+# Start the API server
+its-iaas --host 0.0.0.0 --port 8108 --dev
+
+# Or using justfile (development)
+just iaas-dev
+```
+
+### Configuring the Service
+
+Before making chat completion requests, configure the service with your models and algorithms:
+
+```bash
+curl -X POST http://localhost:8108/configure \
+  -H "Content-Type: application/json" \
+  -d '{
+    "endpoint": "http://localhost:8100/v1",
+    "api_key": "NO_API_KEY", 
+    "model": "Qwen/Qwen2.5-Math-1.5B-Instruct",
+    "alg": "particle-filtering",
+    "step_token": "\n",
+    "stop_token": "<|end|>",
+    "rm_name": "Qwen/Qwen2.5-Math-PRM-7B",
+    "rm_device": "cuda:0",
+    "rm_agg_method": "model"
+  }'
+```
+
+### Making Requests
+
+Use the standard OpenAI chat completions format with an additional `budget` parameter:
+
+```bash
+curl -X POST http://localhost:8108/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen/Qwen2.5-Math-1.5B-Instruct",
+    "messages": [
+      {"role": "user", "content": "Solve x^2 + 5x + 6 = 0"}
+    ],
+    "budget": 8
+  }'
+```
+
+### Supported Algorithms
+
+- **particle-filtering**: Step-by-step generation with particle resampling
+- **best-of-n**: Generate multiple responses, select the best using reward models
+
+### API Endpoints
+
+- `POST /configure` - Configure models and algorithms
+- `GET /v1/models` - List available models (OpenAI-compatible)
+- `POST /v1/chat/completions` - Generate chat completions with scaling (OpenAI-compatible + budget parameter)
+- `GET /docs` - Interactive API documentation
+
+### Development Recipes
+
+The project includes a `justfile` with convenient development commands:
+
+```bash
+# Start vLLM server with different models
+just serve-qwen    # Qwen2.5-Math-1.5B-Instruct
+just serve-phi     # Phi-4-mini-instruct
+just serve-llama   # Llama-3.2-1B-Instruct
+
+# Run experiments
+just exp-qwen budgets="8,16,32"
+just exp-phi budgets="16"
+
+# IaaS development
+just iaas-dev                    # Start IaaS server
+just iaas-dev-configure-pf       # Configure particle filtering
+just iaas-dev-configure-bon      # Configure best-of-n
+just iaas-dev-chat "solve 2+2"   # Test chat completion
 ```
 
 `[1]`: Isha Puri, Shivchander Sudalairaj, Guangxuan Xu, Kai Xu, Akash Srivastava. "A Probabilistic Inference Approach to Inference-Time Scaling of LLMs using Particle-Based Monte Carlo Methods", 2025, https://arxiv.org/abs/2502.01618.
