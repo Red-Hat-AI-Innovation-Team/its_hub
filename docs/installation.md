@@ -35,7 +35,7 @@ The development installation includes:
 Verify your installation by running:
 
 ```bash
-python -c "import its_hub; print('its_hub installed successfully')"
+python -c "import its_hub; print('its-hub installed successfully')"
 ```
 
 ## GPU Setup

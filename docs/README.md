@@ -1,9 +1,9 @@
-# its_hub
+# its-hub
 
 [![Tests](https://github.com/Red-Hat-AI-Innovation-Team/its_hub/actions/workflows/tests.yml/badge.svg)](https://github.com/Red-Hat-AI-Innovation-Team/its_hub/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/Red-Hat-AI-Innovation-Team/its_hub/graph/badge.svg?token=6WD8NB9YPN)](https://codecov.io/gh/Red-Hat-AI-Innovation-Team/its_hub)
 
-**its_hub** provides inference-time scaling for LLMs through multiple approaches:
+**its-hub** provides inference-time scaling for LLMs through multiple approaches:
 
 1. **Direct Library Usage** - For Python integration
 2. **Inference-as-a-Service (IaaS) API** - OpenAI-compatible HTTP API (⚠️ Alpha)

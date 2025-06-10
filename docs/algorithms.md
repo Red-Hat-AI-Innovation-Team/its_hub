@@ -1,6 +1,6 @@
 # Algorithms
 
-its_hub provides several inference-time scaling algorithms, each optimized for different use cases and computational budgets.
+its-hub provides several inference-time scaling algorithms, each optimized for different use cases and computational budgets.
 
 ## Overview
 

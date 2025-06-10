@@ -15,8 +15,8 @@ This guide will help you run the example using a single H100 GPU. The example us
 First, create and activate a conda environment with Python 3.11:
 
 ```bash
-conda create -n its_hub python=3.11
-conda activate its_hub
+conda create -n its-hub python=3.11
+conda activate its-hub
 ```
 
 Install the package in development mode (this includes all dependencies):
@@ -101,7 +101,7 @@ for prompt in test_prompts:
 Run the test script (make sure to use the same GPU as the server):
 
 ```bash
-# From the its_hub directory
+# From the its-hub directory
 CUDA_VISIBLE_DEVICES=$GPU_ID python scripts/test_math_example.py
 ```
 

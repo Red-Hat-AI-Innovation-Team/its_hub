@@ -48,7 +48,7 @@ black its_hub/ && isort its_hub/
 
 ### Core Design Principles
 
-**its_hub** follows a clean architecture with abstract base classes defining interfaces between components:
+**its-hub** follows a clean architecture with abstract base classes defining interfaces between components:
 
 1. **Separation of Concerns**: Language models, algorithms, and reward models are independent
 2. **Extensibility**: Easy to add new algorithms and models via abstract interfaces

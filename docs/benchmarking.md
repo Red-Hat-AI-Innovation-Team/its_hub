@@ -1,6 +1,6 @@
 # Benchmarking
 
-its_hub includes comprehensive benchmarking tools to evaluate inference-time scaling algorithms on standard mathematical reasoning datasets.
+its-hub includes comprehensive benchmarking tools to evaluate inference-time scaling algorithms on standard mathematical reasoning datasets.
 
 ## Quick Start
 

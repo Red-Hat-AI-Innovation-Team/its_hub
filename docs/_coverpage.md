@@ -1,4 +1,4 @@
-# its_hub
+# its-hub
 
 > A Python library for inference-time scaling LLMs
 
