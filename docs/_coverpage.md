@@ -8,4 +8,4 @@
 - 📊 Comprehensive benchmarking tools
 
 [GitHub](https://github.com/Red-Hat-AI-Innovation-Team/its_hub)
-[Get Started](#quick-start-guide)
+[Get Started](#quick-start)
