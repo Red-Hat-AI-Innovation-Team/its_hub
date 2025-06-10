@@ -13,7 +13,7 @@
   <script>
     window.$docsify = {
       name: 'its_hub',
-      repo: 'https://github.com/Red-Hat-AI-Innovation-Team/its_hub',
+      repo: 'https://ai-innovation.team/its_hub',
       loadSidebar: true,
       loadNavbar: true,
       subMaxLevel: 3,
@@ -27,7 +27,7 @@
       plugins: [
         function(hook, vm) {
           hook.beforeEach(function (html) {
-            var url = 'https://github.com/Red-Hat-AI-Innovation-Team/its_hub/blob/main/docs/' + vm.route.file
+            var url = 'https://ai-innovation.team/its_hub/blob/main/docs/' + vm.route.file
             var editHtml = '[:memo: Edit Document](' + url + ')\n'
             return editHtml + html
           })

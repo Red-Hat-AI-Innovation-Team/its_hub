@@ -9,7 +9,7 @@
 
 For comprehensive documentation, including installation guides, tutorials, and API reference, visit:
 
-**[https://red-hat-ai-innovation-team.github.io/its_hub](https://red-hat-ai-innovation-team.github.io/its_hub)**
+**[https://ai-innovation.team/its_hub](https://ai-innovation.team/its_hub)**
 
 ## Quick Start
 
@@ -69,4 +69,4 @@ pip install -e ".[dev]"
 pytest tests
 ```
 
-For detailed documentation, visit: [https://red-hat-ai-innovation-team.github.io/its_hub](https://red-hat-ai-innovation-team.github.io/its_hub)
+For detailed documentation, visit: [https://ai-innovation.team/its_hub](https://ai-innovation.team/its_hub)

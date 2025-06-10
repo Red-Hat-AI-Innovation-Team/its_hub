@@ -42,7 +42,7 @@ version_file = "its_hub/_version.py"
 local_scheme = "no-local-version"
 
 [project.urls]
-Homepage = "https://github.com/Red-Hat-AI-Innovation-Team/its_hub"
+Homepage = "https://ai-innovation.team/its_hub"
 
 [project.optional-dependencies]
 dev = [
