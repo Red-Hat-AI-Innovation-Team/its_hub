@@ -1,17 +1,19 @@
 from typing import Union, List
 from abc import ABC, abstractmethod
 
+from .types import ChatMessage
+
 
 class AbstractLanguageModel(ABC):
     """abstract base class for (autoregressive) language models"""
     
     @abstractmethod
-    def generate(self, prompt: str, stop: str = None) -> str:
+    def generate(self, messages: Union[List[ChatMessage], str], stop: str = None) -> str:
         """
         generate a response from the model
         
         Args:
-            prompt: the input prompt
+            messages: the input messages or prompt string
             
         Returns:
             the generated output string

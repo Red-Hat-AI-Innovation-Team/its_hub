@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from ..algorithms import BestOfN, ParticleFiltering
 from ..lms import OpenAICompatibleLanguageModel, StepGeneration
+from ..types import ChatMessage
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -132,19 +133,7 @@ async def list_models() -> Dict[str, List[Dict[str, str]]]:
         ]
     }
 
-class ChatMessage(BaseModel):
-    """Individual chat message."""
-    role: str = Field(..., description="Message role (system, user, assistant)")
-    content: str = Field(..., description="Message content")
-    
-    @field_validator('role')
-    @classmethod
-    def validate_role(cls, v):
-        """Validate message role."""
-        allowed_roles = {'system', 'user', 'assistant'}
-        if v not in allowed_roles:
-            raise ValueError(f"Role must be one of: {allowed_roles}")
-        return v
+# Use the ChatMessage type from types.py directly
 
 class ChatCompletionRequest(BaseModel):
     """Chat completion request with inference-time scaling support."""

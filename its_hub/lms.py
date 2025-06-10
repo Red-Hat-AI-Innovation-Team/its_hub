@@ -5,6 +5,7 @@ import requests
 import aiohttp
 
 from .base import AbstractLanguageModel
+from .types import ChatMessage
 
 def rstrip_iff_entire(s, subs):
   if s.endswith(subs):
@@ -50,16 +51,16 @@ class StepGeneration:
                 response += self.step_token
             return response
         
-    def _get_temperature(self, messages_or_messages_lst: Union[List[dict], List[List[dict]]]) -> float:
+    def _get_temperature(self, messages_or_messages_lst: Union[List[ChatMessage], List[List[ChatMessage]]]) -> float:
         if self.temperature_switch is None:
             return self.temperature
         else:
             is_single = isinstance(messages_or_messages_lst[0], dict)
             if is_single:
                 messages = messages_or_messages_lst
-                if messages[-1]["role"] == "assistant":
+                if messages[-1].role == "assistant":
                     temperature, open_token, close_token = self.temperature_switch
-                    if open_token in messages[-1]["content"] and close_token not in messages[-1]["content"]:
+                    if open_token in messages[-1].content and close_token not in messages[-1].content:
                         return temperature
                     else:
                         return self.temperature
@@ -78,11 +79,11 @@ class StepGeneration:
         if is_single_prompt:
             prompt = prompt_or_prompts
             messages = [
-                {"role": "user", "content": prompt},
+                ChatMessage(role="user", content=prompt),
             ]
             if steps_so_far:
-                messages.append({"role": "assistant", 
-                                 "content": self._post_process(steps_so_far)})
+                messages.append(ChatMessage(role="assistant", 
+                                 content=self._post_process(steps_so_far)))
             next_step = lm.generate(
                 messages, stop=self.step_token, temperature=self._get_temperature(messages), include_stop_str_in_output=self.include_stop_str_in_output
             )
@@ -95,11 +96,11 @@ class StepGeneration:
             messages_lst = []
             for prompt, steps_so_far_per_prompt in zip(prompts, steps_so_far):
                 messages = [
-                    {"role": "user", "content": prompt},
+                    ChatMessage(role="user", content=prompt),
                 ]
                 if steps_so_far_per_prompt:
-                    messages.append({"role": "assistant", 
-                                     "content": self._post_process(steps_so_far_per_prompt)})
+                    messages.append(ChatMessage(role="assistant", 
+                                     content=self._post_process(steps_so_far_per_prompt)))
                 messages_lst.append(messages)
             next_steps = lm.generate(
                 messages_lst, stop=self.step_token, temperature=self._get_temperature(messages_lst), include_stop_str_in_output=self.include_stop_str_in_output
@@ -161,15 +162,18 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None
 ):
         # helper method to prepare request data for both sync and async methods
+        # Convert dict messages to Message objects if needed
+        messages = [msg if isinstance(msg, ChatMessage) else ChatMessage(**msg) for msg in messages]
+        
         if self.system_prompt:
-            messages = [{"role": "system", "content": self.system_prompt}] + messages
+            messages = [ChatMessage(role="system", content=self.system_prompt)] + messages
         
         request_data = {
             "model": self.model_name,
-            "messages": messages,
+            "messages": [msg.__dict__ for msg in messages],
             "extra_body": {},
         }
-        if "assistant" == messages[-1]["role"]:
+        if "assistant" == messages[-1].role:
             request_data["extra_body"]["add_generation_prompt"] = False
             request_data["extra_body"]["continue_final_message"] = True
             request_data["add_generation_prompt"] = False
@@ -230,7 +234,10 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     def generate(
         self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: Union[float, List[float]] = None, include_stop_str_in_output: bool = None
     ) -> Union[str, List[str]]:
-        is_single = isinstance(messages_or_messages_lst[0], dict)
+        # Check if we have a single list of messages or a list of message lists  
+        # Single list: [{"role": "user", "content": "..."}] or [Message(...)]
+        # Multiple lists: [[{"role": "user", "content": "..."}], [{"role": "user", "content": "..."}]]
+        is_single = not isinstance(messages_or_messages_lst[0], list)
         messages_lst = [messages_or_messages_lst] if is_single else messages_or_messages_lst
         if self.is_async:
             loop = asyncio.get_event_loop()
