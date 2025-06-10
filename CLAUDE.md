@@ -76,6 +76,7 @@ All algorithms follow the same interface: `infer(lm, prompt, budget, return_resp
 
 #### Integration (`its_hub/integration/`)
 - `LocalVllmProcessRewardModel`: Integrates with reward_hub library for process-based scoring
+- `iaas.py`: Inference-as-a-Service FastAPI server providing OpenAI-compatible chat completions API with budget parameter for inference-time scaling
 
 ### Budget Interpretation
 The budget parameter controls computational resources allocated to each algorithm. Different algorithms interpret budget as follows:
