@@ -8,12 +8,12 @@ class AbstractLanguageModel(ABC):
     """abstract base class for (autoregressive) language models"""
     
     @abstractmethod
-    def generate(self, messages: Union[List[ChatMessage], str], stop: str = None) -> str:
+    def generate(self, messages: List[ChatMessage], stop: str = None) -> str:
         """
         generate a response from the model
         
         Args:
-            messages: the input messages or prompt string
+            messages: the input messages
             
         Returns:
             the generated output string
