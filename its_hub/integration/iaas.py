@@ -103,7 +103,7 @@ async def config_service(request: ConfigRequest) -> Dict[str, str]:
             prm = LocalVllmProcessRewardModel(
                 model_name=request.rm_name, 
                 device=request.rm_device, 
-                aggregation_method=AggregationMethod("model")  # Fixed for best-of-n
+                aggregation_method=AggregationMethod("model")
             )
             # TODO: Consider separating outcome and process reward model interfaces
             orm = prm  # Using process reward model as outcome reward model
@@ -216,6 +216,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
     
     try:
         # Configure language model for this request
+        # FIXME: Mutating the shared lm instance is not thread-safe and can cause race conditions
         if request.temperature is not None:
             lm.temperature = request.temperature
             

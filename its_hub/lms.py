@@ -1,4 +1,4 @@
-from typing import Union, List, Tuple
+from typing import Union, List, Optional, Tuple
 import asyncio
 import backoff
 import requests
@@ -24,7 +24,7 @@ class StepGeneration:
         stop_token: str = None, 
         temperature: float = 0.8, 
         include_stop_str_in_output: bool = False, 
-        temperature_switch: tuple = None, # (temperature, open_token, close_token)
+        temperature_switch: Optional[Tuple[float, str, str]] = None, # (temperature, open_token, close_token)
     ):
         if not include_stop_str_in_output:
             assert isinstance(step_token, str), "step_token must be a string if include_stop_str_in_output is False"
