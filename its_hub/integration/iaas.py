@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 import click
 import uvicorn
 from fastapi import FastAPI, HTTPException, status
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from ..algorithms import BestOfN, ParticleFiltering
 from ..lms import OpenAICompatibleLanguageModel, StepGeneration
@@ -45,7 +45,8 @@ class ConfigRequest(BaseModel):
     rm_device: str = Field(..., description="Device for reward model (e.g., 'cuda:0')")
     rm_agg_method: Optional[str] = Field(None, description="Reward model aggregation method")
     
-    @validator('alg')
+    @field_validator('alg')
+    @classmethod
     def validate_algorithm(cls, v):
         """Validate that the algorithm is supported."""
         supported_algs = {'particle-filtering', 'best-of-n'}
@@ -136,7 +137,8 @@ class ChatMessage(BaseModel):
     role: str = Field(..., description="Message role (system, user, assistant)")
     content: str = Field(..., description="Message content")
     
-    @validator('role')
+    @field_validator('role')
+    @classmethod
     def validate_role(cls, v):
         """Validate message role."""
         allowed_roles = {'system', 'user', 'assistant'}
@@ -153,7 +155,8 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: Optional[int] = Field(None, ge=1, description="Maximum tokens to generate")
     stream: Optional[bool] = Field(False, description="Stream response (not implemented)")
     
-    @validator('messages')
+    @field_validator('messages')
+    @classmethod
     def validate_messages(cls, v):
         """Validate message format and constraints."""
         if not v:
