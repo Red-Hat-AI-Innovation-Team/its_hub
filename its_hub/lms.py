@@ -55,7 +55,7 @@ class StepGeneration:
         if self.temperature_switch is None:
             return self.temperature
         else:
-            is_single = isinstance(messages_or_messages_lst[0], dict)
+            is_single = isinstance(messages_or_messages_lst[0], ChatMessage)
             if is_single:
                 messages = messages_or_messages_lst
                 if messages[-1].role == "assistant":
