@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.11 or higher
 - CUDA-compatible GPU (recommended for optimal performance)
 - 20GB+ GPU memory for full examples (H100 80GB recommended)
 
