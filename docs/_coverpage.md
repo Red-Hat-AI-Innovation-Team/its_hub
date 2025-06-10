@@ -7,5 +7,5 @@
 - ⚡ Async generation with concurrency limits and error handling
 - 📊 Comprehensive benchmarking tools
 
-[GitHub](https://ai-innovation.team/its_hub)
+[GitHub](https://github.com/Red-Hat-AI-Innovation-Team/its_hub)
 [Get Started](#quick-start-guide)

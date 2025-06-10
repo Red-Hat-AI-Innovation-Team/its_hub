@@ -1,5 +1,5 @@
 - Links
-  - [GitHub](https://ai-innovation.team/its_hub)
+  - [GitHub](https://github.com/Red-Hat-AI-Innovation-Team/its_hub)
   - [PyPI](https://pypi.org/project/its_hub/)
-  - [Tests](https://ai-innovation.team/its_hub/actions/workflows/tests.yml)
+  - [Tests](https://github.com/Red-Hat-AI-Innovation-Team/its_hub/actions/workflows/tests.yml)
   - [Coverage](https://codecov.io/gh/Red-Hat-AI-Innovation-Team/its_hub)
