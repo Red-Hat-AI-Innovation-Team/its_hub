@@ -58,7 +58,7 @@ pip install -e ".[dev]"
 - 🚀 **OpenAI-Compatible API**: Easy integration with existing applications  
 - 🧮 **Math-Optimized**: Built for mathematical reasoning with specialized prompts
 - 📊 **Benchmarking Tools**: Compare algorithms on MATH500 and AIME-2024 datasets
-- ⚡ **Production Ready**: Async generation, concurrency limits, and error handling
+- ⚡ **Async Support**: Concurrent generation with limits and error handling
 
 ## Development
 

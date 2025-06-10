@@ -4,8 +4,8 @@
 
 - 🔬 Multiple scaling algorithms (Particle Filtering, Best-of-N, Beam Search, Self-Consistency)
 - 🚀 OpenAI-compatible API with Inference-as-a-Service (IaaS)
-- 🧮 Optimized for mathematical reasoning tasks
-- 📊 Built-in benchmarking and evaluation tools
+- ⚡ Async generation with concurrency limits and error handling
+- 📊 Comprehensive benchmarking tools
 
 [GitHub](https://github.com/Red-Hat-AI-Innovation-Team/its_hub)
 [Get Started](#quick-start-guide)

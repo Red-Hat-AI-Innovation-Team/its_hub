@@ -22,13 +22,13 @@ Inference-time scaling improves LLM performance by using computational resources
 - 🚀 **OpenAI-Compatible API**: Easy integration with existing applications
 - 🧮 **Math-Optimized**: Built for mathematical reasoning with specialized prompts and evaluation
 - 📊 **Benchmarking Tools**: Compare algorithms on standard datasets like MATH500 and AIME-2024
-- ⚡ **Production Ready**: Async generation, concurrency limits, and error handling
+- ⚡ **Async Support**: Concurrent generation with limits and error handling
 
 ## Supported Algorithms
 
-| Algorithm | Type | Best For | Budget Interpretation |
-|-----------|------|----------|----------------------|
-| **Self-Consistency** | Sampling | Consistent reasoning tasks | Number of parallel generations |
-| **Best-of-N** | Sampling + Ranking | Quality over speed | Number of candidates to generate |
-| **Beam Search** | Structured Search | Step-by-step problems | Total generations ÷ beam width |
-| **Particle Filtering** | Probabilistic | Complex reasoning | Number of particles to maintain |
+| Algorithm | Budget Interpretation | Snippet |
+|-----------|----------------------|---------|
+| **Self-Consistency** | Number of parallel generations | `SelfConsistency()` |
+| **Best-of-N** | Number of candidates to generate | `BestOfN(rm)` |
+| **Beam Search** | Total generations ÷ beam width | `BeamSearch(sg, prm, beam_width=4)` |
+| **Particle Filtering** | Number of particles to maintain | `ParticleFiltering(sg, prm)` |

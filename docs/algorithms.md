@@ -8,12 +8,12 @@ All algorithms follow the same interface: `infer(lm, prompt, budget, return_resp
 
 The `budget` parameter controls computational resources allocated to each algorithm, with different interpretations:
 
-| Algorithm | Budget Interpretation | Best For |
-|-----------|----------------------|----------|
-| Self-Consistency | Number of parallel generations | Tasks requiring consistent reasoning |
-| Best-of-N | Number of candidate responses | Quality over speed scenarios |
-| Beam Search | Total generations ÷ beam width | Step-by-step problem solving |
-| Particle Filtering | Number of particles | Complex probabilistic reasoning |
+| Algorithm | Budget Interpretation | Snippet |
+|-----------|----------------------|---------|
+| Self-Consistency | Number of parallel generations | `SelfConsistency()` |
+| Best-of-N | Number of candidate responses | `BestOfN(rm)` |
+| Beam Search | Total generations ÷ beam width | `BeamSearch(sg, prm, beam_width=4)` |
+| Particle Filtering | Number of particles | `ParticleFiltering(sg, prm)` |
 
 ## Self-Consistency
 
