@@ -321,9 +321,6 @@ class MockLanguageModel:
         self.call_count = 0
 
     def generate(self, messages, stop=None, temperature=None, include_stop_str_in_output=None):
-        # Check if we have a single list of messages or a list of message lists
-        # Single: [{"role": "user", "content": "..."}] or [Message(...)]
-        # Multiple: [[{"role": "user", "content": "..."}], [...]]
         if isinstance(messages[0], list):
             # Multiple message lists
             responses = self.responses[self.call_count:self.call_count + len(messages)]
@@ -340,7 +337,7 @@ class TestStepGeneration(unittest.TestCase):
     """Test the StepGeneration class."""
     
     def test_init(self):
-        # test basic initialization
+        """Test StepGeneration initialization with various parameters."""
         step_gen = StepGeneration(step_token="\n", max_steps=5)
         self.assertEqual(step_gen.step_token, "\n")
         self.assertEqual(step_gen.max_steps, 5)
@@ -348,7 +345,7 @@ class TestStepGeneration(unittest.TestCase):
         self.assertEqual(step_gen.temperature, 0.8)
         self.assertFalse(step_gen.include_stop_str_in_output)
 
-        # test with custom parameters
+        # Test with custom parameters
         step_gen = StepGeneration(
             step_token="\n",
             max_steps=3,
@@ -362,29 +359,30 @@ class TestStepGeneration(unittest.TestCase):
         self.assertEqual(step_gen.temperature, 0.5)
         self.assertTrue(step_gen.include_stop_str_in_output)
 
-        # test validation
+        # Test validation
         with self.assertRaises(AssertionError):
             StepGeneration(step_token=None, max_steps=5, include_stop_str_in_output=True)
 
     def test_post_process(self):
+        """Test the _post_process method with various configurations."""
         step_gen = StepGeneration(step_token="\n", max_steps=5)
         
-        # test without stop token
+        # Test without stop token
         steps = ["step1", "step2", "step3"]
         result = step_gen._post_process(steps)
         self.assertEqual(result, "step1\nstep2\nstep3\n")
         
-        # test with stop token
+        # Test with stop token
         result = step_gen._post_process(steps, stopped=True)
         self.assertEqual(result, "step1\nstep2\nstep3")
         
-        # test with include_stop_str_in_output
+        # Test with include_stop_str_in_output
         step_gen = StepGeneration(step_token="\n", max_steps=5, include_stop_str_in_output=True)
         result = step_gen._post_process(steps)
         self.assertEqual(result, "step1step2step3")
 
     def test_forward_single_prompt(self):
-        # test basic forward with single prompt
+        """Test forward method with single prompt and various scenarios."""
         mock_lm = MockLanguageModel(["response1"])
         step_gen = StepGeneration(step_token="\n", max_steps=5)
         
@@ -392,19 +390,19 @@ class TestStepGeneration(unittest.TestCase):
         self.assertEqual(next_step, "response1")
         self.assertFalse(is_stopped)
         
-        # test with steps_so_far
+        # Test with steps_so_far
         mock_lm = MockLanguageModel(["response2"])
         next_step, is_stopped = step_gen.forward(mock_lm, "test prompt", steps_so_far=["step1"])
         self.assertEqual(next_step, "response2")
         self.assertFalse(is_stopped)
         
-        # test max steps reached
+        # Test max steps reached
         mock_lm = MockLanguageModel(["response3"])
         next_step, is_stopped = step_gen.forward(mock_lm, "test prompt", steps_so_far=["step1"] * 5)
         self.assertEqual(next_step, "response3")
         self.assertTrue(is_stopped)
         
-        # test stop token
+        # Test stop token
         step_gen = StepGeneration(step_token="\n", max_steps=5, stop_token="END")
         mock_lm = MockLanguageModel(["response with END"])
         next_step, is_stopped = step_gen.forward(mock_lm, "test prompt")
@@ -412,7 +410,7 @@ class TestStepGeneration(unittest.TestCase):
         self.assertTrue(is_stopped)
 
     def test_forward_multiple_prompts(self):
-        # test forward with multiple prompts
+        """Test forward method with multiple prompts."""
         mock_lm = MockLanguageModel(["response1", "response2"])
         step_gen = StepGeneration(step_token="\n", max_steps=5)
         
@@ -426,7 +424,7 @@ class TestStepGeneration(unittest.TestCase):
         self.assertEqual(results[1][0], "response2")
         self.assertFalse(results[1][1])
         
-        # test with stop token in multiple prompts
+        # Test with stop token in multiple prompts
         step_gen = StepGeneration(step_token="\n", max_steps=5, stop_token="END")
         mock_lm = MockLanguageModel(["response1", "response with END"])
         results = step_gen.forward(mock_lm, prompts, steps_so_far)
