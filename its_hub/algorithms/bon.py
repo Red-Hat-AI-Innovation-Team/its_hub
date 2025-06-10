@@ -30,6 +30,8 @@ class BestOfN(AbstractScalingAlgorithm):
         responses = lm.generate([[{"role": "user", "content": prompt}]] * budget)
 
         # score responses
+        # TODO: make batched a configurable parameter or remove non-batched branch
+        # Currently hardcoded to True, will be addressed in future PR
         batched = True
         if batched:
             scores = self.orm.score(prompt, responses)
