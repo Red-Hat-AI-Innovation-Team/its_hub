@@ -267,6 +267,116 @@ class TestOpenAICompatibleLanguageModel(unittest.TestCase):
         
         self.assertIn("Server error", str(context.exception))
     
+    def test_replace_error_with_message_disabled(self):
+        """Test that replace_error_with_message=None (default) raises exceptions."""
+        # Default behavior - should raise exception
+        model_default = OpenAICompatibleLanguageModel(
+            endpoint=self.endpoint,
+            api_key="dummy-api-key",
+            model_name="dummy-model",
+            max_tries=1  # Fail quickly
+        )
+        
+        # Verify parameter is None by default
+        self.assertIsNone(model_default.replace_error_with_message)
+        
+        # This should raise an exception
+        messages = [{"role": "user", "content": "trigger_error"}]
+        with self.assertRaises(Exception):
+            model_default.generate(messages)
+    
+    def test_replace_error_with_message_enabled(self):
+        """Test that replace_error_with_message returns the specified message on error."""
+        error_message = "[CUSTOM ERROR]"
+        model_with_replacement = OpenAICompatibleLanguageModel(
+            endpoint=self.endpoint,
+            api_key="dummy-api-key",
+            model_name="dummy-model",
+            max_tries=1,  # Fail quickly
+            replace_error_with_message=error_message
+        )
+        
+        # Verify parameter is set correctly
+        self.assertEqual(model_with_replacement.replace_error_with_message, error_message)
+        
+        # This should return the error message instead of raising
+        messages = [{"role": "user", "content": "trigger_error"}]
+        result = model_with_replacement.generate(messages)
+        self.assertEqual(result, error_message)
+    
+    def test_replace_error_with_message_batch(self):
+        """Test replace_error_with_message with batch requests."""
+        error_message = "[BATCH ERROR]"
+        model_with_replacement = OpenAICompatibleLanguageModel(
+            endpoint=self.endpoint,
+            api_key="dummy-api-key",
+            model_name="dummy-model",
+            max_tries=1,  # Fail quickly
+            replace_error_with_message=error_message
+        )
+        
+        # Test batch with some errors and some successes
+        messages_lst = [
+            [{"role": "user", "content": "Hello, world!"}],  # Should succeed
+            [{"role": "user", "content": "trigger_error"}],   # Should return error message
+            [{"role": "user", "content": "How are you?"}]     # Should succeed
+        ]
+        
+        results = model_with_replacement.generate(messages_lst)
+        expected = [
+            "Response to: Hello, world!",
+            error_message,
+            "Response to: How are you?"
+        ]
+        self.assertEqual(results, expected)
+    
+    def test_replace_error_with_message_empty_string(self):
+        """Test that empty string is a valid error message."""
+        model_with_empty_replacement = OpenAICompatibleLanguageModel(
+            endpoint=self.endpoint,
+            api_key="dummy-api-key",
+            model_name="dummy-model",
+            max_tries=1,  # Fail quickly
+            replace_error_with_message=""  # Empty string should be valid
+        )
+        
+        # This should return empty string instead of raising
+        messages = [{"role": "user", "content": "trigger_error"}]
+        result = model_with_empty_replacement.generate(messages)
+        self.assertEqual(result, "")
+    
+    def test_async_replace_error_with_message(self):
+        """Test replace_error_with_message with async model."""
+        error_message = "[ASYNC ERROR]"
+        async_model_with_replacement = OpenAICompatibleLanguageModel(
+            endpoint=self.endpoint,
+            api_key="dummy-api-key",
+            model_name="dummy-model",
+            is_async=True,
+            max_tries=1,  # Fail quickly
+            replace_error_with_message=error_message
+        )
+        
+        # Test single error
+        messages = [{"role": "user", "content": "trigger_error"}]
+        result = async_model_with_replacement.generate(messages)
+        self.assertEqual(result, error_message)
+        
+        # Test batch with mixed results
+        messages_lst = [
+            [{"role": "user", "content": "Hello!"}],
+            [{"role": "user", "content": "trigger_error"}],
+            [{"role": "user", "content": "Goodbye!"}]
+        ]
+        
+        results = async_model_with_replacement.generate(messages_lst)
+        expected = [
+            "Response to: Hello!",
+            error_message,
+            "Response to: Goodbye!"
+        ]
+        self.assertEqual(results, expected)
+    
     def test_max_concurrency(self):
         """Test that the max_concurrency parameter limits concurrent requests."""
         # Instead of testing actual concurrency (which is hard in a single process),
