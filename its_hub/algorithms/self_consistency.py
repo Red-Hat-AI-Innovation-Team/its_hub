@@ -48,7 +48,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
         return_response_only: bool = True, 
     ) -> Union[str, SelfConsistencyResult]:
         # generate responses
-        responses = lm.generate([[ChatMessage(role="user", content=prompt)]] * budget)
+        responses = lm.generate([[ChatMessage(role="user", content=prompt)] for _ in range(budget)])
         
         # project responses into consistency space
         responses_projected = [self.consistency_space_projection_func(r) for r in responses]

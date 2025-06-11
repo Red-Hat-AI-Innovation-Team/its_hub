@@ -28,7 +28,7 @@ class BestOfN(AbstractScalingAlgorithm):
         return_response_only: bool = True, 
     ) -> Union[str, BestOfNResult]:
         # generate responses
-        responses = lm.generate([[ChatMessage(role="user", content=prompt)]] * budget)
+        responses = lm.generate([[ChatMessage(role="user", content=prompt)] for _ in range(budget)])
 
         # score responses
         # TODO: make batched a configurable parameter or remove non-batched branch
