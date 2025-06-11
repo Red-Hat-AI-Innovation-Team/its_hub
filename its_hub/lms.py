@@ -1,5 +1,6 @@
 from typing import Union, List, Optional, Tuple
 import asyncio
+import logging
 import backoff
 import requests
 import aiohttp
@@ -224,7 +225,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                             error_text = await response.text()
                             api_error = parse_api_error(response.status, error_text)
                             if not should_retry(api_error):
-                                print(format_non_retryable_error(api_error))
+                                logging.error(format_non_retryable_error(api_error))
                             raise api_error
                         response_json = await response.json()
                         return response_json["choices"][0]["message"]["content"]
@@ -261,7 +262,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 if response.status_code != 200:
                     api_error = parse_api_error(response.status_code, response.text)
                     if not should_retry(api_error):
-                        print(format_non_retryable_error(api_error))
+                        logging.error(format_non_retryable_error(api_error))
                     raise api_error
                 
                 response_json = response.json()
