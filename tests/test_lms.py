@@ -246,7 +246,7 @@ class TestOpenAICompatibleLanguageModel(unittest.TestCase):
         with self.assertRaises(Exception) as context:
             model_with_retries.generate(messages)
         
-        self.assertIn("API request failed", str(context.exception))
+        self.assertIn("Server error", str(context.exception))
     
     def test_async_error_handling(self):
         """Test error handling with retries in async mode."""
@@ -265,7 +265,7 @@ class TestOpenAICompatibleLanguageModel(unittest.TestCase):
         with self.assertRaises(Exception) as context:
             async_model_with_retries.generate(messages)
         
-        self.assertIn("API request failed", str(context.exception))
+        self.assertIn("Server error", str(context.exception))
     
     def test_max_concurrency(self):
         """Test that the max_concurrency parameter limits concurrent requests."""
