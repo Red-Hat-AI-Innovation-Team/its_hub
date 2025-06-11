@@ -1,6 +1,6 @@
 from typing import Union, List
 import copy
-from dataclasses import dataclass
+from pydantic.dataclasses import dataclass
 import numpy as np
 from tqdm import tqdm
 

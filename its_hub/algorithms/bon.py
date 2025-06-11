@@ -1,8 +1,9 @@
 from typing import Union, List
-from dataclasses import dataclass
+from pydantic.dataclasses import dataclass
 from tqdm import tqdm
 
 from ..base import AbstractLanguageModel, AbstractScalingResult, AbstractScalingAlgorithm, AbstractOutcomeRewardModel
+from ..types import ChatMessage
 
 
 @dataclass
@@ -27,7 +28,7 @@ class BestOfN(AbstractScalingAlgorithm):
         return_response_only: bool = True, 
     ) -> Union[str, BestOfNResult]:
         # generate responses
-        responses = lm.generate([[{"role": "user", "content": prompt}]] * budget)
+        responses = lm.generate([[ChatMessage(role="user", content=prompt)]] * budget)
 
         # score responses
         # TODO: make batched a configurable parameter or remove non-batched branch

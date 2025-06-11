@@ -1,7 +1,7 @@
 from typing import Union, List
 from enum import Enum
 import copy
-from dataclasses import dataclass
+from pydantic.dataclasses import dataclass
 import random
 import numpy as np
 from tqdm import tqdm

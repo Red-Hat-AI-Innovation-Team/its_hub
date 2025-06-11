@@ -1,10 +1,11 @@
 from typing import Callable, Union, List
 from collections import Counter
-from dataclasses import dataclass
+from pydantic.dataclasses import dataclass
 import random
 from tqdm import tqdm
 
 from ..base import AbstractLanguageModel, AbstractScalingResult, AbstractScalingAlgorithm
+from ..types import ChatMessage
 
 
 @dataclass
@@ -47,7 +48,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
         return_response_only: bool = True, 
     ) -> Union[str, SelfConsistencyResult]:
         # generate responses
-        responses = lm.generate([[{"role": "user", "content": prompt}]] * budget)
+        responses = lm.generate([[ChatMessage(role="user", content=prompt)]] * budget)
         
         # project responses into consistency space
         responses_projected = [self.consistency_space_projection_func(r) for r in responses]

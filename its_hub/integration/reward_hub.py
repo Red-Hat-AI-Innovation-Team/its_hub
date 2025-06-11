@@ -3,6 +3,7 @@ from typing import List, Union
 from reward_hub.base import AggregationMethod
 
 from ..base import AbstractOutcomeRewardModel, AbstractProcessRewardModel
+from ..types import ChatMessage
 
 class LocalVllmProcessRewardModel(AbstractProcessRewardModel):
     def __init__(self, model_name: str, device: str, aggregation_method: AggregationMethod):
@@ -16,7 +17,7 @@ class LocalVllmProcessRewardModel(AbstractProcessRewardModel):
     def score(self, prompt: str, response_or_responses: Union[str, List[str]]) -> float:
         is_single_response = isinstance(response_or_responses, str)
         messages = [
-            [{"role": "user", "content": prompt}, {"role": "assistant", "content": r}]
+            [ChatMessage(role="user", content=prompt), ChatMessage(role="assistant", content=r)]
             for r in ([response_or_responses] if is_single_response else response_or_responses)
         ]
         res = self.model.score(
