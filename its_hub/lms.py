@@ -6,6 +6,10 @@ import aiohttp
 
 from .base import AbstractLanguageModel
 from .types import ChatMessage
+from .error_handling import (
+    parse_api_error, enhanced_on_backoff, should_retry, 
+    format_non_retryable_error, RETRYABLE_ERRORS
+)
 
 def rstrip_iff_entire(s, subs):
   if s.endswith(subs):
@@ -112,10 +116,6 @@ class StepGeneration:
                              for is_stopped_per_prompt, next_step in zip(is_stopped, next_steps)]
             return list(zip(next_steps, is_stopped))
 
-def _on_backoff(details):
-    print ("Backing off {wait:0.1f} seconds after {tries} tries "
-           "calling function {target} with args {args} and kwargs "
-           "{kwargs}".format(**details))
 
 class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     def __init__(
@@ -208,7 +208,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         
         # create a single session for all requests in this call
         async with aiohttp.ClientSession() as session:
-            @backoff.on_exception(backoff.expo, Exception, max_tries=self.max_tries, on_backoff=_on_backoff)
+            @backoff.on_exception(backoff.expo, RETRYABLE_ERRORS, max_tries=self.max_tries, on_backoff=enhanced_on_backoff, giveup=lambda e: not should_retry(e))
             async def fetch_response(messages, _temperature):
                 async with semaphore:
                     request_data = self._prepare_request_data(
@@ -222,7 +222,10 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                     ) as response:
                         if response.status != 200:
                             error_text = await response.text()
-                            raise Exception(f"API request failed with status {response.status}: {error_text}")
+                            api_error = parse_api_error(response.status, error_text)
+                            if not should_retry(api_error):
+                                print(format_non_retryable_error(api_error))
+                            raise api_error
                         response_json = await response.json()
                         return response_json["choices"][0]["message"]["content"]
 
@@ -243,7 +246,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             loop = asyncio.get_event_loop()
             response_or_responses = loop.run_until_complete(self._generate(messages_lst, stop, max_tokens, temperature, include_stop_str_in_output))
         else:
-            @backoff.on_exception(backoff.expo, Exception, max_tries=self.max_tries, on_backoff=_on_backoff)
+            @backoff.on_exception(backoff.expo, RETRYABLE_ERRORS, max_tries=self.max_tries, on_backoff=enhanced_on_backoff, giveup=lambda e: not should_retry(e))
             def fetch_single_response(messages, _temperature):
                 request_data = self._prepare_request_data(
                     messages, stop, max_tokens, _temperature, include_stop_str_in_output
@@ -256,7 +259,10 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 )
                 
                 if response.status_code != 200:
-                    raise Exception(f"API request failed with status {response.status_code}: {response.text}")
+                    api_error = parse_api_error(response.status_code, response.text)
+                    if not should_retry(api_error):
+                        print(format_non_retryable_error(api_error))
+                    raise api_error
                 
                 response_json = response.json()
                 return response_json["choices"][0]["message"]["content"]
