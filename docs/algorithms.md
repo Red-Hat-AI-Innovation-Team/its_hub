@@ -28,7 +28,7 @@ result = sc.infer(lm, prompt, budget=8)
 
 # With step generation for better reasoning
 from its_hub.lms import StepGeneration
-sg = StepGeneration("\\n\\n", max_steps=32, stop_pattern=r"\\boxed")
+sg = StepGeneration("\n\n", max_steps=32, stop_pattern=r"\boxed")
 sc = SelfConsistency(sg)
 result = sc.infer(lm, prompt, budget=8)
 ```
@@ -73,7 +73,7 @@ from its_hub.lms import StepGeneration
 from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
 
 # Initialize components
-sg = StepGeneration("\\n\\n", max_steps=32, stop_pattern=r"\\boxed")
+sg = StepGeneration("\n\n", max_steps=32, stop_pattern=r"\boxed")
 prm = LocalVllmProcessRewardModel(
     model_name="Qwen/Qwen2.5-Math-PRM-7B",
     device="cuda:0",
@@ -102,7 +102,7 @@ from its_hub.lms import StepGeneration
 from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
 
 # Initialize components
-sg = StepGeneration("\\n\\n", max_steps=32, stop_pattern=r"\\boxed")
+sg = StepGeneration("\n\n", max_steps=32, stop_pattern=r"\boxed")
 prm = LocalVllmProcessRewardModel(
     model_name="Qwen/Qwen2.5-Math-PRM-7B",
     device="cuda:0",
@@ -130,9 +130,9 @@ from its_hub.lms import StepGeneration
 
 # For math problems with boxed answers
 sg = StepGeneration(
-    step_token="\\n\\n",        # Split reasoning into steps
+    step_token="\n\n",        # Split reasoning into steps
     max_steps=32,               # Maximum number of steps
-    stop_pattern=r"\\boxed",    # Stop when final answer is found
+    stop_pattern=r"\boxed",    # Stop when final answer is found
     post_process=True           # Clean up output formatting
 )
 ```

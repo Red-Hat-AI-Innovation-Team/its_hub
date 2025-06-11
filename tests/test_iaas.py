@@ -238,7 +238,7 @@ class TestIaaSAPI(unittest.TestCase):
             "api_key": "test-key",
             "model": "test-model",
             "alg": "particle-filtering",
-            "step_token": "\\n",
+            "step_token": "\n",
             "stop_token": "<end>",
             "rm_name": "test-rm",
             "rm_device": "cuda:0",
@@ -503,7 +503,7 @@ class TestConfigRequestModel(unittest.TestCase):
             api_key="test-key",
             model="test-model",
             alg="particle-filtering",
-            step_token="\\n",
+            step_token="\n",
             stop_token="END",
             rm_name="reward-model",
             rm_device="cuda:0",
@@ -512,7 +512,7 @@ class TestConfigRequestModel(unittest.TestCase):
         
         assert config.endpoint == "http://localhost:8000"
         assert config.alg == "particle-filtering"
-        assert config.step_token == "\\n"
+        assert config.step_token == "\n"
     
     def test_invalid_algorithm(self):
         """Test that invalid algorithms are rejected."""

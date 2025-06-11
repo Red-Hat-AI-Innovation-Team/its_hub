@@ -20,7 +20,7 @@ lm = OpenAICompatibleLanguageModel(
 prompt = r"Let $a$ be a positive real number such that all the roots of \[x^3 + ax^2 + ax + 1 = 0\]are real. Find the smallest possible value of $a.$" # question from MATH500
 budget = 8
 
-sg = StepGeneration("\\n\\n", 32, r"\\boxed")
+sg = StepGeneration("\n\n", 32, r"\boxed")
 prm = LocalVllmProcessRewardModel(
     model_name="Qwen/Qwen2.5-Math-PRM-7B", device="cuda:1", aggregation_method="prod"
 )
@@ -53,7 +53,7 @@ curl -X POST http://localhost:8108/configure \
     "api_key": "NO_API_KEY", 
     "model": "Qwen/Qwen2.5-Math-1.5B-Instruct",
     "alg": "particle-filtering",
-    "step_token": "\\n",
+    "step_token": "\n",
     "stop_token": "<|end|>",
     "rm_name": "Qwen/Qwen2.5-Math-PRM-7B",
     "rm_device": "cuda:0",
