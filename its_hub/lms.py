@@ -29,7 +29,7 @@ class StepGeneration:
         max_steps: int, 
         stop_token: str = None, 
         temperature: float = 0.8, 
-        include_stop_str_in_output: bool = False, 
+        include_stop_str_in_output: bool = False,  # If True, keep stop strings in output; if False, strip them 
         temperature_switch: Optional[Tuple[float, str, str]] = None, # (temperature, open_token, close_token)
     ):
         if not include_stop_str_in_output:
@@ -251,7 +251,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                                           for messages, _temperature in zip(messages_lst, temperature_lst)))
     
     def generate(
-        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: Union[float, List[float]] = None, include_stop_str_in_output: bool = None
+        self, messages_or_messages_lst, stop: str = None, max_tokens: int = None, temperature: Union[float, List[float]] = None, include_stop_str_in_output: bool = None  # If True, keep stop strings in generated text; if False, strip them
     ) -> Union[str, List[str]]:
         # Check if we have a single list of messages or a list of message lists  
         # Single list: [{"role": "user", "content": "..."}] or [Message(...)]
