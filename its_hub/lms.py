@@ -1,5 +1,6 @@
 from typing import Union, List, Optional, Tuple
 import asyncio
+import concurrent.futures
 import logging
 import backoff
 import requests
@@ -236,7 +237,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 if self.replace_error_with_message is not None:
                     try:
                         return await fetch_response(messages, _temperature)
-                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    except (aiohttp.ClientError, TimeoutError) as e:
                         logging.error(f"Network error during async generation: {e}")
                         return self.replace_error_with_message
                 else:
@@ -256,8 +257,21 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         is_single = not isinstance(messages_or_messages_lst[0], list)
         messages_lst = [messages_or_messages_lst] if is_single else messages_or_messages_lst
         if self.is_async:
-            loop = asyncio.get_event_loop()
-            response_or_responses = loop.run_until_complete(self._generate(messages_lst, stop, max_tokens, temperature, include_stop_str_in_output))
+            try:
+                # Try to get the current event loop
+                loop = asyncio.get_running_loop()
+                # If we're already in an event loop, we need to use a different approach
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run, 
+                        self._generate(messages_lst, stop, max_tokens, temperature, include_stop_str_in_output)
+                    )
+                    response_or_responses = future.result()
+            except RuntimeError:
+                # No running event loop, we can use asyncio.run
+                response_or_responses = asyncio.run(
+                    self._generate(messages_lst, stop, max_tokens, temperature, include_stop_str_in_output)
+                )
         else:
             @backoff.on_exception(backoff.expo, RETRYABLE_ERRORS, max_tries=self.max_tries, on_backoff=enhanced_on_backoff, giveup=lambda e: not should_retry(e))
             def fetch_single_response(messages, _temperature):
