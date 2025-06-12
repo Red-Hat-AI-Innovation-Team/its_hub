@@ -1,6 +1,5 @@
 from typing import Union, List, Optional, Tuple
 import asyncio
-import concurrent.futures
 import logging
 import backoff
 import requests
@@ -10,7 +9,7 @@ from .base import AbstractLanguageModel
 from .types import ChatMessage
 from .error_handling import (
     parse_api_error, enhanced_on_backoff, should_retry, 
-    format_non_retryable_error, RETRYABLE_ERRORS
+    format_non_retryable_error, RETRYABLE_ERRORS, APIError
 )
 
 def rstrip_iff_entire(s, subs):
@@ -240,6 +239,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                     except (aiohttp.ClientError, TimeoutError) as e:
                         logging.error(f"Network error during async generation: {e}")
                         return self.replace_error_with_message
+                    except APIError as e:
+                        logging.error(f"API error during async generation: {e}")
+                        return self.replace_error_with_message
                 else:
                     return await fetch_response(messages, _temperature)
 
@@ -257,21 +259,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         is_single = not isinstance(messages_or_messages_lst[0], list)
         messages_lst = [messages_or_messages_lst] if is_single else messages_or_messages_lst
         if self.is_async:
-            try:
-                # Try to get the current event loop
-                loop = asyncio.get_running_loop()
-                # If we're already in an event loop, we need to use a different approach
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        asyncio.run, 
-                        self._generate(messages_lst, stop, max_tokens, temperature, include_stop_str_in_output)
-                    )
-                    response_or_responses = future.result()
-            except RuntimeError:
-                # No running event loop, we can use asyncio.run
-                response_or_responses = asyncio.run(
-                    self._generate(messages_lst, stop, max_tokens, temperature, include_stop_str_in_output)
-                )
+            loop = asyncio.get_event_loop()
+            response_or_responses = loop.run_until_complete(self._generate(messages_lst, stop, max_tokens, temperature, include_stop_str_in_output))
         else:
             @backoff.on_exception(backoff.expo, RETRYABLE_ERRORS, max_tries=self.max_tries, on_backoff=enhanced_on_backoff, giveup=lambda e: not should_retry(e))
             def fetch_single_response(messages, _temperature):
@@ -300,6 +289,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         return fetch_single_response(messages, _temperature)
                     except requests.RequestException as e:
                         logging.error(f"Network error during sync generation: {e}")
+                        return self.replace_error_with_message
+                    except APIError as e:
+                        logging.error(f"API error during sync generation: {e}")
                         return self.replace_error_with_message
                 else:
                     return fetch_single_response(messages, _temperature)
