@@ -51,7 +51,7 @@ python scripts/benchmark.py --help
 ## Additional Tips
 - Use `rg` in favor of `grep` whenever it's available
 - Use `uv` for Python environment management: always start with `uv sync --extra dev` to init the env and run stuff with `uv run`
-- In case of dependency issues during testing, try commenting out `reward_hub` and `vllm` temporarly in @pyproject.toml and retry.
+- In case of dependency issues during testing, try commenting out `reward_hub` and `vllm` temporarily in @pyproject.toml and retry.
 
 ## Architecture Overview
 
