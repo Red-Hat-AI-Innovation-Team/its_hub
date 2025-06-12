@@ -17,7 +17,7 @@ class LocalVllmProcessRewardModel(AbstractProcessRewardModel):
     def score(self, prompt: str, response_or_responses: Union[str, List[str]]) -> float:
         is_single_response = isinstance(response_or_responses, str)
         messages = [
-            [ChatMessage(role="user", content=prompt), ChatMessage(role="assistant", content=r)]
+            [{"role": "user", "content": prompt}, {"role": "assistant", "content": r}]
             for r in ([response_or_responses] if is_single_response else response_or_responses)
         ]
         res = self.model.score(
