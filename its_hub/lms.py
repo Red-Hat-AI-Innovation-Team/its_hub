@@ -236,7 +236,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 if self.replace_error_with_message is not None:
                     try:
                         return await fetch_response(messages, _temperature)
-                    except Exception:
+                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                        logging.error(f"Network error during async generation: {e}")
                         return self.replace_error_with_message
                 else:
                     return await fetch_response(messages, _temperature)
@@ -283,7 +284,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 if self.replace_error_with_message is not None:
                     try:
                         return fetch_single_response(messages, _temperature)
-                    except Exception:
+                    except requests.RequestException as e:
+                        logging.error(f"Network error during sync generation: {e}")
                         return self.replace_error_with_message
                 else:
                     return fetch_single_response(messages, _temperature)
