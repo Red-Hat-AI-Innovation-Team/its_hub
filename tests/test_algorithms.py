@@ -1,5 +1,18 @@
-from its_hub.algorithms.self_consistency import _select_most_common_or_random
+# Standard library imports
 from collections import Counter
+from copy import deepcopy
+from typing import List, Union
+
+# Third-party imports
+import pytest
+
+# Local imports
+from its_hub.algorithms.self_consistency import _select_most_common_or_random
+from its_hub.algorithms.beam_search import BeamSearch, BeamSearchResult, Path
+from its_hub.algorithms.particle_gibbs import ParticleGibbs, ParticleGibbsResult, ParticleFiltering, SelectionMethod, Particle
+from its_hub.algorithms.bon import BestOfN, BestOfNResult
+from its_hub.base import AbstractLanguageModel, AbstractOutcomeRewardModel
+from its_hub.lms import StepGeneration
 
 def test_select_most_common_or_random_single_winner():
     # test case with a single most common element
@@ -34,12 +47,6 @@ def test_select_most_common_or_random_all_unique():
     # verify selected index points to one of the elements
     assert test_list[selected_index] in test_list
 
-from copy import deepcopy
-from its_hub.algorithms.beam_search import Path
-from its_hub.algorithms.particle_gibbs import Particle
-from its_hub.algorithms.bon import BestOfN, BestOfNResult
-from its_hub.base import AbstractLanguageModel, AbstractOutcomeRewardModel
-from typing import List, Union
 
 def test_path_deepcopy():
     steps = ['a', 'b', 'c']
@@ -211,8 +218,6 @@ class MockProcessRewardModel:
 
 
 # Beam Search Tests
-from its_hub.algorithms.beam_search import BeamSearch, BeamSearchResult
-from its_hub.lms import StepGeneration
 
 def test_beam_search_result():
     responses = ["response1", "response2", "response3"]
@@ -266,19 +271,12 @@ def test_beam_search_budget_validation():
     beam_search = BeamSearch(sg, mock_prm, beam_width=2)
     
     # Test budget not divisible by beam_width
-    try:
+    with pytest.raises(AssertionError, match="budget must be divisible by beam_width"):
         beam_search.infer(mock_lm, "test prompt", budget=3)
-        assert False, "Should have raised AssertionError"
-    except AssertionError as e:
-        assert "budget must be divisible by beam_width" in str(e)
     
     # Test budget less than beam_width - this will also trigger divisible check since 1 % 2 != 0
-    try:
+    with pytest.raises(AssertionError, match="budget must be divisible by beam_width"):
         beam_search.infer(mock_lm, "test prompt", budget=1)
-        assert False, "Should have raised AssertionError"
-    except AssertionError as e:
-        # The first assertion that fails is the divisibility check
-        assert "budget must be divisible by beam_width" in str(e)
 
 
 def test_beam_search_path_selection():
@@ -297,8 +295,7 @@ def test_beam_search_path_selection():
     assert result.selected_index == result.scores.index(max(result.scores))
 
 
-# Particle Gibbs Tests  
-from its_hub.algorithms.particle_gibbs import ParticleGibbs, ParticleGibbsResult, ParticleFiltering, SelectionMethod
+# Particle Gibbs Tests
 
 def test_particle_gibbs_result():
     responses_lst = [["response1", "response2"], ["response3", "response4"]]
@@ -377,11 +374,8 @@ def test_particle_gibbs_budget_validation():
     particle_gibbs = ParticleGibbs(sg, mock_prm, num_iterations=3)
     
     # Test budget not divisible by num_iterations
-    try:
+    with pytest.raises(AssertionError, match="budget must be divisible by num_iterations"):
         particle_gibbs.infer(mock_lm, "test prompt", budget=4)
-        assert False, "Should have raised AssertionError"
-    except AssertionError as e:
-        assert "budget must be divisible by num_iterations" in str(e)
 
 
 def test_particle_gibbs_selection_methods():
@@ -443,8 +437,5 @@ def test_particle_gibbs_ancestor_sampling_not_implemented():
         does_ancestor_sampling=True
     )
     
-    try:
+    with pytest.raises(NotImplementedError, match="Ancestor sampling is not implemented"):
         particle_gibbs.infer(mock_lm, "test prompt", budget=1)
-        assert False, "Should have raised NotImplementedError"
-    except NotImplementedError as e:
-        assert "Ancestor sampling is not implemented" in str(e)
