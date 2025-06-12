@@ -48,6 +48,10 @@ python scripts/test_math_example.py
 python scripts/benchmark.py --help
 ```
 
+## Additional Tips
+- Use `rg` in favor of `grep` whenever it's available
+- Use `uv` for Python environment management: always start with `uv sync --extra dev` to init the env and run stuff with `uv run`
+
 ## Architecture Overview
 
 **its_hub** is a library for inference-time scaling of LLMs, focusing on mathematical reasoning tasks. The core architecture uses abstract base classes to define clean interfaces between components.
