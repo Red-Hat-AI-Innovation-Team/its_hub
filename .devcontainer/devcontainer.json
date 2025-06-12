@@ -47,7 +47,7 @@
     "CLAUDE_CONFIG_DIR": "/home/node/.claude",
     "POWERLEVEL9K_DISABLE_GITSTATUS": "true"
   },
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/its_hub,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
   "postCreateCommand": "sudo /usr/local/bin/init-firewall.sh"
 }
