@@ -81,7 +81,6 @@ class TestConfiguration:
         ("best-of-n", {}),
         ("particle-filtering", {"step_token": "\n", "stop_token": "<end>"}),
     ])
-    @pytest.mark.skip(reason="Requires reward_hub dependency which has complex build requirements")
     @patch('its_hub.integration.reward_hub.LocalVllmProcessRewardModel')
     @patch('its_hub.integration.reward_hub.AggregationMethod')
     def test_configuration_success(self, mock_agg_method, mock_reward_model, 
@@ -103,7 +102,6 @@ class TestConfiguration:
         assert data["status"] == "success"
         assert algorithm in data["message"]
 
-    @pytest.mark.skip(reason="Requires reward_hub dependency which has complex build requirements")
     @patch('its_hub.integration.reward_hub.LocalVllmProcessRewardModel')
     @patch('its_hub.integration.reward_hub.AggregationMethod')
     def test_models_endpoint_after_configuration(self, mock_agg_method, mock_reward_model, 
@@ -129,25 +127,24 @@ class TestConfiguration:
 class TestChatCompletions:
     """Test the chat completions endpoint."""
     
-    @pytest.mark.parametrize("invalid_request,expected_error", [
-        ({"model": "test-model", "messages": [], "budget": 4}, "validation error"),
-        ({"model": "test-model", "messages": [
+    @pytest.mark.parametrize("invalid_request", [
+        {"model": "test-model", "messages": [], "budget": 4},
+        {"model": "test-model", "messages": [
             {"role": "system", "content": "System prompt"},
             {"role": "user", "content": "User message"},
             {"role": "assistant", "content": "Too many messages"}
-        ], "budget": 4}, "validation error"),
-        ({"model": "test-model", "messages": [
+        ], "budget": 4},
+        {"model": "test-model", "messages": [
             {"role": "user", "content": "User first"},
             {"role": "system", "content": "System second"}
-        ], "budget": 4}, "validation error"),
-        ({"model": "test-model", "messages": [{"role": "user", "content": "Test"}], "budget": 0}, "validation error"),
+        ], "budget": 4},
+        {"model": "test-model", "messages": [{"role": "user", "content": "Test"}], "budget": 0},
     ])
-    def test_chat_completions_validation(self, iaas_client, invalid_request, expected_error):
+    def test_chat_completions_validation(self, iaas_client, invalid_request):
         """Test chat completions request validation with various invalid inputs."""
         response = iaas_client.post("/v1/chat/completions", json=invalid_request)
         assert response.status_code == 422
 
-    @pytest.mark.skip(reason="Requires reward_hub dependency which has complex build requirements")
     def test_chat_completions_streaming_not_implemented(self, iaas_client, vllm_server):
         """Test that streaming is not yet implemented."""
         self._configure_service(iaas_client, vllm_server)
@@ -158,7 +155,6 @@ class TestChatCompletions:
         assert response.status_code == 501
         assert "not yet implemented" in response.json()["detail"]
 
-    @pytest.mark.skip(reason="Requires reward_hub dependency which has complex build requirements")
     def test_chat_completions_model_not_found(self, iaas_client, vllm_server):
         """Test chat completions with non-existent model."""
         self._configure_service(iaas_client, vllm_server)
@@ -169,7 +165,6 @@ class TestChatCompletions:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"]
 
-    @pytest.mark.skip(reason="Requires reward_hub dependency which has complex build requirements")
     def test_chat_completions_success(self, iaas_client, vllm_server):
         """Test successful chat completion."""
         self._configure_service(iaas_client, vllm_server)
@@ -204,7 +199,6 @@ class TestChatCompletions:
         assert call_args[0][1] == "Solve 2+2"  # prompt
         assert call_args[0][2] == 8  # budget
 
-    @pytest.mark.skip(reason="Requires reward_hub dependency which has complex build requirements")
     def test_chat_completions_with_system_message(self, iaas_client, vllm_server):
         """Test chat completion with system message."""
         self._configure_service(iaas_client, vllm_server)
@@ -229,7 +223,6 @@ class TestChatCompletions:
         # Verify the scaling algorithm was called
         mock_scaling_alg.infer.assert_called_once()
 
-    @pytest.mark.skip(reason="Requires reward_hub dependency which has complex build requirements")
     def test_chat_completions_algorithm_error(self, iaas_client, vllm_server):
         """Test chat completion when scaling algorithm raises an error."""
         self._configure_service(iaas_client, vllm_server)
@@ -311,11 +304,8 @@ class TestPydanticModels:
         assert request.budget == 8
         assert request.temperature == TEST_CONSTANTS["DEFAULT_TEMPERATURE"]
 
-    @pytest.mark.parametrize("invalid_budget,expected_error", [
-        (0, "too low"),
-        (1001, "too high"),
-    ])
-    def test_budget_validation_in_chat_request(self, invalid_budget, expected_error):
+    @pytest.mark.parametrize("invalid_budget", [0, 1001])
+    def test_budget_validation_in_chat_request(self, invalid_budget):
         """Test budget parameter validation in ChatCompletionRequest."""
         with pytest.raises(ValueError):
             ChatCompletionRequest(
