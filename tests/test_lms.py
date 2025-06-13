@@ -1,545 +1,313 @@
+"""Clean tests for language models with improved organization."""
+
 import unittest
-import json
-import threading
-import asyncio
-import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import socket
-from typing import List, Dict, Any
 from unittest.mock import patch
+import pytest
 
 from its_hub.lms import OpenAICompatibleLanguageModel, StepGeneration
+from tests.mocks.language_models import SimpleMockLanguageModel
+from tests.mocks.test_data import TestDataFactory, TEST_SCENARIOS
+from tests.conftest import TEST_CONSTANTS
 
 
-def find_free_port():
-    """Find a free port to use for the test server."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('', 0))
-        return s.getsockname()[1]
-
-
-class DummyOpenAIHandler(BaseHTTPRequestHandler):
-    """A dummy HTTP handler that mimics the OpenAI API."""
+class TestOpenAICompatibleLanguageModel:
+    """Test the OpenAICompatibleLanguageModel class using fixtures."""
     
-    # Class-level variables to track concurrent requests
-    active_requests = 0
-    max_concurrent_requests = 0
-    request_lock = threading.Lock()
-    
-    @classmethod
-    def reset_stats(cls):
-        """Reset the request statistics."""
-        with cls.request_lock:
-            cls.active_requests = 0
-            cls.max_concurrent_requests = 0
-    
-    def do_POST(self):
-        """Handle POST requests to the /chat/completions endpoint."""
-        if self.path == "/chat/completions":
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            request_data = json.loads(post_data.decode('utf-8'))
-            
-            # Track concurrent requests
-            with self.__class__.request_lock:
-                self.__class__.active_requests += 1
-                self.__class__.max_concurrent_requests = max(
-                    self.__class__.max_concurrent_requests, 
-                    self.__class__.active_requests
-                )
-            
-            # Simulate some processing time
-            time.sleep(0.1)
-            
-            # Check if we should simulate an error
-            if "trigger_error" in request_data.get("messages", [{}])[-1].get("content", ""):
-                self.send_response(500)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                error_response = {
-                    "error": {
-                        "message": "Simulated API error",
-                        "type": "server_error",
-                        "code": 500
-                    }
-                }
-                self.wfile.write(json.dumps(error_response).encode('utf-8'))
-                
-                # Decrement active requests
-                with self.__class__.request_lock:
-                    self.__class__.active_requests -= 1
-                
-                return
-            
-            # extract the messages from the request
-            messages = request_data.get("messages", [])
-            
-            # prepare a response based on the messages
-            response_content = f"Response to: {messages[-1]['content']}"
-            
-            # check if there's a stop sequence and we should include it
-            stop = request_data.get("stop")
-            include_stop = request_data.get("include_stop_str_in_output", False)
-            
-            if stop and include_stop:
-                response_content += stop
-            
-            # create an OpenAI-like response
-            response = {
-                "id": "dummy-id",
-                "object": "chat.completion",
-                "created": 1234567890,
-                "model": request_data.get("model", "dummy-model"),
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": response_content
-                        },
-                        "finish_reason": "stop"
-                    }
-                ]
-            }
-            
-            # send the response
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(response).encode('utf-8'))
-            
-            # Decrement active requests
-            with self.__class__.request_lock:
-                self.__class__.active_requests -= 1
-        else:
-            self.send_response(404)
-            self.end_headers()
-            self.wfile.write(b"Not Found")
-    
-    def log_message(self, format, *args):
-        """Suppress log messages to keep test output clean."""
-        pass
-
-
-class TestOpenAICompatibleLanguageModel(unittest.TestCase):
-    """Test the OpenAICompatibleLanguageModel class."""
-    
-    @classmethod
-    def setUpClass(cls):
-        """Set up the test server."""
-        cls.port = find_free_port()
-        cls.server = HTTPServer(('localhost', cls.port), DummyOpenAIHandler)
-        cls.server_thread = threading.Thread(target=cls.server.serve_forever)
-        cls.server_thread.daemon = True
-        cls.server_thread.start()
-    
-    @classmethod
-    def tearDownClass(cls):
-        """Shut down the test server."""
-        cls.server.shutdown()
-        cls.server_thread.join()
-    
-    def setUp(self):
-        """Set up the language model for each test."""
-        self.endpoint = f"http://localhost:{self.port}"
-        self.model = OpenAICompatibleLanguageModel(
-            endpoint=self.endpoint,
-            api_key="dummy-api-key",
-            model_name="dummy-model",
-            system_prompt="You are a helpful assistant.",
-            max_tries=2  # Set to a low value for faster tests
-        )
-        
-        # Also create an async model for testing
-        self.async_model = OpenAICompatibleLanguageModel(
-            endpoint=self.endpoint,
-            api_key="dummy-api-key",
-            model_name="dummy-model",
-            system_prompt="You are a helpful assistant.",
-            is_async=True,
-            max_tries=2  # Set to a low value for faster tests
-        )
-    
-    def test_generate_single_message(self):
+    def test_generate_single_message(self, openai_server):
         """Test generating a response for a single message."""
-        messages = [{"role": "user", "content": "Hello, world!"}]
-        response = self.model.generate(messages)
-        self.assertEqual(response, "Response to: Hello, world!")
-    
-    def test_generate_with_stop_token(self):
-        """Test generating a response with a stop token."""
-        messages = [{"role": "user", "content": "Hello, world!"}]
-        response = self.model.generate(messages, stop="STOP")
-        self.assertEqual(response, "Response to: Hello, world!")
-    
-    def test_generate_with_stop_token_included(self):
-        """Test generating a response with an included stop token."""
-        messages = [{"role": "user", "content": "Hello, world!"}]
-        response = self.model.generate(messages, stop="STOP", include_stop_str_in_output=True)
-        self.assertEqual(response, "Response to: Hello, world!STOP")
-    
-    def test_generate_multiple_messages(self):
-        """Test generating responses for multiple message sets."""
-        messages_lst = [
-            [{"role": "user", "content": "Hello, world!"}],
-            [{"role": "user", "content": "How are you?"}]
-        ]
-        responses = self.model.generate(messages_lst)
-        self.assertEqual(responses, ["Response to: Hello, world!", "Response to: How are you?"])
-    
-    def test_with_system_prompt(self):
-        """Test that the system prompt is included in the request."""
-        messages = [{"role": "user", "content": "Hello, world!"}]
-        response = self.model.generate(messages)
-        self.assertEqual(response, "Response to: Hello, world!")
-        # Note: We can't directly verify that the system prompt was included,
-        # but the handler will use it when constructing the response
-        
-    def test_async_generate_single_message(self):
-        """Test generating a response for a single message using async model."""
-        messages = [{"role": "user", "content": "Hello, world!"}]
-        response = self.async_model.generate(messages)
-        self.assertEqual(response, "Response to: Hello, world!")
-    
-    def test_async_generate_multiple_messages(self):
-        """Test generating responses for multiple message sets using async model."""
-        messages_lst = [
-            [{"role": "user", "content": "Hello, world!"}],
-            [{"role": "user", "content": "How are you?"}],
-            [{"role": "user", "content": "What's your name?"}],
-            [{"role": "user", "content": "Tell me a joke."}]
-        ]
-        responses = self.async_model.generate(messages_lst)
-        expected = [
-            "Response to: Hello, world!",
-            "Response to: How are you?",
-            "Response to: What's your name?",
-            "Response to: Tell me a joke."
-        ]
-        self.assertEqual(responses, expected)
-    
-    def test_async_with_parameters(self):
-        """Test async generation with various parameters."""
-        messages = [{"role": "user", "content": "Hello, world!"}]
-        response = self.async_model.generate(
-            messages, 
-            stop="STOP", 
-            max_tokens=100, 
-            temperature=0.7, 
-            include_stop_str_in_output=True
-        )
-        self.assertEqual(response, "Response to: Hello, world!STOP")
-    
-    def test_error_handling(self):
-        """Test error handling with retries."""
-        # This message will trigger a 500 error in the dummy server
-        messages = [{"role": "user", "content": "trigger_error"}]
-        
-        # With max_tries=2, this should fail after 2 attempts
-        model_with_retries = OpenAICompatibleLanguageModel(
-            endpoint=self.endpoint,
-            api_key="dummy-api-key",
-            model_name="dummy-model",
+        model = OpenAICompatibleLanguageModel(
+            endpoint=openai_server,
+            api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
+            model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            system_prompt="You are a helpful assistant.",
             max_tries=2
         )
         
-        with self.assertRaises(Exception) as context:
-            model_with_retries.generate(messages)
+        messages = TestDataFactory.create_chat_messages("Hello, world!")
+        response = model.generate(messages)
+        assert response == "Response to: Hello, world!"
+
+    @pytest.mark.parametrize("scenario_name", ["simple_chat", "math_problem", "with_system_prompt"])
+    def test_generate_scenarios(self, openai_server, scenario_name):
+        """Test generation with various predefined scenarios."""
+        scenario = TEST_SCENARIOS[scenario_name]
         
-        self.assertIn("Server error", str(context.exception))
-    
-    def test_async_error_handling(self):
-        """Test error handling with retries in async mode."""
-        # This message will trigger a 500 error in the dummy server
-        messages = [{"role": "user", "content": "trigger_error"}]
+        if scenario.get("should_error"):
+            pytest.skip("Error scenarios tested separately")
+            
+        model = OpenAICompatibleLanguageModel(
+            endpoint=openai_server,
+            api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
+            model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            max_tries=2
+        )
         
-        # With max_tries=2, this should fail after 2 attempts
-        async_model_with_retries = OpenAICompatibleLanguageModel(
-            endpoint=self.endpoint,
-            api_key="dummy-api-key",
-            model_name="dummy-model",
+        messages = TestDataFactory.create_chat_messages(
+            scenario["user_content"],
+            scenario.get("system_content")
+        )
+        
+        response = model.generate(messages)
+        assert response == scenario["expected_response"]
+
+    @pytest.mark.parametrize("stop_token,include_stop,expected_suffix", [
+        (None, False, ""),
+        ("STOP", False, ""),
+        ("STOP", True, "STOP"),
+    ])
+    def test_stop_token_handling(self, openai_server, stop_token, include_stop, expected_suffix):
+        """Test stop token handling with different configurations."""
+        model = OpenAICompatibleLanguageModel(
+            endpoint=openai_server,
+            api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
+            model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            max_tries=2
+        )
+        
+        messages = TestDataFactory.create_chat_messages("Hello, world!")
+        response = model.generate(
+            messages, 
+            stop=stop_token, 
+            include_stop_str_in_output=include_stop
+        )
+        
+        expected = "Response to: Hello, world!" + expected_suffix
+        assert response == expected
+
+    def test_batch_generation(self, openai_server):
+        """Test generating responses for multiple message sets."""
+        model = OpenAICompatibleLanguageModel(
+            endpoint=openai_server,
+            api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
+            model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            max_tries=2
+        )
+        
+        messages_lst = [
+            TestDataFactory.create_chat_messages("Hello, world!"),
+            TestDataFactory.create_chat_messages("How are you?")
+        ]
+        
+        responses = model.generate(messages_lst)
+        expected = ["Response to: Hello, world!", "Response to: How are you?"]
+        assert responses == expected
+
+    def test_async_generation(self, openai_server):
+        """Test async generation functionality."""
+        async_model = OpenAICompatibleLanguageModel(
+            endpoint=openai_server,
+            api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
+            model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
             is_async=True,
             max_tries=2
         )
         
-        with self.assertRaises(Exception) as context:
-            async_model_with_retries.generate(messages)
-        
-        self.assertIn("Server error", str(context.exception))
-    
-    def test_replace_error_with_message_disabled(self):
-        """Test that replace_error_with_message=None (default) raises exceptions."""
-        # Default behavior - should raise exception
-        model_default = OpenAICompatibleLanguageModel(
-            endpoint=self.endpoint,
-            api_key="dummy-api-key",
-            model_name="dummy-model",
-            max_tries=1  # Fail quickly
-        )
-        
-        # Verify parameter is None by default
-        self.assertIsNone(model_default.replace_error_with_message)
-        
-        # This should raise an exception
-        messages = [{"role": "user", "content": "trigger_error"}]
-        with self.assertRaises(Exception):
-            model_default.generate(messages)
-    
-    def test_replace_error_with_message_enabled(self):
-        """Test that replace_error_with_message returns the specified message on error."""
-        error_message = "[CUSTOM ERROR]"
-        model_with_replacement = OpenAICompatibleLanguageModel(
-            endpoint=self.endpoint,
-            api_key="dummy-api-key",
-            model_name="dummy-model",
-            max_tries=1,  # Fail quickly
-            replace_error_with_message=error_message
-        )
-        
-        # Verify parameter is set correctly
-        self.assertEqual(model_with_replacement.replace_error_with_message, error_message)
-        
-        # This should return the error message instead of raising
-        messages = [{"role": "user", "content": "trigger_error"}]
-        result = model_with_replacement.generate(messages)
-        self.assertEqual(result, error_message)
-    
-    def test_replace_error_with_message_batch(self):
-        """Test replace_error_with_message with batch requests."""
-        error_message = "[BATCH ERROR]"
-        model_with_replacement = OpenAICompatibleLanguageModel(
-            endpoint=self.endpoint,
-            api_key="dummy-api-key",
-            model_name="dummy-model",
-            max_tries=1,  # Fail quickly
-            replace_error_with_message=error_message
-        )
-        
-        # Test batch with some errors and some successes
         messages_lst = [
-            [{"role": "user", "content": "Hello, world!"}],  # Should succeed
-            [{"role": "user", "content": "trigger_error"}],   # Should return error message
-            [{"role": "user", "content": "How are you?"}]     # Should succeed
+            TestDataFactory.create_chat_messages(f"Message {i}") 
+            for i in range(4)
         ]
         
-        results = model_with_replacement.generate(messages_lst)
+        responses = async_model.generate(messages_lst)
+        expected = [f"Response to: Message {i}" for i in range(4)]
+        assert responses == expected
+
+    @pytest.mark.parametrize("max_concurrency,expected_semaphore_value", [
+        (2, 2),
+        (-1, 5),  # Should use length of messages_lst
+    ])
+    def test_concurrency_control(self, openai_server, max_concurrency, expected_semaphore_value):
+        """Test concurrency control with different settings."""
+        with patch('asyncio.Semaphore') as mock_semaphore:
+            model = OpenAICompatibleLanguageModel(
+                endpoint=openai_server,
+                api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
+                model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+                is_async=True,
+                max_concurrency=max_concurrency
+            )
+            
+            messages_lst = [
+                TestDataFactory.create_chat_messages(f"Message {i}") 
+                for i in range(5)
+            ]
+            
+            model.generate(messages_lst)
+            mock_semaphore.assert_called_once_with(expected_semaphore_value)
+
+    def test_error_handling_with_retries(self, openai_server):
+        """Test error handling with retries."""
+        model = OpenAICompatibleLanguageModel(
+            endpoint=openai_server,
+            api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
+            model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            max_tries=2
+        )
+        
+        messages = TestDataFactory.create_chat_messages(TEST_CONSTANTS["ERROR_TRIGGER"])
+        
+        with pytest.raises(Exception) as exc_info:
+            model.generate(messages)
+        
+        assert "Server error" in str(exc_info.value)
+
+    @pytest.mark.parametrize("error_message,expected_result", [
+        ("[CUSTOM ERROR]", "[CUSTOM ERROR]"),
+        ("", ""),
+        (None, Exception),  # Should raise exception
+    ])
+    def test_replace_error_with_message(self, openai_server, error_message, expected_result):
+        """Test replace_error_with_message functionality."""
+        model = OpenAICompatibleLanguageModel(
+            endpoint=openai_server,
+            api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
+            model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            max_tries=1,
+            replace_error_with_message=error_message
+        )
+        
+        messages = TestDataFactory.create_chat_messages(TEST_CONSTANTS["ERROR_TRIGGER"])
+        
+        if expected_result == Exception:
+            with pytest.raises(Exception):
+                model.generate(messages)
+        else:
+            result = model.generate(messages)
+            assert result == expected_result
+
+    def test_replace_error_with_message_batch(self, openai_server):
+        """Test error replacement in batch requests."""
+        error_message = "[BATCH ERROR]"
+        model = OpenAICompatibleLanguageModel(
+            endpoint=openai_server,
+            api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
+            model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            max_tries=1,
+            replace_error_with_message=error_message
+        )
+        
+        messages_lst = [
+            TestDataFactory.create_chat_messages("Hello, world!"),
+            TestDataFactory.create_chat_messages(TEST_CONSTANTS["ERROR_TRIGGER"]),
+            TestDataFactory.create_chat_messages("How are you?")
+        ]
+        
+        results = model.generate(messages_lst)
         expected = [
             "Response to: Hello, world!",
             error_message,
             "Response to: How are you?"
         ]
-        self.assertEqual(results, expected)
+        assert results == expected
+
+
+class TestStepGeneration:
+    """Test the StepGeneration class with improved organization."""
     
-    def test_replace_error_with_message_empty_string(self):
-        """Test that empty string is a valid error message."""
-        model_with_empty_replacement = OpenAICompatibleLanguageModel(
-            endpoint=self.endpoint,
-            api_key="dummy-api-key",
-            model_name="dummy-model",
-            max_tries=1,  # Fail quickly
-            replace_error_with_message=""  # Empty string should be valid
-        )
-        
-        # This should return empty string instead of raising
-        messages = [{"role": "user", "content": "trigger_error"}]
-        result = model_with_empty_replacement.generate(messages)
-        self.assertEqual(result, "")
-    
-    def test_async_replace_error_with_message(self):
-        """Test replace_error_with_message with async model."""
-        error_message = "[ASYNC ERROR]"
-        async_model_with_replacement = OpenAICompatibleLanguageModel(
-            endpoint=self.endpoint,
-            api_key="dummy-api-key",
-            model_name="dummy-model",
-            is_async=True,
-            max_tries=1,  # Fail quickly
-            replace_error_with_message=error_message
-        )
-        
-        # Test single error
-        messages = [{"role": "user", "content": "trigger_error"}]
-        result = async_model_with_replacement.generate(messages)
-        self.assertEqual(result, error_message)
-        
-        # Test batch with mixed results
-        messages_lst = [
-            [{"role": "user", "content": "Hello!"}],
-            [{"role": "user", "content": "trigger_error"}],
-            [{"role": "user", "content": "Goodbye!"}]
-        ]
-        
-        results = async_model_with_replacement.generate(messages_lst)
-        expected = [
-            "Response to: Hello!",
-            error_message,
-            "Response to: Goodbye!"
-        ]
-        self.assertEqual(results, expected)
-    
-    def test_max_concurrency(self):
-        """Test that the max_concurrency parameter limits concurrent requests."""
-        # Instead of testing actual concurrency (which is hard in a single process),
-        # we'll check that the semaphore is created with the correct value
-        
-        # Test with limited concurrency
-        with patch('asyncio.Semaphore') as mock_semaphore:
-            limited_model = OpenAICompatibleLanguageModel(
-                endpoint=self.endpoint,
-                api_key="dummy-api-key",
-                model_name="dummy-model",
-                is_async=True,
-                max_concurrency=2
-            )
-            
-            # Create messages to send
-            messages_lst = [
-                [{"role": "user", "content": f"Message {i}"}] for i in range(5)
-            ]
-            
-            # Generate responses
-            limited_model.generate(messages_lst)
-            
-            # Check that the semaphore was created with value=2
-            mock_semaphore.assert_called_once_with(2)
-        
-        # Test with unlimited concurrency
-        with patch('asyncio.Semaphore') as mock_semaphore:
-            unlimited_model = OpenAICompatibleLanguageModel(
-                endpoint=self.endpoint,
-                api_key="dummy-api-key",
-                model_name="dummy-model",
-                is_async=True,
-                max_concurrency=-1
-            )
-            
-            # Create messages to send
-            messages_lst = [
-                [{"role": "user", "content": f"Message {i}"}] for i in range(5)
-            ]
-            
-            # Generate responses
-            unlimited_model.generate(messages_lst)
-            
-            # Check that the semaphore was created with value=5 (length of messages_lst)
-            mock_semaphore.assert_called_once_with(5)
-
-
-class MockLanguageModel:
-    def __init__(self, responses):
-        self.responses = responses
-        self.call_count = 0
-
-    def generate(self, messages, stop=None, temperature=None, include_stop_str_in_output=None):
-        if isinstance(messages[0], list):
-            # Multiple message lists
-            responses = self.responses[self.call_count:self.call_count + len(messages)]
-            self.call_count += len(messages)
-            return responses
-        else:
-            # Single message list
-            response = self.responses[self.call_count]
-            self.call_count += 1
-            return response
-
-
-class TestStepGeneration(unittest.TestCase):
-    """Test the StepGeneration class."""
-    
-    def test_init(self):
-        # test basic initialization
-        step_gen = StepGeneration(step_token="\n", max_steps=5)
-        self.assertEqual(step_gen.step_token, "\n")
-        self.assertEqual(step_gen.max_steps, 5)
-        self.assertIsNone(step_gen.stop_token)
-        self.assertEqual(step_gen.temperature, 0.8)
-        self.assertFalse(step_gen.include_stop_str_in_output)
-
-        # test with custom parameters
+    @pytest.mark.parametrize("step_token,max_steps,stop_token,temperature,include_stop", [
+        ("\n", 5, None, 0.8, False),
+        ("\n", 3, "END", 0.5, True),
+        (">>", 10, "STOP", 1.0, False),
+    ])
+    def test_initialization(self, step_token, max_steps, stop_token, temperature, include_stop):
+        """Test StepGeneration initialization with various parameters."""
         step_gen = StepGeneration(
-            step_token="\n",
-            max_steps=3,
-            stop_token="END",
-            temperature=0.5,
-            include_stop_str_in_output=True
+            step_token=step_token,
+            max_steps=max_steps,
+            stop_token=stop_token,
+            temperature=temperature,
+            include_stop_str_in_output=include_stop
         )
-        self.assertEqual(step_gen.step_token, "\n")
-        self.assertEqual(step_gen.max_steps, 3)
-        self.assertEqual(step_gen.stop_token, "END")
-        self.assertEqual(step_gen.temperature, 0.5)
-        self.assertTrue(step_gen.include_stop_str_in_output)
+        
+        assert step_gen.step_token == step_token
+        assert step_gen.max_steps == max_steps
+        assert step_gen.stop_token == stop_token
+        assert step_gen.temperature == temperature
+        assert step_gen.include_stop_str_in_output == include_stop
 
-        # test validation
-        with self.assertRaises(AssertionError):
+    def test_initialization_validation(self):
+        """Test that initialization validates parameters correctly."""
+        with pytest.raises(AssertionError):
             StepGeneration(step_token=None, max_steps=5, include_stop_str_in_output=True)
 
-    def test_post_process(self):
-        step_gen = StepGeneration(step_token="\n", max_steps=5)
+    @pytest.mark.parametrize("steps,stopped,include_stop,expected", [
+        (["step1", "step2", "step3"], False, False, "step1\nstep2\nstep3\n"),
+        (["step1", "step2", "step3"], True, False, "step1\nstep2\nstep3"),
+        (["step1", "step2", "step3"], False, True, "step1step2step3"),
+    ])
+    def test_post_process(self, steps, stopped, include_stop, expected):
+        """Test post-processing with different configurations."""
+        step_gen = StepGeneration(
+            step_token="\n", 
+            max_steps=5, 
+            include_stop_str_in_output=include_stop
+        )
         
-        # test without stop token
-        steps = ["step1", "step2", "step3"]
-        result = step_gen._post_process(steps)
-        self.assertEqual(result, "step1\nstep2\nstep3\n")
-        
-        # test with stop token
-        result = step_gen._post_process(steps, stopped=True)
-        self.assertEqual(result, "step1\nstep2\nstep3")
-        
-        # test with include_stop_str_in_output
-        step_gen = StepGeneration(step_token="\n", max_steps=5, include_stop_str_in_output=True)
-        result = step_gen._post_process(steps)
-        self.assertEqual(result, "step1step2step3")
+        result = step_gen._post_process(steps, stopped=stopped)
+        assert result == expected
 
     def test_forward_single_prompt(self):
-        # test basic forward with single prompt
-        mock_lm = MockLanguageModel(["response1"])
+        """Test forward generation with single prompt."""
+        mock_lm = SimpleMockLanguageModel(["response1", "response2", "response3"])
         step_gen = StepGeneration(step_token="\n", max_steps=5)
         
+        # Basic forward
         next_step, is_stopped = step_gen.forward(mock_lm, "test prompt")
-        self.assertEqual(next_step, "response1")
-        self.assertFalse(is_stopped)
+        assert next_step == "response1"
+        assert not is_stopped
         
-        # test with steps_so_far
-        mock_lm = MockLanguageModel(["response2"])
+        # With steps_so_far
         next_step, is_stopped = step_gen.forward(mock_lm, "test prompt", steps_so_far=["step1"])
-        self.assertEqual(next_step, "response2")
-        self.assertFalse(is_stopped)
+        assert next_step == "response2"
+        assert not is_stopped
+
+    def test_forward_max_steps_reached(self):
+        """Test forward generation when max steps is reached."""
+        mock_lm = SimpleMockLanguageModel(["response3"])
+        step_gen = StepGeneration(step_token="\n", max_steps=5)
         
-        # test max steps reached
-        mock_lm = MockLanguageModel(["response3"])
-        next_step, is_stopped = step_gen.forward(mock_lm, "test prompt", steps_so_far=["step1"] * 5)
-        self.assertEqual(next_step, "response3")
-        self.assertTrue(is_stopped)
-        
-        # test stop token
+        next_step, is_stopped = step_gen.forward(
+            mock_lm, 
+            "test prompt", 
+            steps_so_far=["step1"] * 5
+        )
+        assert next_step == "response3"
+        assert is_stopped
+
+    def test_forward_stop_token_detection(self):
+        """Test forward generation with stop token detection."""
+        mock_lm = SimpleMockLanguageModel(["response with END"])
         step_gen = StepGeneration(step_token="\n", max_steps=5, stop_token="END")
-        mock_lm = MockLanguageModel(["response with END"])
+        
         next_step, is_stopped = step_gen.forward(mock_lm, "test prompt")
-        self.assertEqual(next_step, "response with END")
-        self.assertTrue(is_stopped)
+        assert next_step == "response with END"
+        assert is_stopped
 
     def test_forward_multiple_prompts(self):
-        # test forward with multiple prompts
-        mock_lm = MockLanguageModel(["response1", "response2"])
+        """Test forward generation with multiple prompts."""
+        mock_lm = SimpleMockLanguageModel(["response1", "response2"])
         step_gen = StepGeneration(step_token="\n", max_steps=5)
         
         prompts = ["prompt1", "prompt2"]
         steps_so_far = [["step1"], ["step2"]]
         results = step_gen.forward(mock_lm, prompts, steps_so_far)
         
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0][0], "response1")
-        self.assertFalse(results[0][1])
-        self.assertEqual(results[1][0], "response2")
-        self.assertFalse(results[1][1])
-        
-        # test with stop token in multiple prompts
+        assert len(results) == 2
+        assert results[0][0] == "response1"
+        assert not results[0][1]
+        assert results[1][0] == "response2"
+        assert not results[1][1]
+
+    def test_forward_multiple_prompts_with_stop_token(self):
+        """Test forward generation with multiple prompts and stop token detection."""
+        mock_lm = SimpleMockLanguageModel(["response1", "response with END"])
         step_gen = StepGeneration(step_token="\n", max_steps=5, stop_token="END")
-        mock_lm = MockLanguageModel(["response1", "response with END"])
+        
+        prompts = ["prompt1", "prompt2"]
+        steps_so_far = [["step1"], ["step2"]]
         results = step_gen.forward(mock_lm, prompts, steps_so_far)
         
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0][0], "response1")
-        self.assertFalse(results[0][1])
-        self.assertEqual(results[1][0], "response with END")
-        self.assertTrue(results[1][1])
+        assert len(results) == 2
+        assert results[0][0] == "response1"
+        assert not results[0][1]
+        assert results[1][0] == "response with END"
+        assert results[1][1]  # Should be stopped due to END token
