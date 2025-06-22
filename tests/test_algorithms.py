@@ -123,12 +123,14 @@ class TestBeamSearch:
         responses = ["response1", "response2", "response3"]
         scores = [0.5, 0.8, 0.3]
         selected_index = 1
+        steps_used = [2, 3, 1]
         
-        result = BeamSearchResult(responses=responses, scores=scores, selected_index=selected_index)
+        result = BeamSearchResult(responses=responses, scores=scores, selected_index=selected_index, steps_used=steps_used)
         
         assert result.responses == responses
         assert result.scores == scores
         assert result.selected_index == selected_index
+        assert result.steps_used == steps_used
         assert result.the_one == "response2"
 
     def test_basic_functionality(self):
@@ -178,18 +180,21 @@ class TestParticleGibbs:
         log_weights_lst = [[0.1, 0.2], [0.3, 0.4]]
         ref_indices_lst = [[0], [1]]
         selected_index = 1
+        steps_used_lst = [[2, 3], [1, 4]]
         
         result = ParticleGibbsResult(
             responses_lst=responses_lst,
             log_weights_lst=log_weights_lst,
             ref_indices_lst=ref_indices_lst,
-            selected_index=selected_index
+            selected_index=selected_index,
+            steps_used_lst=steps_used_lst
         )
         
         assert result.responses_lst == responses_lst
         assert result.log_weights_lst == log_weights_lst
         assert result.ref_indices_lst == ref_indices_lst
         assert result.selected_index == selected_index
+        assert result.steps_used_lst == steps_used_lst
         assert result.the_one == "response4"
 
     def test_basic_functionality(self):

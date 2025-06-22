@@ -16,6 +16,7 @@ class ParticleGibbsResult(AbstractScalingResult):
     log_weights_lst: List[List[float]]
     ref_indices_lst: List[List[int]]
     selected_index: int
+    steps_used_lst: List[List[int]]
 
     @property
     def the_one(self) -> str:
@@ -160,6 +161,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         responses_lst = []
         log_weights_lst = []
         ref_indices_lst = []
+        steps_used_lst = []
         
         for _ in range(self.num_iterations):
             num_free_particles = num_particles - len(ref_particles)
@@ -193,6 +195,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             responses_lst.append([self.sg._post_process(p.steps, stopped=True) for p in particles])
             log_weights_lst.append(log_weights)
             ref_indices_lst.append(ref_indices)
+            steps_used_lst.append([len(p.steps) for p in particles])
         
         # select the chosen particle based on selection method
         # log_weights and probabilities are from the last iteration
@@ -207,6 +210,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             log_weights_lst=log_weights_lst,
             ref_indices_lst=ref_indices_lst,
             selected_index=selected_index,
+            steps_used_lst=steps_used_lst,
         )
             
         return result.the_one if return_response_only else result

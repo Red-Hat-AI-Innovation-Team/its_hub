@@ -13,6 +13,7 @@ class BeamSearchResult(AbstractScalingResult):
     responses: List[str]
     scores: List[float]
     selected_index: int
+    steps_used: List[int]
 
     @property
     def the_one(self) -> str:
@@ -139,9 +140,11 @@ class BeamSearch(AbstractScalingAlgorithm):
             candidates = new_candidates
         
         scores = [c.score for c in candidates]
+        steps_used = [len(c.steps) for c in candidates]
         result = BeamSearchResult(
             responses=[self.sg._post_process(c.steps, stopped=True) for c in candidates],
             scores=scores,
             selected_index=int(np.argmax(scores)),
+            steps_used=steps_used,
         )
         return result.the_one if return_response_only else result
