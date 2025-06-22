@@ -7,7 +7,6 @@ error messages.
 """
 
 import json
-import re
 from typing import Dict, Any, Optional
 
 

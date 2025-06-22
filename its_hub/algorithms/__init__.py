@@ -3,6 +3,14 @@ from .bon import BestOfN, BestOfNResult
 from .beam_search import BeamSearch, BeamSearchResult
 from .particle_gibbs import ParticleGibbs, ParticleGibbsResult, ParticleFiltering
 
+__all__ = [
+    "SelfConsistency", "SelfConsistencyResult",
+    "BestOfN", "BestOfNResult", 
+    "BeamSearch", "BeamSearchResult",
+    "ParticleGibbs", "ParticleGibbsResult", "ParticleFiltering",
+    "MetropolisHastings", "MetropolisHastingsResult"
+]
+
 ###
 
 from typing import Union
@@ -27,4 +35,5 @@ class MetropolisHastings(AbstractScalingAlgorithm):
         show_progress: bool = False, 
         return_response_only: bool = True, 
     ) -> Union[str, MetropolisHastingsResult]:
-        pass
+        # TODO: Implement Metropolis-Hastings algorithm
+        raise NotImplementedError("Metropolis-Hastings algorithm not yet implemented")

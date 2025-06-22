@@ -27,7 +27,7 @@ class StepGeneration:
         self, 
         step_token: Union[str, List[str]], 
         max_steps: int, 
-        stop_token: str = None, 
+        stop_token: Optional[str] = None, 
         temperature: float = 0.8, 
         include_stop_str_in_output: bool = False,  # If True, keep stop strings in output; if False, strip them 
         temperature_switch: Optional[Tuple[float, str, str]] = None, # (temperature, open_token, close_token)
@@ -51,21 +51,25 @@ class StepGeneration:
                 steps = steps[:-1] + [last_step]
             return "".join(steps)
         else:
-            response = self.step_token.join(steps)
+            if isinstance(self.step_token, str):
+                response = self.step_token.join(steps)
+            else:
+                response = "".join(steps)
             if not stopped:
-                response += self.step_token
+                if isinstance(self.step_token, str):
+                    response += self.step_token
             return response
         
-    def _get_temperature(self, messages_or_messages_lst: Union[List[ChatMessage], List[List[ChatMessage]]]) -> float:
+    def _get_temperature(self, messages_or_messages_lst: Union[List[ChatMessage], List[List[ChatMessage]]]) -> Union[float, List[float]]:
         if self.temperature_switch is None:
             return self.temperature
         else:
             is_single = isinstance(messages_or_messages_lst[0], ChatMessage)
             if is_single:
                 messages = messages_or_messages_lst
-                if messages[-1].role == "assistant":
+                if isinstance(messages, list) and len(messages) > 0 and hasattr(messages[-1], 'role') and messages[-1].role == "assistant":
                     temperature, open_token, close_token = self.temperature_switch
-                    if open_token in messages[-1].content and close_token not in messages[-1].content:
+                    if hasattr(messages[-1], 'content') and open_token in messages[-1].content and close_token not in messages[-1].content:
                         return temperature
                     else:
                         return self.temperature
@@ -79,7 +83,7 @@ class StepGeneration:
         lm: AbstractLanguageModel, 
         prompt_or_prompts: Union[str, List[str]], 
         steps_so_far: Union[List[str],List[List[str]]] = []
-    ) -> Tuple[str, bool]:
+    ) -> Union[Tuple[str, bool], List[Tuple[str, bool]]]:
         is_single_prompt = isinstance(prompt_or_prompts, str)
         if is_single_prompt:
             prompt = prompt_or_prompts
@@ -93,7 +97,7 @@ class StepGeneration:
                 messages.append(ChatMessage(role="assistant", 
                                  content=self._post_process(steps_so_far)))
             next_step = lm.generate(
-                messages, stop=self.step_token, temperature=self._get_temperature(messages), include_stop_str_in_output=self.include_stop_str_in_output
+                messages, stop=self.step_token
             )
             is_stopped = len(steps_so_far) >= self.max_steps
             if self.stop_token:
@@ -114,7 +118,7 @@ class StepGeneration:
                                      content=self._post_process(steps_so_far_per_prompt)))
                 messages_lst.append(messages)
             next_steps = lm.generate(
-                messages_lst, stop=self.step_token, temperature=self._get_temperature(messages_lst), include_stop_str_in_output=self.include_stop_str_in_output
+                messages_lst, stop=self.step_token
             )
             is_stopped = [len(steps_so_far_per_prompt) >= self.max_steps
                           for steps_so_far_per_prompt in steps_so_far]
@@ -130,12 +134,12 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         endpoint: str, 
         api_key: str, 
         model_name: str, 
-        system_prompt: str = None, 
+        system_prompt: Optional[str] = None, 
         is_async: bool = False,
         # default runtime parameters
-        stop: str = None,
-        max_tokens: int = None,
-        temperature: float = None,
+        stop: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
         max_tries: int = 8,
         max_concurrency: int = -1,
         replace_error_with_message: Optional[str] = None,
@@ -168,7 +172,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         return self.endpoint.rstrip("/") + "/chat/completions"
     
     def _prepare_request_data(
-        self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None
+        self, messages, stop: Optional[str] = None, max_tokens: Optional[int] = None, temperature: Optional[float] = None, include_stop_str_in_output: Optional[bool] = None
 ):
         # helper method to prepare request data for both sync and async methods
         # Convert dict messages to Message objects if needed

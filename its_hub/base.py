@@ -1,4 +1,4 @@
-from typing import Union, List
+from typing import Union, List, Optional
 from abc import ABC, abstractmethod
 
 from .types import ChatMessage
@@ -8,7 +8,7 @@ class AbstractLanguageModel(ABC):
     """abstract base class for (autoregressive) language models"""
     
     @abstractmethod
-    def generate(self, messages: List[ChatMessage], stop: str = None) -> str:
+    def generate(self, messages: Union[List[ChatMessage], List[List[ChatMessage]]], stop: Optional[str] = None) -> Union[str, List[str]]:
         """
         generate a response from the model
         

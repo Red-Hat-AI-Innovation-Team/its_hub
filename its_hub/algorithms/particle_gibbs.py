@@ -4,7 +4,6 @@ import copy
 from pydantic.dataclasses import dataclass
 import random
 import numpy as np
-from tqdm import tqdm
 
 from ..base import AbstractLanguageModel, AbstractScalingResult, AbstractScalingAlgorithm, AbstractProcessRewardModel
 from ..lms import StepGeneration
@@ -94,7 +93,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
                 next_step, is_stopped = self.sg.forward(lm, prompt, p.steps)
                 p.steps.append(next_step)
                 p.is_stopped = is_stopped
-                score = self.prm.score(prompt, self.sg._post_process(p.steps, stopped=True))
+                score = self.prm.score(prompt, [self.sg._post_process(p.steps, stopped=True)])
                 p.log_weight = _inv_sigmoid(score)
 
             return particles
@@ -120,6 +119,10 @@ class ParticleGibbs(AbstractScalingAlgorithm):
                 continue
             
             next_step, is_stopped = sg_forward_results[i]
+            if isinstance(is_stopped, str):
+                is_stopped = is_stopped.lower() in ['true', '1', 'yes']
+            elif not isinstance(is_stopped, bool):
+                is_stopped = bool(is_stopped)
             p.steps.append(next_step)
             p.is_stopped = is_stopped
             i += 1

@@ -1,6 +1,5 @@
 from typing import Union, List
 from pydantic.dataclasses import dataclass
-from tqdm import tqdm
 
 from ..base import AbstractLanguageModel, AbstractScalingResult, AbstractScalingAlgorithm, AbstractOutcomeRewardModel
 from ..types import ChatMessage
@@ -28,7 +27,10 @@ class BestOfN(AbstractScalingAlgorithm):
         return_response_only: bool = True, 
     ) -> Union[str, BestOfNResult]:
         # generate responses
-        responses = lm.generate([[ChatMessage(role="user", content=prompt)] for _ in range(budget)])
+        message_lists = [[ChatMessage(role="user", content=prompt)] for _ in range(budget)]
+        responses = lm.generate(message_lists)
+        if isinstance(responses, str):
+            responses = [responses]
 
         # score responses
         # TODO: make batched a configurable parameter or remove non-batched branch
@@ -42,12 +44,15 @@ class BestOfN(AbstractScalingAlgorithm):
                 scores.append(self.orm.score(prompt, r))
 
         # select the best response
-        selected_index = scores.index(max(scores))
+        if isinstance(scores, list) and len(scores) > 0:
+            selected_index = scores.index(max(scores))
+        else:
+            selected_index = 0
 
         # return the result
         result = BestOfNResult(
-            responses=responses, 
-            scores=scores, 
+            responses=responses if isinstance(responses, list) else [responses], 
+            scores=scores if isinstance(scores, list) else [scores], 
             selected_index=selected_index, 
         )
         return result.the_one if return_response_only else result
