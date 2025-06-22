@@ -33,7 +33,7 @@ def _select_most_common_or_random(list_to_select_from: List[str]) -> int:
     #      elements with the same count, a random one is selected
     selected_index = random.choice(most_common_indices)
 
-    return selected_index
+    return counts, selected_index
 
 class SelfConsistency(AbstractScalingAlgorithm):
     def __init__(self, consistency_space_projection_func: Callable):
@@ -53,8 +53,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
         responses_projected = [self.consistency_space_projection_func(r) for r in responses]
 
         # select the most common or random response
-        selected_index = _select_most_common_or_random(responses_projected)
-        response_counts = Counter(responses_projected)
+        response_counts, selected_index = _select_most_common_or_random(responses_projected)
         
         # return the result
         result = SelfConsistencyResult(

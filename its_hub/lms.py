@@ -97,7 +97,7 @@ class StepGeneration:
                 messages.append(ChatMessage(role="assistant", 
                                  content=self._post_process(steps_so_far)))
             next_step = lm.generate(
-                messages, stop=self.step_token
+                messages, stop=self.step_token, temperature=self._get_temperature(messages), include_stop_str_in_output=self.include_stop_str_in_output
             )
             is_stopped = len(steps_so_far) >= self.max_steps
             if self.stop_token:
@@ -118,7 +118,7 @@ class StepGeneration:
                                      content=self._post_process(steps_so_far_per_prompt)))
                 messages_lst.append(messages)
             next_steps = lm.generate(
-                messages_lst, stop=self.step_token
+                messages_lst, stop=self.step_token, temperature=self._get_temperature(messages_lst), include_stop_str_in_output=self.include_stop_str_in_output
             )
             is_stopped = [len(steps_so_far_per_prompt) >= self.max_steps
                           for steps_so_far_per_prompt in steps_so_far]
