@@ -84,7 +84,7 @@ class StepGeneration:
         if is_single_prompt:
             prompt = prompt_or_prompts
             current_step = len(steps_so_far) + 1
-            logging.info(f"Generating step {current_step}/{self.max_steps}")
+            logging.info("Generating step %s/%s", current_step, self.max_steps)
             
             messages = [
                 ChatMessage(role="user", content=prompt),
@@ -102,7 +102,7 @@ class StepGeneration:
         else:
             prompts = prompt_or_prompts
             step_numbers = [len(steps_so_far_per_prompt) + 1 for steps_so_far_per_prompt in steps_so_far]
-            logging.info(f"Generating steps (batch): {step_numbers} / {self.max_steps}")
+            logging.info("Generating steps (batch): %s / %s", step_numbers, self.max_steps)
             
             messages_lst = []
             for prompt, steps_so_far_per_prompt in zip(prompts, steps_so_far):
