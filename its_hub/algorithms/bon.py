@@ -27,10 +27,7 @@ class BestOfN(AbstractScalingAlgorithm):
         return_response_only: bool = True, 
     ) -> Union[str, BestOfNResult]:
         # generate responses
-        message_lists = [[ChatMessage(role="user", content=prompt)] for _ in range(budget)]
-        responses = lm.generate(message_lists)
-        if isinstance(responses, str):
-            responses = [responses]
+        responses = lm.generate([[ChatMessage(role="user", content=prompt)] for _ in range(budget)])
 
         # score responses
         # TODO: make batched a configurable parameter or remove non-batched branch
@@ -44,15 +41,12 @@ class BestOfN(AbstractScalingAlgorithm):
                 scores.append(self.orm.score(prompt, r))
 
         # select the best response
-        if isinstance(scores, list) and len(scores) > 0:
-            selected_index = scores.index(max(scores))
-        else:
-            selected_index = 0
+        selected_index = scores.index(max(scores))
 
         # return the result
         result = BestOfNResult(
-            responses=responses if isinstance(responses, list) else [responses], 
-            scores=scores if isinstance(scores, list) else [scores], 
+            responses=responses, 
+            scores=scores, 
             selected_index=selected_index, 
         )
         return result.the_one if return_response_only else result

@@ -58,8 +58,7 @@ class BeamSearch(AbstractScalingAlgorithm):
                 next_step, is_stopped = self.sg.forward(lm, prompt, c.steps)
                 c.steps.append(next_step)
                 c.is_stopped = is_stopped
-                score_list = self.prm.score(prompt, [self.sg._post_process(c.steps, stopped=True)])
-                score = score_list[0] if isinstance(score_list, list) else score_list
+                score = self.prm.score(prompt, self.sg._post_process(c.steps, stopped=True))
                 c.score = score
             
             return candidates
@@ -85,10 +84,6 @@ class BeamSearch(AbstractScalingAlgorithm):
                 continue
             
             next_step, is_stopped = sg_forward_results[i]
-            if isinstance(is_stopped, str):
-                is_stopped = is_stopped.lower() in ['true', '1', 'yes']
-            elif not isinstance(is_stopped, bool):
-                is_stopped = bool(is_stopped)
             c.steps.append(next_step)
             c.is_stopped = is_stopped
             i += 1
