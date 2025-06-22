@@ -52,6 +52,7 @@ Homepage = "https://ai-innovation.team/its_hub"
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.1.0",
+    "ruff>=0.8.0",
 ]
 
 [tool.setuptools]
@@ -65,11 +66,3 @@ include = [
     "its_hub.integration",
 ]
 
-[tool.black]
-line-length = 88
-target-version = ['py38']
-include = '\.pyi?$'
-
-[tool.isort]
-profile = "black"
-multi_line_output = 3

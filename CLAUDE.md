@@ -24,11 +24,14 @@ pytest tests --cov=its_hub
 
 ### Code Quality
 ```bash
-# Format code (Black configuration in pyproject.toml)
-black its_hub/
+# Run linter checks
+uv run ruff check its_hub/
 
-# Sort imports (isort configuration in pyproject.toml)  
-isort its_hub/
+# Fix auto-fixable linting issues
+uv run ruff check its_hub/ --fix
+
+# Format code with ruff
+uv run ruff format its_hub/
 ```
 
 ### Git Workflow

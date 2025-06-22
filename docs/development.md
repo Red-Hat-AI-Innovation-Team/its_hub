@@ -13,7 +13,7 @@ pip install -e ".[dev]"
 The development installation includes:
 - All core dependencies
 - Testing frameworks (pytest, coverage)
-- Code formatting tools (black, isort)
+- Code formatting and linting tool (ruff)
 - Development tools and scripts
 
 ### Running Tests
@@ -34,14 +34,14 @@ pytest tests/test_iaas.py
 ### Code Quality
 
 ```bash
-# Format code (Black configuration in pyproject.toml)
-black its_hub/
+# Run linter checks (Ruff configuration in pyproject.toml)
+ruff check its_hub/
 
-# Sort imports (isort configuration in pyproject.toml)  
-isort its_hub/
+# Fix auto-fixable linting issues
+ruff check its_hub/ --fix
 
-# Run both formatting commands
-black its_hub/ && isort its_hub/
+# Format code
+ruff format its_hub/
 ```
 
 ## Architecture

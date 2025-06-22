@@ -1,39 +1,46 @@
-from typing import Union, List
-from enum import Enum
 import copy
-from pydantic.dataclasses import dataclass
 import random
-import numpy as np
+from enum import Enum
 
-from ..base import AbstractLanguageModel, AbstractScalingResult, AbstractScalingAlgorithm, AbstractProcessRewardModel
-from ..lms import StepGeneration
+import numpy as np
+from pydantic.dataclasses import dataclass
+
+from its_hub.base import (
+    AbstractLanguageModel,
+    AbstractProcessRewardModel,
+    AbstractScalingAlgorithm,
+    AbstractScalingResult,
+)
+from its_hub.lms import StepGeneration
 
 
 @dataclass
 class ParticleGibbsResult(AbstractScalingResult):
-    responses_lst: List[List[str]]
-    log_weights_lst: List[List[float]]
-    ref_indices_lst: List[List[int]]
+    responses_lst: list[list[str]]
+    log_weights_lst: list[list[float]]
+    ref_indices_lst: list[list[int]]
     selected_index: int
-    steps_used_lst: List[List[int]]
+    steps_used_lst: list[list[int]]
 
     @property
     def the_one(self) -> str:
         return self.responses_lst[-1][self.selected_index]
 
+
 @dataclass
 class Particle:
-    steps: List[str]
+    steps: list[str]
     is_stopped: bool
     log_weight: float
-    
+
     def deepcopy(self):
         # create a deep copy of the particle object
         return Particle(
-            steps=copy.deepcopy(self.steps), 
-            is_stopped=self.is_stopped, 
-            log_weight=self.log_weight, 
+            steps=copy.deepcopy(self.steps),
+            is_stopped=self.is_stopped,
+            log_weight=self.log_weight,
         )
+
 
 def _inv_sigmoid(x):
     assert 0 <= x <= 1, "x must be between 0 and 1"
@@ -41,14 +48,17 @@ def _inv_sigmoid(x):
     x = np.clip(x, 1e-7, 1 - 1e-7)
     return np.log(x / (1 - x))
 
+
 def _softmax(x):
     # shift x by the maximum value for numerical stability
     x_shifted = x - np.max(x)
     return np.exp(x_shifted) / np.sum(np.exp(x_shifted))
 
+
 class SelectionMethod(Enum):
     SAMPLE = "sample"
     ARGMAX = "argmax"
+
 
 class ParticleGibbs(AbstractScalingAlgorithm):
     """
@@ -58,14 +68,15 @@ class ParticleGibbs(AbstractScalingAlgorithm):
     - Particle Gibbs (PG): num_iterations > 1
     - PG with ancestor sampling (PGAS): num_iterations > 1 and does_ancestor_sampling = True
     """
+
     def __init__(
-        self, 
-        sg: StepGeneration, 
-        prm: AbstractProcessRewardModel, 
-        num_iterations: int = 1, 
-        selection_method: Union[str, SelectionMethod] = SelectionMethod.ARGMAX,
-        num_ref_particles: int = 1, 
-        does_ancestor_sampling: bool = False, 
+        self,
+        sg: StepGeneration,
+        prm: AbstractProcessRewardModel,
+        num_iterations: int = 1,
+        selection_method: str | SelectionMethod = SelectionMethod.ARGMAX,
+        num_ref_particles: int = 1,
+        does_ancestor_sampling: bool = False,
     ):
         if isinstance(selection_method, str):
             selection_method = SelectionMethod(selection_method)
@@ -78,46 +89,48 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         self.does_ancestor_sampling = does_ancestor_sampling
 
     def _propagate(
-        self, 
-        lm: AbstractLanguageModel, 
-        particles: List[Particle], 
-        prompt: str, 
-        batched: bool = False
-    ) -> List[Particle]:
+        self,
+        lm: AbstractLanguageModel,
+        particles: list[Particle],
+        prompt: str,
+        batched: bool = False,
+    ) -> list[Particle]:
         if not batched:
             # forward each particle
             for p in particles:
                 if p.is_stopped:
                     continue
-                
+
                 next_step, is_stopped = self.sg.forward(lm, prompt, p.steps)
                 p.steps.append(next_step)
                 p.is_stopped = is_stopped
-                score = self.prm.score(prompt, self.sg._post_process(p.steps, stopped=True))
+                score = self.prm.score(
+                    prompt, self.sg._post_process(p.steps, stopped=True)
+                )
                 p.log_weight = _inv_sigmoid(score)
 
             return particles
-        
+
         is_stopped_in_the_beginning = [p.is_stopped for p in particles]
-        
+
         # collect batch inputs
         prompts, steps_so_far = [], []
         for p, is_stopped in zip(particles, is_stopped_in_the_beginning):
             if is_stopped:
                 continue
-            
+
             prompts.append(prompt)
             steps_so_far.append(p.steps)
-        
+
         # collect batch outputs
         sg_forward_results = self.sg.forward(lm, prompts, steps_so_far)
-    
+
         # update particles
         i = 0
         for p, is_stopped in zip(particles, is_stopped_in_the_beginning):
             if is_stopped:
                 continue
-            
+
             next_step, is_stopped = sg_forward_results[i]
             p.steps.append(next_step)
             p.is_stopped = is_stopped
@@ -128,31 +141,39 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         for p, is_stopped in zip(particles, is_stopped_in_the_beginning):
             if is_stopped:
                 continue
-            
+
             steps_so_far.append(p.steps)
 
         # collect batch outputs for scoring
-        scores = self.prm.score(prompt, [self.sg._post_process(steps_so_far_per_prompt, stopped=True) for steps_so_far_per_prompt in steps_so_far])
-        
+        scores = self.prm.score(
+            prompt,
+            [
+                self.sg._post_process(steps_so_far_per_prompt, stopped=True)
+                for steps_so_far_per_prompt in steps_so_far
+            ],
+        )
+
         # update particles
         i = 0
         for p, is_stopped in zip(particles, is_stopped_in_the_beginning):
             if is_stopped:
                 continue
-            
+
             p.log_weight = _inv_sigmoid(scores[i])
             i += 1
-        
+
         return particles
 
     def infer(
-        self, 
-        lm: AbstractLanguageModel, 
-        prompt: str, 
-        budget: int, 
-        return_response_only: bool = True, 
-    ) -> Union[str, ParticleGibbsResult]:
-        assert budget % self.num_iterations == 0, "budget must be divisible by num_iterations"
+        self,
+        lm: AbstractLanguageModel,
+        prompt: str,
+        budget: int,
+        return_response_only: bool = True,
+    ) -> str | ParticleGibbsResult:
+        assert budget % self.num_iterations == 0, (
+            "budget must be divisible by num_iterations"
+        )
 
         num_particles = budget // self.num_iterations
 
@@ -161,49 +182,59 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         log_weights_lst = []
         ref_indices_lst = []
         steps_used_lst = []
-        
+
         for _ in range(self.num_iterations):
             num_free_particles = num_particles - len(ref_particles)
-            
-            particles = [Particle(steps=[], is_stopped=False, log_weight=0) 
-                        for _ in range(num_free_particles)] + ref_particles
-            
+
+            particles = [
+                Particle(steps=[], is_stopped=False, log_weight=0)
+                for _ in range(num_free_particles)
+            ] + ref_particles
+
             while not all(p.is_stopped for p in particles):
                 particles = self._propagate(lm, particles, prompt, batched=True)
 
                 # resampling (free) particles
                 log_weights = [p.log_weight for p in particles]
                 probabilities = _softmax(log_weights)
-                resampled_particles = random.choices(particles, weights=probabilities, k=num_free_particles)
-                
+                resampled_particles = random.choices(
+                    particles, weights=probabilities, k=num_free_particles
+                )
+
                 # add reference particles
                 particles = resampled_particles + ref_particles
 
                 if self.does_ancestor_sampling:
                     raise NotImplementedError("Ancestor sampling is not implemented")
-                
+
                 # duplicate the particles
                 particles = [p.deepcopy() for p in particles]
-            
+
             # select the reference particles
             log_weights = [p.log_weight for p in particles]
             probabilities = _softmax(log_weights)
-            ref_indices = random.choices(range(len(particles)), weights=probabilities, k=self.num_ref_particles)
+            ref_indices = random.choices(
+                range(len(particles)), weights=probabilities, k=self.num_ref_particles
+            )
             ref_particles = [particles[i] for i in ref_indices]
-            
-            responses_lst.append([self.sg._post_process(p.steps, stopped=True) for p in particles])
+
+            responses_lst.append(
+                [self.sg._post_process(p.steps, stopped=True) for p in particles]
+            )
             log_weights_lst.append(log_weights)
             ref_indices_lst.append(ref_indices)
             steps_used_lst.append([len(p.steps) for p in particles])
-        
+
         # select the chosen particle based on selection method
         # log_weights and probabilities are from the last iteration
         match self.selection_method:
             case SelectionMethod.SAMPLE:
-                selected_index = random.choices(range(len(particles)), weights=probabilities, k=1)[0]
+                selected_index = random.choices(
+                    range(len(particles)), weights=probabilities, k=1
+                )[0]
             case SelectionMethod.ARGMAX:
                 selected_index = np.argmax(log_weights).item()
-            
+
         result = ParticleGibbsResult(
             responses_lst=responses_lst,
             log_weights_lst=log_weights_lst,
@@ -211,18 +242,20 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             selected_index=selected_index,
             steps_used_lst=steps_used_lst,
         )
-            
+
         return result.the_one if return_response_only else result
+
 
 class ParticleFiltering(ParticleGibbs):
     """
     Particle filtering being a special case of particle Gibbs with num_iterations=1
     """
+
     def __init__(
         self,
         sg: StepGeneration,
         prm: AbstractProcessRewardModel,
-        selection_method: Union[str, SelectionMethod] = SelectionMethod.ARGMAX,
+        selection_method: str | SelectionMethod = SelectionMethod.ARGMAX,
     ):
         # initialize with num_iterations=1
         super().__init__(

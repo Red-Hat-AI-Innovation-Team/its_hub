@@ -27,7 +27,7 @@ pip install -e ".[dev]"
 The development installation includes:
 - All core dependencies
 - Testing frameworks (pytest, coverage)
-- Code formatting tools (black, isort)
+- Code formatting and linting tool (ruff)
 - Example scripts and notebooks
 
 ## Verification
