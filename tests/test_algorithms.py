@@ -62,14 +62,20 @@ class TestDataStructures:
         """Test Particle deepcopy functionality."""
         steps = ['a', 'b', 'c']
         is_stopped = False
-        log_weight = 1.0
-        particle = Particle(steps=deepcopy(steps), is_stopped=is_stopped, log_weight=log_weight)
+        partial_log_weights = [0.3, 0.6, 1.0]
+        particle = Particle(
+            steps=deepcopy(steps), 
+            is_stopped=is_stopped, 
+            partial_log_weights=deepcopy(partial_log_weights)
+        )
         particle_copy = particle.deepcopy()
         particle.steps.append('d')
+        particle.partial_log_weights.append(1.2)
         
         assert particle_copy.steps == steps
         assert particle_copy.is_stopped == is_stopped
-        assert particle_copy.log_weight == log_weight
+        assert particle_copy.log_weight == 1.0  # Should return last value of partial_log_weights
+        assert particle_copy.partial_log_weights == partial_log_weights
 
 
 class TestBestOfN:
