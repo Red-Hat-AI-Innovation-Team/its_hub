@@ -205,7 +205,9 @@ class ParticleGibbs(AbstractScalingAlgorithm):
                 # Use partial log weights at the current step for fair comparison
                 non_stopped_particles = [p for p in particles if not p.is_stopped]
                 if non_stopped_particles:
-                    current_step = max(len(p.partial_log_weights) for p in non_stopped_particles)
+                    current_step = max(
+                        len(p.partial_log_weights) for p in non_stopped_particles
+                    )
                 else:
                     # All particles are stopped, use their final weights
                     log_weights = [p.log_weight for p in particles]
@@ -230,23 +232,23 @@ class ParticleGibbs(AbstractScalingAlgorithm):
                     particles, weights=probabilities, k=num_free_particles
                 )
 
-                # add reference particles
-                particles = resampled_particles + ref_particles
-
                 if self.does_ancestor_sampling:
                     raise NotImplementedError("Ancestor sampling is not implemented")
 
-                # duplicate the particles
-                particles = [p.deepcopy() for p in particles]
+                # duplicate the resampled particles
+                resampled_particles = [p.deepcopy() for p in resampled_particles]
 
                 # Truncate reference particles if they were resampled as non-reference
                 # This ensures all particles have the same number of steps
-                for i in range(num_free_particles):
-                    if len(particles[i].steps) > current_step:
+                for p in resampled_particles:
+                    if len(p.steps) > current_step:
                         # This particle was a reference particle that got resampled
-                        particles[i].steps = particles[i].steps[:current_step]
-                        particles[i].partial_log_weights = particles[i].partial_log_weights[:current_step]
-                        particles[i].is_stopped = False
+                        p.steps = p.steps[:current_step]
+                        p.partial_log_weights = p.partial_log_weights[:current_step]
+                        p.is_stopped = False
+
+                # add reference particles
+                particles = resampled_particles + ref_particles
 
             # select the reference particles
             log_weights = [p.log_weight for p in particles]
