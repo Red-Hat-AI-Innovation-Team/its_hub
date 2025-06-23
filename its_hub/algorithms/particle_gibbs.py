@@ -198,38 +198,21 @@ class ParticleGibbs(AbstractScalingAlgorithm):
                 for _ in range(num_free_particles)
             ] + ref_particles
 
+            current_step = 0  # Track current step outside the loop
+
             while not all(p.is_stopped for p in particles):
                 particles = self._propagate(lm, particles, prompt, batched=True)
+                current_step += 1  # Increment after propagation
 
                 # resampling (free) particles
                 # Use partial log weights at the current step for fair comparison
-                non_stopped_particles = [p for p in particles if not p.is_stopped]
-                if non_stopped_particles:
-                    current_step = max(
-                        len(p.partial_log_weights) for p in non_stopped_particles
-                    )
-                else:
-                    # All particles are stopped, use their final weights
-                    log_weights = [p.log_weight for p in particles]
-                    probabilities = _softmax(log_weights)
-                    resampled_particles = random.choices(
-                        particles, weights=probabilities, k=num_free_particles
-                    )
-                    particles = resampled_particles + ref_particles
-                    continue
-
                 log_weights = []
                 for p in particles:
                     if p.is_stopped:
                         # Stopped particles use their final weight
                         log_weights.append(p.log_weight)
                     else:
-                        # Non-stopped particles should all have current_step weights
-                        assert len(p.partial_log_weights) >= current_step, (
-                            f"Non-stopped particle has {len(p.partial_log_weights)} weights but current_step is {current_step}. "
-                            "This should be impossible - all non-stopped particles should have current_step weights."
-                        )
-                        # Use the weight at the current step
+                        # Non-stopped particles use weight at current step
                         log_weights.append(p.partial_log_weights[current_step - 1])
 
                 probabilities = _softmax(log_weights)
