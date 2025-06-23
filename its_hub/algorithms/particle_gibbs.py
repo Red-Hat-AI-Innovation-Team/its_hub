@@ -31,7 +31,7 @@ class ParticleGibbsResult(AbstractScalingResult):
 class Particle:
     steps: list[str]
     is_stopped: bool
-    partial_log_weights: list[float]  # Store log weights at each step
+    partial_log_weights: list[float]  # Store aggregated log weights until each step
 
     @property
     def log_weight(self) -> float:
