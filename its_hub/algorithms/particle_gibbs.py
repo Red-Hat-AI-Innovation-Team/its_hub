@@ -220,12 +220,17 @@ class ParticleGibbs(AbstractScalingAlgorithm):
 
                 log_weights = []
                 for p in particles:
-                    assert len(p.partial_log_weights) >= current_step, (
-                        f"Particle has {len(p.partial_log_weights)} weights but current_step is {current_step}. "
-                        "This should be impossible - all particles should have at least current_step weights."
-                    )
-                    # Use the weight at the current step
-                    log_weights.append(p.partial_log_weights[current_step - 1])
+                    if p.is_stopped:
+                        # Stopped particles use their final weight
+                        log_weights.append(p.log_weight)
+                    else:
+                        # Non-stopped particles should all have current_step weights
+                        assert len(p.partial_log_weights) >= current_step, (
+                            f"Non-stopped particle has {len(p.partial_log_weights)} weights but current_step is {current_step}. "
+                            "This should be impossible - all non-stopped particles should have current_step weights."
+                        )
+                        # Use the weight at the current step
+                        log_weights.append(p.partial_log_weights[current_step - 1])
 
                 probabilities = _softmax(log_weights)
                 resampled_particles = random.choices(
