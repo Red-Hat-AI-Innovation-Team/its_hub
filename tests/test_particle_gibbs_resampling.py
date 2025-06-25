@@ -108,7 +108,7 @@ class TestParticleGibbsResampling:
         # Initialize particles with different trajectories
         ref_particle = Particle(
             steps=["ref_step1", "ref_step2", "ref_step3"],
-            is_stopped=False,
+            is_stopped=True,
             partial_log_weights=[0.6, 0.7, 0.8]
         )
 
@@ -131,9 +131,9 @@ class TestParticleGibbsResampling:
         particles = [new_particle, ref_particle]
         propagated = pg._propagate(mock_lm, particles, "Test prompt", batched=False)
 
-        # After propagation, both particles should have partial weights at step 2
+        # After propagation, only non-stopped particles get extended
         assert len(propagated[0].partial_log_weights) == 2  # new particle now has 2 steps
-        assert len(propagated[1].partial_log_weights) == 4  # ref particle now has 4 steps
+        assert len(propagated[1].partial_log_weights) == 3  # ref particle stays at 3 steps (stopped)
 
         # The key insight: during resampling in the main loop,
         # we should compare partial_log_weights[1] for both particles,
