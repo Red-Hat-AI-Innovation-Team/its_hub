@@ -79,7 +79,14 @@ docs/_build/
 target/
 
 # Jupyter Notebook
-.ipynb_checkpoints
+.ipynb_checkpoints/
+
+# Don't ignore the generated notebooks in notebooks/ directory
+# (we want both .py and .ipynb versions)
+!notebooks/**/*.ipynb
+
+# But ignore notebooks in other directories
+*.ipynb
 
 # IPython
 profile_default/
