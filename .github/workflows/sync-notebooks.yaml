@@ -2,7 +2,7 @@ name: Sync Notebooks
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
     paths: [ '**/*.py', '**/*.ipynb' ]
   pull_request:
     branches: [ main ]
