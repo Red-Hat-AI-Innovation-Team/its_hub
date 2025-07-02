@@ -24,6 +24,10 @@
 #     version: 3.11.11
 # ---
 
+# %% [markdown]
+# # Self-Consistency Algorithm Demo
+# This notebook demonstrates the Self-Consistency algorithm for mathematical reasoning.
+
 # %%
 # %load_ext autoreload
 # %autoreload 2
