@@ -42,6 +42,7 @@ lm = OpenAICompatibleLanguageModel(
     model_name="qwen2-math-1.5b-instruct:2", 
     system_prompt=SAL_STEP_BY_STEP_SYSTEM_PROMPT, 
 )
+# Mathematical problem to solve
 prompt = r"Let $a$ be a positive real number such that all the roots of \[x^3 + ax^2 + ax + 1 = 0\]are real. Find the smallest possible value of $a.$"
 
 response = lm.generate(prompt)
@@ -59,9 +60,14 @@ def extract_boxed(s: str) -> str:
     
 extract_boxed(response)
 
+# %% [markdown]
+# ## Self-Consistency Algorithm
+# Now we'll use the Self-Consistency algorithm to improve the answer quality.
+
 # %%
 from its_hub.algorithms import SelfConsistency
 
+# Set computational budget for scaling
 budget = 16
 
 scaling_alg = SelfConsistency(extract_boxed)
