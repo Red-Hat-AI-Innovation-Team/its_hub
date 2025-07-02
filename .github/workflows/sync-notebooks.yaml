@@ -1,9 +1,6 @@
 name: Sync Notebooks
 
 on:
-  push:
-    branches: [ main ]
-    paths: [ '**/*.py', '**/*.ipynb' ]
   pull_request:
     branches: [ main ]
     paths: [ '**/*.py', '**/*.ipynb' ]
@@ -49,11 +46,11 @@ jobs:
           echo "changed=false" >> $GITHUB_OUTPUT
         fi
 
-    - name: Commit changes
-      if: steps.verify-changed-files.outputs.changed == 'true' && github.event_name == 'push'
+    - name: Commit and push changes to PR branch
+      if: steps.verify-changed-files.outputs.changed == 'true'
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         git add .
         git commit -m "Auto-sync notebooks and Python files" || exit 0
-        git push
+        git push origin HEAD:${{ github.head_ref }}
