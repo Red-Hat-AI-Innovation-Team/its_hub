@@ -112,3 +112,150 @@ The library is optimized for mathematical reasoning:
 - Regex patterns for mathematical notation (e.g., `r"\boxed"` for final answers)
 - Integration with math_verify for evaluation
 - Benchmarking on MATH500 and AIME-2024 datasets
+
+## Inference-as-a-Service (IaaS) Setup
+
+The its_hub library includes a production-ready IaaS service that provides OpenAI-compatible API with inference-time scaling capabilities.
+
+### Quick Start
+
+```bash
+# 1. Start vLLM server (main model on GPU 0)
+CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen2.5-Math-1.5B-Instruct \
+  --dtype float16 --host 0.0.0.0 --port 8100
+
+# 2. Start IaaS service (scaling + reward model on GPU 1)  
+CUDA_VISIBLE_DEVICES=1 uv run its-iaas --host 0.0.0.0 --port 8108
+
+# 3. Configure the service
+curl -X POST http://localhost:8108/configure -H "Content-Type: application/json" -d '{
+  "endpoint": "http://localhost:8100/v1",
+  "api_key": "NO_API_KEY",
+  "model": "Qwen/Qwen2.5-Math-1.5B-Instruct", 
+  "alg": "best-of-n",
+  "rm_name": "Qwen/Qwen2.5-Math-PRM-7B",
+  "rm_device": "cuda:1",
+  "rm_agg_method": "model"
+}'
+```
+
+### Usage Example
+
+```bash
+# Generate response with inference-time scaling
+curl -X POST http://localhost:8108/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen/Qwen2.5-Math-1.5B-Instruct",
+    "messages": [{"role": "user", "content": "Solve: x^2 + 5x + 6 = 0"}],
+    "budget": 4
+  }'
+```
+
+### External Access via SSH Tunneling
+
+For remote access to the service:
+
+```bash
+# Forward both services to local machine
+ssh -L 8100:localhost:8100 -L 8108:localhost:8108 user@server-ip
+
+# Then access locally
+curl -X POST http://localhost:8108/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "Qwen/Qwen2.5-Math-1.5B-Instruct", "messages": [{"role": "user", "content": "Hello"}], "budget": 2}'
+```
+
+### Service Architecture
+
+```
+Client → IaaS Service (GPU 1) → vLLM Server (GPU 0)
+         ↓
+    Reward Model (GPU 1)
+         ↓
+    Best Response Selection
+```
+
+### Key Features
+
+- **OpenAI-Compatible API**: Drop-in replacement for OpenAI chat completions
+- **Budget Control**: `budget` parameter controls inference-time scaling intensity
+- **Multi-GPU Support**: Distribute main model and reward model across GPUs
+- **External Access**: SSH tunneling support for remote access
+- **Production Ready**: Comprehensive error handling and logging
+
+### Integration Examples
+
+**Watson Orchestrate Integration:**
+```python
+import openai
+
+client = openai.OpenAI(
+    base_url="http://localhost:8108/v1",
+    api_key="dummy-key"
+)
+
+response = client.chat.completions.create(
+    model="Qwen/Qwen2.5-Math-1.5B-Instruct",
+    messages=[{"role": "user", "content": "Solve this problem"}],
+    extra_body={"budget": 4}
+)
+```
+
+**Custom Python Client:**
+```python
+import requests
+
+response = requests.post("http://localhost:8108/v1/chat/completions", json={
+    "model": "Qwen/Qwen2.5-Math-1.5B-Instruct",
+    "messages": [{"role": "user", "content": "What is 2+2?"}],
+    "budget": 4  # Generate 4 responses, select best
+})
+```
+
+### Performance Considerations
+
+- **Response Time**: Scaling algorithms take longer than single generation
+  - `budget=1`: ~2 seconds (no scaling)
+  - `budget=4`: ~30-60 seconds (4x generation + reward scoring)
+- **Quality Trade-off**: Higher budget = better quality but slower response
+- **Memory Usage**: 
+  - GPU 0: Main model (~74GB for Math-1.5B)
+  - GPU 1: Reward model (~14GB for PRM-7B)
+
+### Troubleshooting
+
+Common issues and solutions:
+
+```bash
+# Check service status
+ss -tlnp | grep 8108
+
+# View service logs
+tail -f iaas.log
+
+# Check GPU usage
+nvidia-smi
+
+# Test basic connectivity
+curl -X GET http://localhost:8108/docs
+```
+
+For comprehensive setup instructions, troubleshooting, and advanced configuration, see [IAAS_SERVICE_GUIDE.md](./IAAS_SERVICE_GUIDE.md).
+
+### Available Algorithms
+
+- **best-of-n**: Generate N responses, select highest scoring
+- **particle-filtering**: Probabilistic sampling with resampling
+- **beam-search**: Tree search with beam width control
+- **self-consistency**: Multiple generations with majority voting
+
+### Configuration Options
+
+- `endpoint`: vLLM server URL
+- `model`: Model name (must match vLLM)
+- `alg`: Algorithm type
+- `rm_name`: Reward model name
+- `rm_device`: GPU device for reward model
+- `rm_agg_method`: Reward aggregation method
+- `budget`: Computational budget (1-1000)
