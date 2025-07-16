@@ -32,3 +32,8 @@ Inference-time scaling improves LLM performance by using computational resources
 | **Best-of-N** | Number of candidates to generate | `BestOfN(rm)` |
 | **Beam Search** | Total generations ÷ beam width | `BeamSearch(sg, prm, beam_width=4)` |
 | **Particle Filtering** | Number of particles to maintain | `ParticleFiltering(sg, prm)` |
+| **Planning Enhancement** | Enhances any algorithm with planning | `PlanningWrapper(base_algorithm)` |
+
+### Planning Enhancement
+
+The **PlanningWrapper** can enhance any ITS algorithm with a planning phase that generates multiple solution approaches before execution. See [PLANNING_WRAPPER.md](PLANNING_WRAPPER.md) for detailed documentation.
