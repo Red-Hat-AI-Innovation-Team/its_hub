@@ -63,7 +63,7 @@ class ProcessToOutcomeRewardModel:
                 print(f"Warning: Reward model scoring failed: {e}")
                 return 0.0
 
-def test_algorithm_comparison(lm, sg, prm, orm, problem, budget=8):
+def algorithm_comparison(lm, sg, prm, orm, problem, budget=8):
     """Test vanilla vs planning-enhanced versions of algorithms."""
     
     print(f"\n{'='*80}")
@@ -223,7 +223,7 @@ def main():
         print(f"{'#'*60}")
         
         try:
-            results = test_algorithm_comparison(lm, sg, prm, orm, problem, budget=8)
+            results = algorithm_comparison(lm, sg, prm, orm, problem, budget=8)
             all_results[f"problem_{i}"] = results
             
             # Summary for this problem
