@@ -38,7 +38,7 @@ Problem: {problem}
 Please provide a plan with 3 distinct approaches or hypotheses for solving this problem. Format your response as:
 
 APPROACH 1: [Brief description of first method/strategy]
-APPROACH 2: [Brief description of second method/strategy] 
+APPROACH 2: [Brief description of second method/strategy]
 APPROACH 3: [Brief description of third method/strategy]
 
 Make sure each approach represents a genuinely different mathematical strategy or perspective for tackling this problem."""
@@ -162,9 +162,10 @@ class PlanningWrapper(AbstractScalingAlgorithm):
         for i, approach in enumerate(approaches):
             base_budget = budget_per_approach
             # Give remainder to first few approaches
-            if total_allocated + base_budget < remaining_budget:
-                if i < (remaining_budget % len(approaches)):
-                    base_budget += 1
+            if total_allocated + base_budget < remaining_budget and i < (
+                remaining_budget % len(approaches)
+            ):
+                base_budget += 1
             approach_budgets[approach] = base_budget
             total_allocated += base_budget
 
@@ -239,7 +240,7 @@ class PlanningWrapper(AbstractScalingAlgorithm):
 
         # Fallback to first approach if no scoring available
         if best_approach is None:
-            best_approach = list(approach_results.keys())[0]
+            best_approach = next(iter(approach_results.keys()))
             best_result = approach_results[best_approach]
 
         return best_approach, best_result
@@ -260,7 +261,7 @@ class PlanningWrapper(AbstractScalingAlgorithm):
         for attr in score_attrs:
             if hasattr(result, attr):
                 score_val = getattr(result, attr)
-                if isinstance(score_val, (int, float)):
+                if isinstance(score_val, int | float):
                     return float(score_val)
                 elif isinstance(score_val, list) and score_val:
                     return float(max(score_val))
