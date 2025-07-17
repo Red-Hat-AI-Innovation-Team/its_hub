@@ -4,6 +4,7 @@
 - [Usage](usage.md)
   - [Direct Library Usage](usage.md#direct-library-usage)
   - [Inference-as-a-Service API](usage.md#inference-as-a-service-iaas-api)
+- [IaaS Service Guide](iaas-service.md)
 - [Algorithms](algorithms.md)
   - [Particle Filtering](algorithms.md#particle-filtering)
   - [Best-of-N](algorithms.md#best-of-n)
