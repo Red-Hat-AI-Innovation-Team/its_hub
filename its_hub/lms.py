@@ -31,23 +31,31 @@ def rstrip_iff_entire(s, subs):
 class StepGeneration:
     def __init__(
         self,
-        step_token: str | list[str],
-        max_steps: int,
+        step_token: str | list[str] | None = None,
+        max_steps: int = 10,
         stop_token: str | None = None,
         temperature: float = 0.8,
         include_stop_str_in_output: bool = False,  # If True, keep stop strings in output; if False, strip them
         temperature_switch: tuple[float, str, str]
         | None = None,  # (temperature, open_token, close_token)
+        tokens_per_step: int | None = None,  # Maximum tokens per step when step_token is None
     ):
-        if not include_stop_str_in_output:
+        # Validate that exactly one of step_token or tokens_per_step is set
+        if step_token is None and tokens_per_step is None:
+            raise ValueError("Either step_token or tokens_per_step must be provided")
+        if step_token is not None and tokens_per_step is not None:
+            raise ValueError("Cannot specify both step_token and tokens_per_step")
+
+        if step_token is not None and not include_stop_str_in_output:
             assert isinstance(step_token, str), (
                 "step_token must be a string if include_stop_str_in_output is False"
             )
-        else:
-            assert step_token is not None, (
-                "step_token must be provided if include_stop_str_in_output is True"
-            )
+
+        if tokens_per_step is not None and tokens_per_step <= 0:
+            raise ValueError("tokens_per_step must be a positive integer")
+
         self.step_token = step_token
+        self.tokens_per_step = tokens_per_step
         self.max_steps = max_steps
         self.stop_token = stop_token
         self.temperature = temperature
@@ -56,13 +64,16 @@ class StepGeneration:
 
     def _post_process(self, steps: list[str], stopped: bool = False) -> str:
         if self.include_stop_str_in_output:
-            if stopped:
+            if stopped and self.stop_token is not None:
                 last_step = steps[-1]
                 last_step = rstrip_iff_entire(last_step, self.stop_token)
                 steps = [*steps[:-1], last_step]
             return "".join(steps)
         else:
-            if isinstance(self.step_token, str):
+            if self.tokens_per_step is not None:
+                # Using tokens_per_step: simply concatenate all steps
+                response = "".join(steps)
+            elif isinstance(self.step_token, str):
                 response = self.step_token.join(steps)
             else:
                 response = "".join(steps)
@@ -128,6 +139,7 @@ class StepGeneration:
             next_step = lm.generate(
                 messages,
                 stop=self.step_token,
+                max_tokens=self.tokens_per_step,
                 temperature=self._get_temperature(messages),
                 include_stop_str_in_output=self.include_stop_str_in_output,
             )
@@ -161,6 +173,7 @@ class StepGeneration:
             next_steps = lm.generate(
                 messages_lst,
                 stop=self.step_token,
+                max_tokens=self.tokens_per_step,
                 temperature=self._get_temperature(messages_lst),
                 include_stop_str_in_output=self.include_stop_str_in_output,
             )
