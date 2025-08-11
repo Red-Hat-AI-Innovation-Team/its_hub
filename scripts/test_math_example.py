@@ -33,7 +33,7 @@ def main():
     ]
 
     # Initialize step generation and reward model
-    sg = StepGeneration("\n\n", 32, r"\boxed")
+    sg = StepGeneration(step_token="\n\n", max_steps=32, stop_token=r"\boxed")
     prm = LocalVllmProcessRewardModel(
         model_name="Qwen/Qwen2.5-Math-PRM-7B",
         device=f"cuda:{gpu_id}",  # Use the same GPU as the vLLM server

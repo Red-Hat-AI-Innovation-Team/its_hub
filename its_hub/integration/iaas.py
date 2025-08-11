@@ -93,8 +93,8 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
         if request.alg == "particle-filtering":
             # TODO: Make these parameters configurable
             sg = StepGeneration(
-                request.step_token,
                 max_steps=50,  # TODO: Make configurable
+                step_token=request.step_token,
                 stop_token=request.stop_token,
                 temperature=0.001,  # Low temp for deterministic step generation
                 include_stop_str_in_output=True,
