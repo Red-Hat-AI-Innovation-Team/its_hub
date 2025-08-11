@@ -31,8 +31,8 @@ def rstrip_iff_entire(s, subs):
 class StepGeneration:
     def __init__(
         self,
-        step_token: str | list[str] | None = None,
-        max_steps: int = 10,
+        step_token: str | list[str] | None,
+        max_steps: int,
         stop_token: str | None = None,
         temperature: float = 0.8,
         include_stop_str_in_output: bool = False,  # If True, keep stop strings in output; if False, strip them
