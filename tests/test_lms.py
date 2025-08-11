@@ -238,23 +238,23 @@ class TestStepGeneration:
 
         # Should raise ValueError when neither is provided
         with pytest.raises(ValueError, match="Either step_token or tokens_per_step must be provided"):
-            StepGeneration(step_token=None, max_steps=5)
+            StepGeneration(max_steps=5)
 
         # Should raise ValueError for invalid tokens_per_step
         with pytest.raises(ValueError, match="tokens_per_step must be a positive integer"):
-            StepGeneration(step_token=None, max_steps=5, tokens_per_step=0)
+            StepGeneration(max_steps=5, tokens_per_step=0)
 
         with pytest.raises(ValueError, match="tokens_per_step must be a positive integer"):
-            StepGeneration(step_token=None, max_steps=5, tokens_per_step=-10)
+            StepGeneration(max_steps=5, tokens_per_step=-10)
 
     def test_initialization_with_tokens_per_step(self):
         """Test that initialization works with tokens_per_step."""
         # These should all work now
-        step_gen1 = StepGeneration(step_token=None, max_steps=5, tokens_per_step=50, include_stop_str_in_output=False)
+        step_gen1 = StepGeneration(tokens_per_step=50, max_steps=5, include_stop_str_in_output=False)
         assert step_gen1.step_token is None
         assert step_gen1.tokens_per_step == 50
 
-        step_gen2 = StepGeneration(step_token=None, max_steps=5, tokens_per_step=100, include_stop_str_in_output=True)
+        step_gen2 = StepGeneration(tokens_per_step=100, max_steps=5, include_stop_str_in_output=True)
         assert step_gen2.step_token is None
         assert step_gen2.tokens_per_step == 100
 
@@ -283,9 +283,8 @@ class TestStepGeneration:
     def test_post_process_with_tokens_per_step(self, steps, stopped, include_stop, expected):
         """Test post-processing with tokens_per_step."""
         step_gen = StepGeneration(
-            step_token=None,
-            max_steps=5,
             tokens_per_step=50,
+            max_steps=5,
             include_stop_str_in_output=include_stop
         )
 
@@ -362,7 +361,7 @@ class TestStepGeneration:
     def test_forward_with_tokens_per_step(self):
         """Test forward generation with tokens_per_step."""
         mock_lm = StepMockLanguageModel(["full response"])
-        step_gen = StepGeneration(step_token=None, max_steps=5, tokens_per_step=50)
+        step_gen = StepGeneration(tokens_per_step=50, max_steps=5)
 
         next_step, is_stopped = step_gen.forward(mock_lm, "test prompt")
         assert next_step == "full response"
@@ -370,7 +369,7 @@ class TestStepGeneration:
 
         # With stop token detection
         mock_lm = StepMockLanguageModel(["response with STOP"])
-        step_gen = StepGeneration(step_token=None, max_steps=5, stop_token="STOP", tokens_per_step=50)
+        step_gen = StepGeneration(tokens_per_step=50, max_steps=5, stop_token="STOP")
 
         next_step, is_stopped = step_gen.forward(mock_lm, "test prompt")
         assert next_step == "response with STOP"
@@ -383,7 +382,7 @@ class TestStepGeneration:
         mock_lm = Mock()
         mock_lm.generate.return_value = "test response"
 
-        step_gen = StepGeneration(step_token=None, max_steps=3, tokens_per_step=100)
+        step_gen = StepGeneration(tokens_per_step=100, max_steps=3)
         step_gen.forward(mock_lm, "test prompt")
 
         # Verify that max_tokens=100 was passed to the language model

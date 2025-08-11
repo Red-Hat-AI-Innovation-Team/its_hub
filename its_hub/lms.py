@@ -31,14 +31,15 @@ def rstrip_iff_entire(s, subs):
 class StepGeneration:
     def __init__(
         self,
-        step_token: str | list[str] | None,
         max_steps: int,
+        step_token: str | list[str] | None = None,
         stop_token: str | None = None,
         temperature: float = 0.8,
         include_stop_str_in_output: bool = False,  # If True, keep stop strings in output; if False, strip them
         temperature_switch: tuple[float, str, str]
         | None = None,  # (temperature, open_token, close_token)
-        tokens_per_step: int | None = None,  # Maximum tokens per step when step_token is None
+        tokens_per_step: int
+        | None = None,  # Maximum tokens per step when step_token is None
     ):
         # Validate that exactly one of step_token or tokens_per_step is set
         if step_token is None and tokens_per_step is None:
