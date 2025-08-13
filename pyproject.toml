@@ -27,6 +27,7 @@ dependencies = [
     "typing-extensions>=4.0.0",
     "reward-hub==0.1.1",
     "vllm<=0.9.1",  # Pin to avoid build issues with newer versions requiring Rust compilation
+    "transformers==4.53.2",  # Pin to exact version that worked in CI to avoid aimv2 config conflict with vLLM 0.9.1
     "backoff>=2.2.0",
     "click>=8.1.0",
     "fastapi>=0.115.0",
@@ -55,6 +56,11 @@ dev = [
     "ruff>=0.8.0",
     "jupytext>=1.15.0",
     "jupyter>=1.0.0",
+]
+research = [
+    "math-verify>=0.1.0",  # For mathematical reasoning evaluation in benchmark scripts
+    "datasets>=2.0.0",     # For loading benchmark datasets (MATH500, AIME)
+    "matplotlib>=3.5.0",   # For visualization scripts
 ]
 
 [tool.setuptools]

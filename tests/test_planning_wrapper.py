@@ -126,7 +126,7 @@ class TestPlanningWrapper:
     @pytest.fixture
     def step_generation(self):
         """Create a StepGeneration instance for testing."""
-        return StepGeneration("\n\n", 32, r"\boxed")
+        return StepGeneration(step_token="\n\n", max_steps=32, stop_token=r"\boxed")
 
     @pytest.fixture
     def test_problem(self):
