@@ -57,6 +57,11 @@ dev = [
     "jupytext>=1.15.0",
     "jupyter>=1.0.0",
 ]
+research = [
+    "math-verify>=0.1.0",  # For mathematical reasoning evaluation in benchmark scripts
+    "datasets>=2.0.0",     # For loading benchmark datasets (MATH500, AIME)
+    "matplotlib>=3.5.0",   # For visualization scripts
+]
 
 [tool.setuptools]
 package-dir = {"" = "."}

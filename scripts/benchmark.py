@@ -48,18 +48,29 @@ def _extract_boxed(s: str) -> str:
     # return the last match if any were found
     return boxed_matches[-1] if boxed_matches else ""
 
-def init_algorithm(alg: ScalingAlgorithm, model_name: str, rm_name: str, rm_device: str, rm_agg_method: AggregationMethod):
-    step_token = "\n\n##" if "llama" in model_name.lower() else "\n\n"
+def init_algorithm(alg: ScalingAlgorithm, model_name: str, rm_name: str, rm_device: str, rm_agg_method: AggregationMethod, tokens_per_step: int = None):
     if alg == ScalingAlgorithm.SELF_CONSISTENCY:
         return SelfConsistency(_extract_boxed)
     elif alg == ScalingAlgorithm.BEAM_SEARCH:
-        sg = StepGeneration(step_token=step_token, max_steps=50, stop_token="\\boxed")
+        if tokens_per_step is not None:
+            # Use new tokens_per_step approach for easier usage
+            sg = StepGeneration(max_steps=50, tokens_per_step=tokens_per_step, stop_token="\\boxed")
+        else:
+            # Use traditional step_token approach
+            step_token = "\n\n##" if "llama" in model_name.lower() else "\n\n"
+            sg = StepGeneration(step_token=step_token, max_steps=50, stop_token="\\boxed")
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
         return BeamSearch(sg, prm, beam_width=4)
     elif alg == ScalingAlgorithm.PARTICLE_FILTERING:
-        sg = StepGeneration(step_token=step_token, max_steps=50, stop_token="\\boxed")
+        if tokens_per_step is not None:
+            # Use new tokens_per_step approach for easier usage
+            sg = StepGeneration(max_steps=50, tokens_per_step=tokens_per_step, stop_token="\\boxed")
+        else:
+            # Use traditional step_token approach
+            step_token = "\n\n##" if "llama" in model_name.lower() else "\n\n"
+            sg = StepGeneration(step_token=step_token, max_steps=50, stop_token="\\boxed")
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
@@ -103,6 +114,7 @@ def display_results(df: pd.DataFrame):
 @click.option("--does_eval", is_flag=True, default=False, help="whether to evaluate the results")
 @click.option("--eval_expected_pass_at_one", is_flag=True, default=False, help="whether to evaluate expected pass at one")
 @click.option("--display_only", is_flag=True, default=False, help="whether to show only the results")
+@click.option("--tokens_per_step", type=int, default=None, help="use tokens_per_step instead of step_token for StepGeneration (easier for PF/BS algorithms)")
 def main(
     benchmark: BenchmarkDataset, 
     model_name: str, 
@@ -124,6 +136,7 @@ def main(
     does_eval: bool,
     eval_expected_pass_at_one: bool,
     display_only: bool,
+    tokens_per_step: int,
 ):
     # print all arguments using click context
     ctx = click.get_current_context()
@@ -139,6 +152,9 @@ def main(
     if alg == ScalingAlgorithm.BEAM_SEARCH or alg == ScalingAlgorithm.PARTICLE_FILTERING:
         rm_name_dashed = rm_name.replace("/", "-")
         alg_str = f"{alg.value}-{rm_name_dashed}-{rm_agg_method.value}"
+        # Add tokens_per_step to filename if specified
+        if tokens_per_step is not None:
+            alg_str += f"-tokens{tokens_per_step}"
     else:
         alg_str = alg.value
     output_file = os.path.join(output_dir, f"{model_name_dashed}-{alg_str}-{benchmark.value}.jsonl")
@@ -190,7 +206,7 @@ def main(
         )
 
     print("initializing algorithm...")
-    scaling_alg = init_algorithm(alg, model_name, rm_name, rm_device, rm_agg_method)
+    scaling_alg = init_algorithm(alg, model_name, rm_name, rm_device, rm_agg_method, tokens_per_step)
 
     # ensure output directory exists
     if not os.path.exists(output_dir):
