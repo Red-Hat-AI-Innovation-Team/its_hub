@@ -203,7 +203,7 @@ def init_algorithm(
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
-        return BestOfN(reward_model=prm)
+        return BestOfN(prm)
     else:
         raise ValueError(f"Unknown algorithm: {alg}")
 
@@ -276,7 +276,7 @@ def check_existing_result(output_path: Path, unique_id: str) -> bool:
     required=True,
     help="Model to use for inference-time scaling",
 )
-@click.option("--is_async", is_flag=True, default=True, help="Use async mode")
+@click.option("--is_async", is_flag=True, default=False, help="Use async mode")
 @click.option("--max_tokens", type=int, default=None, help="Max tokens for generation")
 @click.option(
     "--temperature", type=float, default=None, help="Temperature for generation"
