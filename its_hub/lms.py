@@ -230,6 +230,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             "Authorization": f"Bearer {self.api_key}",
         }
 
+        # endpoint type
+        self.endpoint_type = "openai" if "openai" in self.endpoint else "vllm"
+
     @property
     def _chat_completion_endpoint(self) -> str:
         return self.endpoint.rstrip("/") + "/chat/completions"
@@ -258,13 +261,22 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         request_data = {
             "model": self.model_name,
             "messages": [msg.__dict__ for msg in messages],
-            "extra_body": {},
         }
-        if messages[-1].role == "assistant":
-            request_data["extra_body"]["add_generation_prompt"] = False
-            request_data["extra_body"]["continue_final_message"] = True
-            request_data["add_generation_prompt"] = False
-            request_data["continue_final_message"] = True
+
+        if self.endpoint_type != "openai":
+            request_data["extra_body"] = {}
+            if messages[-1].role == "assistant":
+                request_data["extra_body"]["add_generation_prompt"] = False
+                request_data["extra_body"]["continue_final_message"] = True
+                request_data["add_generation_prompt"] = False
+                request_data["continue_final_message"] = True
+            if include_stop_str_in_output is not None:
+                request_data["extra_body"]["include_stop_str_in_output"] = (
+                    include_stop_str_in_output
+                )
+                request_data["include_stop_str_in_output"] = include_stop_str_in_output
+        else:
+            logging.info("openai endpoint does not support add_generation_prompt, continue_final_message, or include_stop_str_in_output")
 
         # set default runtime parameters
         if self.stop is not None:
@@ -281,11 +293,6 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             request_data["max_tokens"] = max_tokens
         if temperature is not None:
             request_data["temperature"] = temperature
-        if include_stop_str_in_output is not None:
-            request_data["extra_body"]["include_stop_str_in_output"] = (
-                include_stop_str_in_output
-            )
-            request_data["include_stop_str_in_output"] = include_stop_str_in_output
 
         return request_data
 
