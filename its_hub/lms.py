@@ -277,6 +277,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 request_data["include_stop_str_in_output"] = include_stop_str_in_output
         else:
             logging.info("openai endpoint does not support add_generation_prompt, continue_final_message, or include_stop_str_in_output")
+            if include_stop_str_in_output is not None:
+                logging.warning("include_stop_str_in_output parameter is not supported with OpenAI endpoints and will be ignored")
 
         # set default runtime parameters
         if self.stop is not None:
