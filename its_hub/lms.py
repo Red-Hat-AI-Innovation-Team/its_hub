@@ -263,7 +263,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             "messages": [msg.__dict__ for msg in messages],
         }
 
-        if self.endpoint_type != "openai":
+        if self.endpoint_type == "vllm":
             request_data["extra_body"] = {}
             if messages[-1].role == "assistant":
                 request_data["extra_body"]["add_generation_prompt"] = False
