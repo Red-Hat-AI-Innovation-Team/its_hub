@@ -37,6 +37,25 @@ LM_DICT: dict[str, OpenAICompatibleLanguageModel] = {}
 SCALING_ALG: Any | None = None  # TODO: Add proper type annotation
 
 
+def _extract_algorithm_metadata(algorithm_result: Any) -> dict[str, Any] | None:
+    """Extract metadata from algorithm results for API response."""
+    from its_hub.algorithms.self_consistency import SelfConsistencyResult
+
+    if isinstance(algorithm_result, SelfConsistencyResult):
+        return {
+            "algorithm": "self-consistency",
+            "all_responses": algorithm_result.responses,
+            "response_counts": dict(algorithm_result.response_counts),
+            "selected_index": algorithm_result.selected_index,
+        }
+
+    # Add other algorithm result types here as needed
+    # elif isinstance(algorithm_result, OtherAlgorithmResult):
+    #     return {...}
+
+    return None
+
+
 class ConfigRequest(BaseModel):
     """Configuration request for setting up the IaaS service."""
 
@@ -230,6 +249,7 @@ class ChatCompletionResponse(BaseModel):
     model: str = Field(..., description="Model used")
     choices: list[ChatCompletionChoice] = Field(..., description="Generated choices")
     usage: ChatCompletionUsage = Field(..., description="Token usage statistics")
+    metadata: dict[str, Any] | None = Field(None, description="Algorithm-specific metadata")
 
 
 @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
@@ -276,7 +296,17 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         )
 
         # Generate response using scaling algorithm
-        response_content = SCALING_ALG.infer(lm, prompt, request.budget)
+        algorithm_result = SCALING_ALG.infer(lm, prompt, request.budget, return_response_only=False)
+
+        # Extract response content and metadata
+        if hasattr(algorithm_result, 'the_one'):
+            # Got a full result object
+            response_content = algorithm_result.the_one
+            metadata = _extract_algorithm_metadata(algorithm_result)
+        else:
+            # Got just a string (shouldn't happen with return_response_only=False, but handle gracefully)
+            response_content = algorithm_result
+            metadata = None
 
         # TODO: Implement proper token counting
         response = ChatCompletionResponse(
@@ -295,6 +325,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
                 completion_tokens=0,  # TODO: Implement token counting
                 total_tokens=0,  # TODO: Implement token counting
             ),
+            metadata=metadata,
         )
 
         logger.info(
