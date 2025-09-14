@@ -5,7 +5,7 @@ from copy import deepcopy
 from typing import List
 import pytest
 
-from its_hub.algorithms.self_consistency import _select_most_common_or_random
+from its_hub.algorithms.self_consistency import _select_most_common_or_random, _select_hierarchical_most_common_or_random, SelfConsistency, SelfConsistencyResult, create_regex_projection_function
 from its_hub.algorithms.beam_search import BeamSearch, BeamSearchResult, Path
 from its_hub.algorithms.particle_gibbs import (
     ParticleGibbs, ParticleGibbsResult, ParticleFiltering, ParticleFilteringResult,
@@ -40,6 +40,214 @@ class TestSelfConsistency:
         else:
             # Single winner
             assert test_list[selected_index] == expected_element
+
+    @pytest.mark.parametrize("test_tuples,expected_winner", [
+        # Test case from issue: "a" is most common at level 0, "1" and "2" equally common at level 1
+        ([("a", "1"), ("a", "2"), ("b", "1"), ("c", "1")], [("a", "1"), ("a", "2")]),
+        # Clear hierarchy winner
+        ([("a", "1"), ("a", "1"), ("b", "1")], [("a", "1")]),
+        # All different at level 0
+        ([("a", "1"), ("b", "2"), ("c", "3")], [("a", "1"), ("b", "2"), ("c", "3")]),
+        # Same at level 0, different at level 1  
+        ([("a", "1"), ("a", "2"), ("a", "1")], [("a", "1")]),
+        # Different depths
+        ([("a", "1", "x"), ("a", "1", "y"), ("a", "2"), ("b", "1")], [("a", "1", "x"), ("a", "1", "y")]),
+        # Single element tuples
+        ([("a",), ("b",), ("a",)], [("a",)]),
+    ])
+    def test_select_hierarchical_most_common_or_random(self, test_tuples, expected_winner):
+        """Test hierarchical selection of most common element with various scenarios."""
+        counts, selected_index = _select_hierarchical_most_common_or_random(test_tuples)
+        
+        # Check that the selected tuple is one of the expected winners
+        selected_tuple = test_tuples[selected_index]
+        assert selected_tuple in expected_winner
+        
+        # Check that counts include all tuples
+        assert sum(counts.values()) == len(test_tuples)
+        for tuple_item in test_tuples:
+            assert tuple_item in counts
+    
+    def test_select_hierarchical_empty_list(self):
+        """Test hierarchical selection with empty list."""
+        with pytest.raises(ValueError, match="Cannot select from empty list"):
+            _select_hierarchical_most_common_or_random([])
+
+    def test_self_consistency_flat_projection(self):
+        """Test SelfConsistency with flat (string) projection function."""
+        mock_lm = StepMockLanguageModel(["answer1", "answer2", "answer1", "answer3"])
+        
+        def flat_projection(response: str) -> str:
+            return response[-1]  # Last character
+        
+        sc = SelfConsistency(flat_projection)
+        result = sc.infer(mock_lm, "test prompt", budget=4, return_response_only=False)
+        
+        assert isinstance(result, SelfConsistencyResult)
+        assert len(result.responses) == 4
+        assert isinstance(result.response_counts, Counter)
+        # "1" appears twice (from "answer1"), should be selected
+        assert result.the_one in ["answer1", "answer1"]
+
+    def test_self_consistency_hierarchical_projection(self):
+        """Test SelfConsistency with hierarchical (tuple) projection function."""
+        mock_lm = StepMockLanguageModel(["a1", "a2", "b1", "c1"])
+        
+        def hierarchical_projection(response: str) -> tuple:
+            return (response[0], response[1])  # First char, second char as tuple
+        
+        sc = SelfConsistency(hierarchical_projection)
+        result = sc.infer(mock_lm, "test prompt", budget=4, return_response_only=False)
+        
+        assert isinstance(result, SelfConsistencyResult)
+        assert len(result.responses) == 4
+        assert isinstance(result.response_counts, Counter)
+        # "a" is most common at level 0, so should select either "a1" or "a2"
+        assert result.the_one in ["a1", "a2"]
+
+    def test_self_consistency_return_response_only(self):
+        """Test SelfConsistency with return_response_only=True."""
+        mock_lm = StepMockLanguageModel(["a1", "a2", "b1", "c1"])
+        
+        def hierarchical_projection(response: str) -> tuple:
+            return (response[0], response[1])
+        
+        sc = SelfConsistency(hierarchical_projection)
+        result = sc.infer(mock_lm, "test prompt", budget=4, return_response_only=True)
+        
+        assert isinstance(result, str)
+        assert result in ["a1", "a2"]  # Should be one of the "a" responses
+
+    def test_create_regex_projection_function_single_pattern(self):
+        """Test creating projection function from single regex pattern."""
+        # Test math answer extraction
+        pattern = r'\\boxed\{([^}]+)\}'
+        proj_func = create_regex_projection_function(pattern)
+        
+        # Test successful extraction
+        response1 = "The solution is 42. Therefore, the answer is \\boxed{42}."
+        result1 = proj_func(response1)
+        assert result1 == ("42",)
+        
+        # Test no match
+        response2 = "The answer is 42 but not in boxed format."
+        result2 = proj_func(response2)
+        assert result2 == (None,)
+        
+        # Test pattern without capturing groups
+        pattern_no_groups = r'\\boxed\{[^}]+\}'
+        proj_func_no_groups = create_regex_projection_function(pattern_no_groups)
+        result3 = proj_func_no_groups(response1)
+        assert result3 == ("\\boxed{42}",)
+
+    def test_create_regex_projection_function_multiple_patterns(self):
+        """Test creating projection function from multiple regex patterns."""
+        # Test hierarchical extraction: method and answer
+        patterns = [
+            r'Method:\s*(\w+)',  # Extract method
+            r'\\boxed\{([^}]+)\}'  # Extract final answer
+        ]
+        proj_func = create_regex_projection_function(patterns)
+        
+        # Test full match
+        response1 = "Method: algebra\n\nSolving step by step:\nx = 5\n\nFinal answer: \\boxed{5}"
+        result1 = proj_func(response1)
+        assert result1 == ("algebra", "5")
+        
+        # Test partial match (only method)
+        response2 = "Method: geometry\n\nThe answer is 10 but not boxed."
+        result2 = proj_func(response2)
+        assert result2 == ("geometry", None)
+        
+        # Test partial match (only answer)
+        response3 = "Using an unspecified approach.\nAnswer: \\boxed{15}"
+        result3 = proj_func(response3)
+        assert result3 == (None, "15")
+        
+        # Test no matches
+        response4 = "Some random text without patterns."
+        result4 = proj_func(response4)
+        assert result4 == (None, None)
+
+    def test_create_regex_projection_function_case_insensitive(self):
+        """Test case-insensitive matching in regex projection function."""
+        pattern = r'ANSWER:\s*(\w+)'
+        proj_func = create_regex_projection_function(pattern)
+        
+        # Test different cases
+        responses = [
+            "ANSWER: correct",
+            "answer: correct", 
+            "Answer: correct",
+            "AnSwEr: correct"
+        ]
+        
+        for response in responses:
+            result = proj_func(response)
+            assert result == ("correct",), f"Failed for: {response}"
+
+    def test_create_regex_projection_function_multiline(self):
+        """Test regex projection function with multiline and DOTALL flags."""
+        pattern = r'Step 1:.*?Result:\s*(\w+)'
+        proj_func = create_regex_projection_function(pattern)
+        
+        response = """Step 1: Start here
+        Do some calculations
+        More work here
+        Result: success"""
+        
+        result = proj_func(response)
+        assert result == ("success",)
+
+    def test_create_regex_projection_function_with_self_consistency(self):
+        """Test integration of regex projection function with SelfConsistency."""
+        # Create a pattern to extract answers from boxed format
+        pattern = r'\\boxed\{([^}]+)\}'
+        proj_func = create_regex_projection_function(pattern)
+        
+        # Mock responses with different answers
+        responses = [
+            "Solution: \\boxed{42}",
+            "Answer: \\boxed{24}",  
+            "Result: \\boxed{42}",
+            "Final: \\boxed{42}"
+        ]
+        mock_lm = StepMockLanguageModel(responses)
+        
+        sc = SelfConsistency(proj_func)
+        result = sc.infer(mock_lm, "test prompt", budget=4, return_response_only=False)
+        
+        assert isinstance(result, SelfConsistencyResult)
+        # "42" appears 3 times, should be selected over "24" (1 time)
+        extracted_answer = proj_func(result.the_one)[0]
+        assert extracted_answer == "42"
+
+    def test_create_regex_projection_function_hierarchical_with_self_consistency(self):
+        """Test hierarchical regex projection function with SelfConsistency."""
+        # Create hierarchical patterns: approach and answer
+        patterns = [
+            r'Approach:\s*(\w+)',
+            r'\\boxed\{([^}]+)\}'
+        ]
+        proj_func = create_regex_projection_function(patterns)
+        
+        # Mock responses - "algebra" approach should win, with "42" being most common answer
+        responses = [
+            "Approach: algebra\nSolution: \\boxed{42}",
+            "Approach: algebra\nSolution: \\boxed{24}", 
+            "Approach: geometry\nSolution: \\boxed{42}",
+            "Approach: calculus\nSolution: \\boxed{30}"
+        ]
+        mock_lm = StepMockLanguageModel(responses)
+        
+        sc = SelfConsistency(proj_func)
+        result = sc.infer(mock_lm, "test prompt", budget=4, return_response_only=False)
+        
+        assert isinstance(result, SelfConsistencyResult)
+        # "algebra" appears twice (most common approach), so should select from those
+        extracted = proj_func(result.the_one)
+        assert extracted[0] == "algebra"  # Should be algebra approach
+        assert extracted[1] in ["42", "24"]  # Should be one of the algebra answers
 
 
 class TestDataStructures:

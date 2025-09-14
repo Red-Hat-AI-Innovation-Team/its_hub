@@ -14,6 +14,10 @@ from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
 from its_hub.algorithms import BestOfN, ParticleFiltering
+from its_hub.algorithms.self_consistency import (
+    SelfConsistency,
+    create_regex_projection_function,
+)
 from its_hub.lms import OpenAICompatibleLanguageModel, StepGeneration
 from its_hub.types import ChatMessage
 
@@ -42,38 +46,60 @@ class ConfigRequest(BaseModel):
     alg: str = Field(..., description="Scaling algorithm to use")
     step_token: str | None = Field(None, description="Token to mark generation steps")
     stop_token: str | None = Field(None, description="Token to stop generation")
-    rm_name: str = Field(..., description="Reward model name")
-    rm_device: str = Field(..., description="Device for reward model (e.g., 'cuda:0')")
+    rm_name: str | None = Field(None, description="Reward model name (not required for self-consistency)")
+    rm_device: str | None = Field(None, description="Device for reward model (e.g., 'cuda:0')")
     rm_agg_method: str | None = Field(
         None, description="Reward model aggregation method"
+    )
+    regex_patterns: list[str] | None = Field(
+        None, description="Regex patterns for self-consistency projection function"
     )
 
     @field_validator("alg")
     @classmethod
     def validate_algorithm(cls, v):
         """Validate that the algorithm is supported."""
-        supported_algs = {"particle-filtering", "best-of-n"}
+        supported_algs = {"particle-filtering", "best-of-n", "self-consistency"}
         if v not in supported_algs:
             raise ValueError(
                 f"Algorithm '{v}' not supported. Choose from: {supported_algs}"
             )
         return v
 
+    @field_validator("regex_patterns")
+    @classmethod
+    def validate_regex_patterns(cls, v, info):
+        """Validate regex patterns are provided when using self-consistency."""
+        if info.data.get("alg") == "self-consistency" and not v:
+            raise ValueError("regex_patterns are required when using self-consistency algorithm")
+        return v
+
+    @field_validator("rm_name")
+    @classmethod
+    def validate_rm_name(cls, v, info):
+        """Validate reward model name is provided for algorithms that need it."""
+        alg = info.data.get("alg")
+        if alg in {"particle-filtering", "best-of-n"} and not v:
+            raise ValueError(f"rm_name is required when using {alg} algorithm")
+        return v
+
 
 @app.post("/configure", status_code=status.HTTP_200_OK)
 async def config_service(request: ConfigRequest) -> dict[str, str]:
     """Configure the IaaS service with language model and scaling algorithm."""
-    try:
-        from its_hub.integration.reward_hub import (
-            AggregationMethod,
-            LocalVllmProcessRewardModel,
-        )
-    except ImportError as e:
-        logger.error(f"Failed to import reward_hub: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Reward hub integration not available",
-        ) from e
+    # Only import reward_hub if needed (not required for self-consistency)
+    if request.alg in {"particle-filtering", "best-of-n"}:
+        try:
+            from its_hub.integration.reward_hub import (
+                AggregationMethod,
+                LocalVllmProcessRewardModel,
+            )
+        except ImportError as e:
+            logger.error(f"Failed to import reward_hub: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Reward hub integration not available",
+            ) from e
 
     global LM_DICT, SCALING_ALG
 
@@ -117,6 +143,11 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
             # TODO: Consider separating outcome and process reward model interfaces
             orm = prm  # Using process reward model as outcome reward model
             SCALING_ALG = BestOfN(orm)
+
+        elif request.alg == "self-consistency":
+            # Create projection function from regex patterns
+            projection_func = create_regex_projection_function(request.regex_patterns)
+            SCALING_ALG = SelfConsistency(projection_func)
 
         logger.info(f"Successfully configured {request.alg} algorithm")
         return {
