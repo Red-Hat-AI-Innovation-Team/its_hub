@@ -15,12 +15,12 @@ from its_hub.types import ChatMessage
 
 @dataclass
 class SelfConsistencyResult(AbstractScalingResult):
-    responses: list[str]
+    responses: list[dict]
     response_counts: Counter[str] | Counter[tuple]
     selected_index: int
 
     @property
-    def the_one(self) -> str:
+    def the_one(self) -> dict:
         return self.responses[self.selected_index]
 
 
@@ -109,19 +109,52 @@ class SelfConsistency(AbstractScalingAlgorithm):
     def infer(
         self,
         lm: AbstractLanguageModel,
-        prompt: str,
+        prompt: str | list[ChatMessage],
         budget: int,
         return_response_only: bool = True,
-    ) -> str | SelfConsistencyResult:
-        # generate responses
-        responses = lm.generate(
-            [[ChatMessage(role="user", content=prompt)] for _ in range(budget)]
-        )
+    ) -> dict | SelfConsistencyResult:
+        # Handle both string prompts and conversation history
+        if isinstance(prompt, str):
+            # Legacy string prompt
+            messages_list = [[ChatMessage(role="user", content=prompt)] for _ in range(budget)]
+        else:
+            # Full conversation history
+            messages_list = [prompt for _ in range(budget)]
+        
+        # generate responses (now returns list of message objects)
+        responses = lm.generate(messages_list)
 
-        # project responses into consistency space
-        responses_projected = [
-            self.consistency_space_projection_func(r) for r in responses
-        ]
+        # Check if responses contain tool calls or regular content
+        has_tool_calls = any(msg.get("tool_calls") for msg in responses)
+        
+        if has_tool_calls:
+            # Vote on tool calls directly: compare function name first, then arguments
+            # TODO: Compare multiple tool calls in sequence, not just the first one
+            
+            def extract_tool_call_features(message_obj: dict) -> tuple:
+                tool_calls = message_obj.get("tool_calls", [])
+                if not tool_calls:
+                    return (None, None)  # No tool calls
+                
+                # Only compare first tool call for now
+                first_tc = tool_calls[0]
+                function_name = first_tc.get("function", {}).get("name")
+                function_args = str(first_tc.get("function", {}).get("arguments", ""))
+                
+                return (function_name, function_args)
+            
+            # Extract tool call features for voting (no regex needed, direct structured comparison)
+            responses_projected = [extract_tool_call_features(r) for r in responses]
+            
+        else:
+            # Vote on regular message content using the regex projection function
+            def extract_text_for_projection(message_obj: dict) -> str:
+                return message_obj.get("content", "")
+
+            # Apply regex projection function for text responses
+            responses_projected = [
+                self.consistency_space_projection_func(extract_text_for_projection(r)) for r in responses
+            ]
 
         # determine if we're dealing with hierarchical (tuple) or flat (string) projections
         if responses_projected and isinstance(responses_projected[0], tuple):
