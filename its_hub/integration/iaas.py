@@ -10,8 +10,10 @@ from typing import Any
 
 import click
 import uvicorn
-from fastapi import FastAPI, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
+from fastapi import FastAPI, HTTPException, status, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, Field, field_validator, ValidationError
 
 from its_hub.algorithms import BestOfN, ParticleFiltering
 from its_hub.algorithms.self_consistency import (
@@ -19,7 +21,7 @@ from its_hub.algorithms.self_consistency import (
     create_regex_projection_function,
 )
 from its_hub.lms import OpenAICompatibleLanguageModel, StepGeneration
-from its_hub.types import ChatMessage
+from its_hub.types import ChatMessage, ChatCompletionMessage, ToolCall
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +37,13 @@ app = FastAPI(
 # Global state - TODO: Replace with proper dependency injection in production
 LM_DICT: dict[str, OpenAICompatibleLanguageModel] = {}
 SCALING_ALG: Any | None = None  # TODO: Add proper type annotation
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"❌ Validation error: {exc.errors()}")
+    logger.error(f"❌ Request body: {await request.body()}")
+    return await request_validation_exception_handler(request, exc)
 
 
 def _extract_algorithm_metadata(algorithm_result: Any) -> dict[str, Any] | None:
@@ -209,6 +218,8 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: int | None = Field(None, ge=1, description="Maximum tokens to generate")
     stream: bool | None = Field(False, description="Stream response (not implemented)")
     return_response_only: bool = Field(True, description="Return only the selected response (false to include algorithm metadata)")
+    tools: list[dict[str, Any]] | None = Field(None, description="List of tools available for function calling")
+    tool_choice: str | dict[str, Any] | None = Field(None, description="Controls which (if any) tool is called")
 
     @field_validator("messages")
     @classmethod
@@ -216,12 +227,7 @@ class ChatCompletionRequest(BaseModel):
         """Validate message format and constraints."""
         if not v:
             raise ValueError("At least one message is required")
-        if len(v) > 2:
-            raise ValueError("Maximum 2 messages supported (optional system + user)")
-        if v[-1].role != "user":
-            raise ValueError("Last message must be from user")
-        if len(v) == 2 and v[0].role != "system":
-            raise ValueError("First message must be system when using 2 messages")
+        # Note: Removed "last message must be user" constraint to support full conversation history
         return v
 
 
@@ -229,7 +235,7 @@ class ChatCompletionChoice(BaseModel):
     """Single completion choice."""
 
     index: int = Field(..., description="Choice index")
-    message: ChatMessage = Field(..., description="Generated message")
+    message: ChatCompletionMessage = Field(..., description="Generated message")
     finish_reason: str = Field(..., description="Reason for completion")
 
 
@@ -256,58 +262,121 @@ class ChatCompletionResponse(BaseModel):
 @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResponse:
     """Generate chat completion with inference-time scaling."""
+    logger.info(f"🔍 Received chat completion request: model={request.model}, budget={request.budget}, messages={len(request.messages)}")
+    logger.info(f"🔍 Message types: {[msg.role for msg in request.messages]}")
+    logger.info(f"🔍 Tools provided: {request.tools is not None}")
+    
     if request.stream:
+        logger.error("❌ Streaming not supported")
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="Streaming responses not yet implemented",
         )
 
     if SCALING_ALG is None:
+        logger.error("❌ Service not configured")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Service not configured. Please call /configure first.",
         )
 
     try:
+        logger.info(f"🔍 Looking up model: {request.model}")
         lm = LM_DICT[request.model]
+        logger.info(f"✅ Model found: {request.model}")
     except KeyError:
         available_models = list(LM_DICT.keys())
+        logger.error(f"❌ Model not found: {request.model}, available: {available_models}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Model '{request.model}' not found. Available models: {available_models}",
         ) from None
 
     try:
+        logger.info(f"🔍 Configuring language model...")
         # Configure language model for this request
         # FIXME: Mutating the shared lm instance is not thread-safe and can cause race conditions
         if request.temperature is not None:
             lm.temperature = request.temperature
+            logger.info(f"🔍 Set temperature: {request.temperature}")
 
-        # Set system prompt if provided
-        if len(request.messages) == 2:
-            lm.system_prompt = request.messages[0].content
-        else:
-            lm.system_prompt = None
+        # Handle full conversation history
+        # Extract system message if present (first message with role="system")
+        system_message = next((msg for msg in request.messages if msg.role == "system"), None)
+        lm.system_prompt = system_message.content if system_message else None
+        logger.info(f"🔍 System prompt: {lm.system_prompt is not None}")
 
-        # Extract user prompt
-        prompt = request.messages[-1].content
+        # Convert full conversation history to ChatMessage format for the algorithm
+        logger.info(f"🔍 Converting {len(request.messages)} messages...")
+        conversation_messages = []
+        for i, msg in enumerate(request.messages):
+            logger.info(f"🔍 Message {i}: role={msg.role}, content_len={len(msg.content or '')}, tool_calls={hasattr(msg, 'tool_calls') and msg.tool_calls is not None}, tool_call_id={hasattr(msg, 'tool_call_id') and msg.tool_call_id is not None}")
+            # Convert to the ChatMessage format expected by the algorithm, preserving tool-related fields
+            chat_msg = ChatMessage(
+                role=msg.role,
+                content=msg.content or "",  # Handle None content
+                tool_calls=getattr(msg, 'tool_calls', None),  # Preserve tool_calls for assistant messages
+                tool_call_id=getattr(msg, 'tool_call_id', None)  # Preserve tool_call_id for tool messages
+            )
+            conversation_messages.append(chat_msg)
+        logger.info(f"✅ Converted {len(conversation_messages)} messages")
 
         logger.info(
-            f"Processing request for model={request.model}, budget={request.budget}"
+            f"Processing request for model={request.model}, budget={request.budget}, messages={len(conversation_messages)}"
         )
 
-        # Generate response using scaling algorithm
-        algorithm_result = SCALING_ALG.infer(lm, prompt, request.budget, return_response_only=request.return_response_only)
+        # Generate response using scaling algorithm with full conversation history
+        # Pass tools and tool_choice to the language model if provided
+        if request.tools is not None or request.tool_choice is not None:
+            logger.info(f"🔍 Setting up tools wrapper (tools: {len(request.tools) if request.tools else 0}, tool_choice: {request.tool_choice is not None})")
+            # Store original generate method
+            original_generate = lm.generate
+            
+            # Create wrapper that passes tools
+            def generate_with_tools(*args, **kwargs):
+                if request.tools is not None:
+                    kwargs['tools'] = request.tools
+                    logger.info(f"🔍 Adding {len(request.tools)} tools to generation")
+                if request.tool_choice is not None:
+                    kwargs['tool_choice'] = request.tool_choice
+                    logger.info(f"🔍 Adding tool_choice: {request.tool_choice}")
+                return original_generate(*args, **kwargs)
+            
+            # Temporarily replace the generate method
+            lm.generate = generate_with_tools
+        
+        logger.info(f"🔍 Calling scaling algorithm with budget={request.budget}")
+        # Pass full conversation history instead of just the last message
+        algorithm_result = SCALING_ALG.infer(lm, conversation_messages, request.budget, return_response_only=request.return_response_only)
+        logger.info(f"✅ Algorithm completed successfully")
+        
+        # Restore original generate method if we modified it
+        if request.tools is not None or request.tool_choice is not None:
+            lm.generate = original_generate
+            logger.info(f"🔍 Restored original generate method")
 
         # Extract response content and metadata
         if not request.return_response_only and hasattr(algorithm_result, 'the_one'):
             # Got a full result object
-            response_content = algorithm_result.the_one
+            response_message_obj = algorithm_result.the_one
             metadata = _extract_algorithm_metadata(algorithm_result)
         else:
-            # Got just a string response
-            response_content = algorithm_result
+            # Got just a message object
+            response_message_obj = algorithm_result
             metadata = None
+
+        # Convert message object to ChatCompletionMessage
+        message = ChatCompletionMessage(
+            role="assistant",
+            content=response_message_obj.get("content"),
+            tool_calls=[
+                ToolCall(
+                    id=tc["id"],
+                    type=tc["type"],
+                    function=tc["function"]
+                ) for tc in response_message_obj.get("tool_calls", [])
+            ] if response_message_obj.get("tool_calls") else None
+        )
 
         # TODO: Implement proper token counting
         response = ChatCompletionResponse(
@@ -317,7 +386,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             choices=[
                 ChatCompletionChoice(
                     index=0,
-                    message=ChatMessage(role="assistant", content=response_content),
+                    message=message,
                     finish_reason="stop",
                 )
             ],
@@ -330,12 +399,15 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         )
 
         logger.info(
-            f"Successfully generated response (length: {len(response_content)})"
+            f"Successfully generated response with {'tool calls' if message.tool_calls else 'content'}"
         )
         return response
 
     except Exception as e:
-        logger.error(f"Chat completion failed: {e}")
+        logger.error(f"❌ Chat completion failed: {type(e).__name__}: {e}")
+        logger.error(f"❌ Full error details: {repr(e)}")
+        import traceback
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Generation failed: {e!s}",
