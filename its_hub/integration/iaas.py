@@ -208,6 +208,7 @@ class ChatCompletionRequest(BaseModel):
     )
     max_tokens: int | None = Field(None, ge=1, description="Maximum tokens to generate")
     stream: bool | None = Field(False, description="Stream response (not implemented)")
+    return_response_only: bool = Field(True, description="Return only the selected response (false to include algorithm metadata)")
 
     @field_validator("messages")
     @classmethod
@@ -296,15 +297,15 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         )
 
         # Generate response using scaling algorithm
-        algorithm_result = SCALING_ALG.infer(lm, prompt, request.budget, return_response_only=False)
+        algorithm_result = SCALING_ALG.infer(lm, prompt, request.budget, return_response_only=request.return_response_only)
 
         # Extract response content and metadata
-        if hasattr(algorithm_result, 'the_one'):
+        if not request.return_response_only and hasattr(algorithm_result, 'the_one'):
             # Got a full result object
             response_content = algorithm_result.the_one
             metadata = _extract_algorithm_metadata(algorithm_result)
         else:
-            # Got just a string (shouldn't happen with return_response_only=False, but handle gracefully)
+            # Got just a string response
             response_content = algorithm_result
             metadata = None
 
