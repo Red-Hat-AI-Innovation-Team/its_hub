@@ -189,6 +189,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         prompt: str,
         budget: int,
         return_response_only: bool = True,
+        messages_output: bool = False,
     ) -> str | ParticleGibbsResult:
         assert budget % self.num_iterations == 0, (
             "budget must be divisible by num_iterations"
@@ -313,8 +314,9 @@ class ParticleFiltering(ParticleGibbs):
         prompt: str,
         budget: int,
         return_response_only: bool = True,
+        messages_output: bool = False,
     ) -> str | ParticleFilteringResult:
-        result = super().infer(lm, prompt, budget, return_response_only=False)
+        result = super().infer(lm, prompt, budget, return_response_only=False, messages_output=messages_output)
 
         # Flatten the single-iteration result
         flattened_result = ParticleFilteringResult(
