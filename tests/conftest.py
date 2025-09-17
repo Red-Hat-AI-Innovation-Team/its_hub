@@ -211,7 +211,7 @@ class MockLanguageModel(AbstractLanguageModel):
         self.responses = responses
         self.call_count = 0
         
-    def generate(self, messages, stop=None, temperature=None, include_stop_str_in_output=None):
+    def generate(self, messages, stop=None, temperature=None, include_stop_str_in_output=None, messages_output=False):
         if isinstance(messages, list) and len(messages) > 0 and isinstance(messages[0], list):
             # Batched generation - messages is List[List[ChatMessage]]
             num_requests = len(messages)
@@ -219,20 +219,32 @@ class MockLanguageModel(AbstractLanguageModel):
                 # Cycle through responses if we run out
                 responses = []
                 for i in range(num_requests):
-                    responses.append(self.responses[(self.call_count + i) % len(self.responses)])
+                    base_response = self.responses[(self.call_count + i) % len(self.responses)]
+                    if messages_output:
+                        responses.append({"role": "assistant", "content": base_response})
+                    else:
+                        responses.append(base_response)
             else:
-                responses = self.responses[self.call_count:self.call_count + num_requests]
+                base_responses = self.responses[self.call_count:self.call_count + num_requests]
+                if messages_output:
+                    responses = [{"role": "assistant", "content": resp} for resp in base_responses]
+                else:
+                    responses = base_responses
             self.call_count += num_requests
             return responses
         else:
             # Single generation - messages is List[ChatMessage]
             if self.call_count >= len(self.responses):
                 # Cycle through responses if we run out
-                response = self.responses[self.call_count % len(self.responses)]
+                base_response = self.responses[self.call_count % len(self.responses)]
             else:
-                response = self.responses[self.call_count]
+                base_response = self.responses[self.call_count]
             self.call_count += 1
-            return response
+            
+            if messages_output:
+                return {"role": "assistant", "content": base_response}
+            else:
+                return base_response
             
     def evaluate(self, prompt: str, generation: str) -> List[float]:
         return [0.1] * len(generation.split())
