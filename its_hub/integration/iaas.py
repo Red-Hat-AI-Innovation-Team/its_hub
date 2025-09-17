@@ -165,12 +165,7 @@ class ChatCompletionRequest(BaseModel):
         """Validate message format and constraints."""
         if not v:
             raise ValueError("At least one message is required")
-        if len(v) > 2:
-            raise ValueError("Maximum 2 messages supported (optional system + user)")
-        if v[-1].role != "user":
-            raise ValueError("Last message must be from user")
-        if len(v) == 2 and v[0].role != "system":
-            raise ValueError("First message must be system when using 2 messages")
+        # Note: Removed constraints to support full conversation history
         return v
 
 
@@ -231,21 +226,27 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         if request.temperature is not None:
             lm.temperature = request.temperature
 
-        # Set system prompt if provided
-        if len(request.messages) == 2:
-            lm.system_prompt = request.messages[0].content
-        else:
-            lm.system_prompt = None
+        # Handle full conversation history
+        # Extract system message if present (first message with role="system")
+        system_message = next((msg for msg in request.messages if msg.role == "system"), None)
+        lm.system_prompt = system_message.content if system_message else None
 
-        # Extract user prompt
-        prompt = request.messages[-1].content
+        # Convert full conversation history to ChatMessage format for the algorithm
+        conversation_messages = []
+        for msg in request.messages:
+            # Convert to the ChatMessage format expected by the algorithm
+            chat_msg = ChatMessage(
+                role=msg.role,
+                content=msg.content or "",  # Handle None content
+            )
+            conversation_messages.append(chat_msg)
 
         logger.info(
-            f"Processing request for model={request.model}, budget={request.budget}"
+            f"Processing request for model={request.model}, budget={request.budget}, messages={len(conversation_messages)}"
         )
 
-        # Generate response using scaling algorithm
-        response_content = SCALING_ALG.infer(lm, prompt, request.budget)
+        # Generate response using scaling algorithm with full conversation history
+        response_message_obj = SCALING_ALG.infer(lm, conversation_messages, request.budget)
 
         # TODO: Implement proper token counting
         response = ChatCompletionResponse(
@@ -255,7 +256,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             choices=[
                 ChatCompletionChoice(
                     index=0,
-                    message=ChatMessage(role="assistant", content=response_content),
+                    message=ChatMessage(role="assistant", content=response_message_obj.get("content", "")),
                     finish_reason="stop",
                 )
             ],
@@ -267,7 +268,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         )
 
         logger.info(
-            f"Successfully generated response (length: {len(response_content)})"
+            f"Successfully generated response with content"
         )
         return response
 
