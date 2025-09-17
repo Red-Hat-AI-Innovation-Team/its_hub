@@ -11,17 +11,23 @@ class SimpleMockLanguageModel:
         self.responses = responses
         self.call_count = 0
 
-    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None):
+    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, messages_output=False):
         if isinstance(messages[0], list):
             # Multiple message lists
-            responses = self.responses[self.call_count:self.call_count + len(messages)]
+            base_responses = self.responses[self.call_count:self.call_count + len(messages)]
             self.call_count += len(messages)
-            return responses
+            if messages_output:
+                return [{"role": "assistant", "content": resp} for resp in base_responses]
+            else:
+                return base_responses
         else:
             # Single message list
-            response = self.responses[self.call_count]
+            base_response = self.responses[self.call_count]
             self.call_count += 1
-            return response
+            if messages_output:
+                return {"role": "assistant", "content": base_response}
+            else:
+                return base_response
 
 
 class StepMockLanguageModel(AbstractLanguageModel):
@@ -31,21 +37,28 @@ class StepMockLanguageModel(AbstractLanguageModel):
         self.step_responses = step_responses
         self.call_count = 0
 
-    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None):
+    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, messages_output=False):
         if isinstance(messages, list) and len(messages) > 0 and isinstance(messages[0], list):
             # Batched generation
             num_requests = len(messages)
             responses = []
             for i in range(num_requests):
                 response_idx = (self.call_count + i) % len(self.step_responses)
-                responses.append(self.step_responses[response_idx])
+                base_response = self.step_responses[response_idx]
+                if messages_output:
+                    responses.append({"role": "assistant", "content": base_response})
+                else:
+                    responses.append(base_response)
             self.call_count += num_requests
             return responses
         else:
             # Single generation
-            response = self.step_responses[self.call_count % len(self.step_responses)]
+            base_response = self.step_responses[self.call_count % len(self.step_responses)]
             self.call_count += 1
-            return response
+            if messages_output:
+                return {"role": "assistant", "content": base_response}
+            else:
+                return base_response
 
     def evaluate(self, prompt: str, generation: str) -> list[float]:
         """Return mock evaluation scores."""
@@ -60,7 +73,7 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
         self.error_on_calls = error_on_calls or []
         self.call_count = 0
 
-    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None):
+    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, messages_output=False):
         if self.call_count in self.error_on_calls:
             self.call_count += 1
             raise Exception("Simulated LM error")
@@ -73,14 +86,21 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
                 if (self.call_count + i) in self.error_on_calls:
                     raise Exception("Simulated LM error in batch")
                 response_idx = (self.call_count + i) % len(self.responses)
-                responses.append(self.responses[response_idx])
+                base_response = self.responses[response_idx]
+                if messages_output:
+                    responses.append({"role": "assistant", "content": base_response})
+                else:
+                    responses.append(base_response)
             self.call_count += num_requests
             return responses
         else:
             # Single generation
-            response = self.responses[self.call_count % len(self.responses)]
+            base_response = self.responses[self.call_count % len(self.responses)]
             self.call_count += 1
-            return response
+            if messages_output:
+                return {"role": "assistant", "content": base_response}
+            else:
+                return base_response
 
     def evaluate(self, prompt: str, generation: str) -> list[float]:
         return [0.1] * len(generation.split())
