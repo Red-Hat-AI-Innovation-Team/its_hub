@@ -13,29 +13,35 @@ class MockMessageLanguageModel:
     def __init__(self):
         self.call_count = 0
         
-    def generate(self, messages_or_messages_lst):
-        """Return message objects instead of content strings."""
+    def generate(self, messages_or_messages_lst, messages_output=False):
+        """Return message objects or content strings based on messages_output flag."""
         is_single = not isinstance(messages_or_messages_lst[0], list)
         
         if is_single:
             # Single message list
             messages = messages_or_messages_lst
-            user_content = next((msg.content for msg in messages if msg.role == "user"), "default")
+            # Get the last user message
+            user_messages = [msg.content for msg in messages if msg.role == "user"]
+            user_content = user_messages[-1] if user_messages else "default"
             
-            # Return a message object
-            return {
+            # Return based on messages_output flag
+            message_obj = {
                 "role": "assistant", 
                 "content": f"Response to: {user_content}"
             }
+            return message_obj if messages_output else message_obj["content"]
         else:
             # Multiple message lists
             responses = []
             for messages in messages_or_messages_lst:
-                user_content = next((msg.content for msg in messages if msg.role == "user"), "default")
-                responses.append({
+                # Get the last user message
+                user_messages = [msg.content for msg in messages if msg.role == "user"]
+                user_content = user_messages[-1] if user_messages else "default"
+                message_obj = {
                     "role": "assistant",
                     "content": f"Response to: {user_content}"
-                })
+                }
+                responses.append(message_obj if messages_output else message_obj["content"])
             return responses
 
 
@@ -47,7 +53,7 @@ class TestMessageObjectFormat:
         mock_lm = MockMessageLanguageModel()
         messages = [ChatMessage(role="user", content="Hello")]
         
-        response = mock_lm.generate(messages)
+        response = mock_lm.generate(messages, messages_output=True)
         
         # Should return a message object, not a string
         assert isinstance(response, dict)
@@ -62,7 +68,7 @@ class TestMessageObjectFormat:
             [ChatMessage(role="user", content="Hi there")]
         ]
         
-        responses = mock_lm.generate(messages_list)
+        responses = mock_lm.generate(messages_list, messages_output=True)
         
         # Should return a list of message objects
         assert isinstance(responses, list)
@@ -71,8 +77,8 @@ class TestMessageObjectFormat:
         assert responses[0]["content"] == "Response to: Hello"
         assert responses[1]["content"] == "Response to: Hi there"
     
-    def test_self_consistency_with_string_prompt(self):
-        """Test self-consistency algorithm with string prompt (backward compatibility)."""
+    def test_self_consistency_with_string_prompt_legacy_output(self):
+        """Test self-consistency algorithm with string prompt returning string (backward compatibility)."""
         mock_lm = MockMessageLanguageModel()
         
         def simple_projection(text):
@@ -81,8 +87,25 @@ class TestMessageObjectFormat:
         
         algorithm = SelfConsistency(simple_projection)
         
-        # Test with string prompt (legacy mode)
-        result = algorithm.infer(mock_lm, "What is 2+2?", budget=3)
+        # Test with string prompt and legacy string output (default)
+        result = algorithm.infer(mock_lm, "What is 2+2?", budget=3, messages_output=False)
+        
+        # Should return a content string
+        assert isinstance(result, str)
+        assert "2+2?" in result
+    
+    def test_self_consistency_with_string_prompt_message_output(self):
+        """Test self-consistency algorithm with string prompt returning message object."""
+        mock_lm = MockMessageLanguageModel()
+        
+        def simple_projection(text):
+            # Extract the last word as the "answer"
+            return text.split()[-1] if text.strip() else "unknown"
+        
+        algorithm = SelfConsistency(simple_projection)
+        
+        # Test with string prompt and message object output
+        result = algorithm.infer(mock_lm, "What is 2+2?", budget=3, messages_output=True)
         
         # Should return a message object
         assert isinstance(result, dict)
@@ -106,7 +129,7 @@ class TestMessageObjectFormat:
             ChatMessage(role="user", content="What about 3+3?")
         ]
         
-        result = algorithm.infer(mock_lm, conversation, budget=2)
+        result = algorithm.infer(mock_lm, conversation, budget=2, messages_output=True)
         
         # Should return a message object
         assert isinstance(result, dict)
@@ -122,8 +145,8 @@ class TestMessageObjectFormat:
         
         algorithm = SelfConsistency(simple_projection)
         
-        # Get full result instead of just the selected response
-        result = algorithm.infer(mock_lm, "Test question", budget=3, return_response_only=False)
+        # Get full result with message objects
+        result = algorithm.infer(mock_lm, "Test question", budget=3, return_response_only=False, messages_output=True)
         
         # Should return SelfConsistencyResult object
         assert hasattr(result, 'the_one')
@@ -140,3 +163,14 @@ class TestMessageObjectFormat:
         assert len(result.responses) == 3
         assert all(isinstance(resp, dict) for resp in result.responses)
         assert all(resp["role"] == "assistant" for resp in result.responses)
+        
+        # Test with string output format
+        result_str = algorithm.infer(mock_lm, "Test question", budget=3, return_response_only=False, messages_output=False)
+        
+        # The selected response should be a string
+        selected_str = result_str.the_one
+        assert isinstance(selected_str, str)
+        
+        # All responses should be strings
+        assert len(result_str.responses) == 3
+        assert all(isinstance(resp, str) for resp in result_str.responses)
