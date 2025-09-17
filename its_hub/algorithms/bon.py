@@ -30,10 +30,12 @@ class BestOfN(AbstractScalingAlgorithm):
         prompt: str,
         budget: int,
         return_response_only: bool = True,
+        messages_output: bool = False,
     ) -> str | BestOfNResult:
         # generate responses
         responses = lm.generate(
-            [[ChatMessage(role="user", content=prompt)] for _ in range(budget)]
+            [[ChatMessage(role="user", content=prompt)] for _ in range(budget)],
+            messages_output=messages_output
         )
 
         # score responses
