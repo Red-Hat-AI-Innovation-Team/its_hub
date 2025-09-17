@@ -269,7 +269,10 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             choices=[
                 ChatCompletionChoice(
                     index=0,
-                    message=ChatMessage(role="assistant", content=response_message_obj.get("content", "")),
+                    message=ChatMessage(
+                        role="assistant", 
+                        content=response_message_obj.get("content", "") if isinstance(response_message_obj, dict) else str(response_message_obj)
+                    ),
                     finish_reason="stop",
                 )
             ],
