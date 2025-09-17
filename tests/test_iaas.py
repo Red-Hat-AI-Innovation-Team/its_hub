@@ -129,15 +129,6 @@ class TestChatCompletions:
     
     @pytest.mark.parametrize("invalid_request", [
         {"model": "test-model", "messages": [], "budget": 4},
-        {"model": "test-model", "messages": [
-            {"role": "system", "content": "System prompt"},
-            {"role": "user", "content": "User message"},
-            {"role": "assistant", "content": "Too many messages"}
-        ], "budget": 4},
-        {"model": "test-model", "messages": [
-            {"role": "user", "content": "User first"},
-            {"role": "system", "content": "System second"}
-        ], "budget": 4},
         {"model": "test-model", "messages": [{"role": "user", "content": "Test"}], "budget": 0},
     ])
     def test_chat_completions_validation(self, iaas_client, invalid_request):
@@ -172,7 +163,7 @@ class TestChatCompletions:
         # Mock the scaling algorithm
         import its_hub.integration.iaas as iaas_module
         mock_scaling_alg = MagicMock()
-        mock_scaling_alg.infer.return_value = "Mocked scaling response"
+        mock_scaling_alg.infer.return_value = {"role": "assistant", "content": "Mocked scaling response"}
         iaas_module.SCALING_ALG = mock_scaling_alg
         
         request_data = TestDataFactory.create_chat_completion_request(
@@ -193,10 +184,11 @@ class TestChatCompletions:
         assert data["choices"][0]["finish_reason"] == "stop"
         assert "usage" in data
         
-        # Verify the scaling algorithm was called correctly
+        # Verify the scaling algorithm was called correctly with conversation history
         mock_scaling_alg.infer.assert_called_once()
         call_args = mock_scaling_alg.infer.call_args
-        assert call_args[0][1] == "Solve 2+2"  # prompt
+        # Should be called with conversation messages, not just prompt string
+        assert isinstance(call_args[0][1], list)  # conversation messages
         assert call_args[0][2] == 8  # budget
 
     def test_chat_completions_with_system_message(self, iaas_client, vllm_server):
@@ -206,7 +198,7 @@ class TestChatCompletions:
         # Mock the scaling algorithm
         import its_hub.integration.iaas as iaas_module
         mock_scaling_alg = MagicMock()
-        mock_scaling_alg.infer.return_value = "Response with system prompt"
+        mock_scaling_alg.infer.return_value = {"role": "assistant", "content": "Response with system prompt"}
         iaas_module.SCALING_ALG = mock_scaling_alg
         
         request_data = TestDataFactory.create_chat_completion_request(
@@ -314,23 +306,12 @@ class TestPydanticModels:
                 budget=invalid_budget
             )
 
-    @pytest.mark.parametrize("invalid_messages,expected_error", [
-        ([
-            ChatMessage(role="system", content="System"),
-            ChatMessage(role="user", content="User"),
-            ChatMessage(role="assistant", content="Too many")
-        ], "Maximum 2 messages"),
-        ([
-            ChatMessage(role="user", content="User"),
-            ChatMessage(role="assistant", content="Assistant last")
-        ], "Last message must be from user"),
-    ])
-    def test_message_validation_in_chat_request(self, invalid_messages, expected_error):
-        """Test message validation in ChatCompletionRequest."""
+    def test_empty_message_validation_in_chat_request(self):
+        """Test empty message validation in ChatCompletionRequest."""
         with pytest.raises(ValueError) as exc_info:
             ChatCompletionRequest(
                 model=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
-                messages=invalid_messages,
+                messages=[],
                 budget=4
             )
-        assert expected_error in str(exc_info.value)
+        assert "At least one message is required" in str(exc_info.value)
