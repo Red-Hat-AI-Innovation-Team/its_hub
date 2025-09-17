@@ -133,6 +133,7 @@ class PlanningWrapper(AbstractScalingAlgorithm):
         prompt: str,
         budget: int,
         return_response_only: bool = True,
+        messages_output: bool = False,
     ) -> str | PlanningWrappedResult:
         """Run Planning-Enhanced version of the base algorithm.
 
@@ -183,7 +184,7 @@ class PlanningWrapper(AbstractScalingAlgorithm):
 
             # Run base algorithm for this approach
             approach_result = self.base_algorithm.infer(
-                lm, approach_prompt, approach_budget, return_response_only=False
+                lm, approach_prompt, approach_budget, return_response_only=False, messages_output=messages_output
             )
 
             # Store approach-specific result
