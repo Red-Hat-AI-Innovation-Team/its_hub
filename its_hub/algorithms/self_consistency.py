@@ -90,13 +90,23 @@ class SelfConsistency(AbstractScalingAlgorithm):
             if messages_output:
                 return selected_response  # Keep as message object
             else:
-                return selected_response.get("content", "")  # Extract content string
+                # Extract content string, handling both message objects and plain strings
+                if isinstance(selected_response, dict):
+                    return selected_response.get("content", "")
+                else:
+                    return str(selected_response)
         else:
             # Return full result object with responses in the requested format
             if messages_output:
                 result_responses = responses  # Keep as message objects
             else:
-                result_responses = [resp.get("content", "") for resp in responses]  # Extract content strings
+                # Extract content strings, handling both message objects and plain strings
+                result_responses = []
+                for resp in responses:
+                    if isinstance(resp, dict):
+                        result_responses.append(resp.get("content", ""))
+                    else:
+                        result_responses.append(str(resp))
                 
             result = SelfConsistencyResult(
                 responses=result_responses,
