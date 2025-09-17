@@ -303,7 +303,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         max_tokens: int | None = None,
         temperature: float | None = None,
         include_stop_str_in_output: bool | None = None,
-    ) -> list[str]:
+    ) -> list[dict]:
         # limit concurrency to max_concurrency using a semaphore
         semaphore = asyncio.Semaphore(
             len(messages_lst) if self.max_concurrency == -1 else self.max_concurrency
@@ -341,7 +341,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                                 logging.error(format_non_retryable_error(api_error))
                             raise api_error
                         response_json = await response.json()
-                        return response_json["choices"][0]["message"]["content"]
+                        # Return the full message object to preserve structure
+                        return response_json["choices"][0]["message"]
 
             async def safe_fetch_response(messages, _temperature):
                 if self.replace_error_with_message is not None:
@@ -349,10 +350,10 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         return await fetch_response(messages, _temperature)
                     except (aiohttp.ClientError, TimeoutError) as e:
                         logging.error(f"Network error during async generation: {e}")
-                        return self.replace_error_with_message
+                        return {"role": "assistant", "content": self.replace_error_with_message}
                     except APIError as e:
                         logging.error(f"API error during async generation: {e}")
-                        return self.replace_error_with_message
+                        return {"role": "assistant", "content": self.replace_error_with_message}
                 else:
                     return await fetch_response(messages, _temperature)
 
@@ -377,7 +378,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         temperature: float | list[float] | None = None,
         include_stop_str_in_output: bool
         | None = None,  # If True, keep stop strings in generated text; if False, strip them
-    ) -> str | list[str]:
+    ) -> dict | list[dict]:
         # Check if we have a single list of messages or a list of message lists
         # Single list: [{"role": "user", "content": "..."}] or [Message(...)]
         # Multiple lists: [[{"role": "user", "content": "..."}], [{"role": "user", "content": "..."}]]
@@ -423,7 +424,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                     raise api_error
 
                 response_json = response.json()
-                return response_json["choices"][0]["message"]["content"]
+                # Return the full message object to preserve structure
+                return response_json["choices"][0]["message"]
 
             def safe_fetch_single_response(messages, _temperature):
                 if self.replace_error_with_message is not None:
@@ -431,10 +433,10 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         return fetch_single_response(messages, _temperature)
                     except requests.RequestException as e:
                         logging.error(f"Network error during sync generation: {e}")
-                        return self.replace_error_with_message
+                        return {"role": "assistant", "content": self.replace_error_with_message}
                     except APIError as e:
                         logging.error(f"API error during sync generation: {e}")
-                        return self.replace_error_with_message
+                        return {"role": "assistant", "content": self.replace_error_with_message}
                 else:
                     return fetch_single_response(messages, _temperature)
 
