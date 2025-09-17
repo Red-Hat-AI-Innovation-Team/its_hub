@@ -131,6 +131,7 @@ class BeamSearch(AbstractScalingAlgorithm):
         prompt: str,
         budget: int,
         return_response_only: bool = True,
+        messages_output: bool = False,
     ) -> str | BeamSearchResult:
         assert budget % self.beam_width == 0, "budget must be divisible by beam_width"
         assert budget >= self.beam_width, (
