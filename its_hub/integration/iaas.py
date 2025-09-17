@@ -158,6 +158,7 @@ class ChatCompletionRequest(BaseModel):
     )
     max_tokens: int | None = Field(None, ge=1, description="Maximum tokens to generate")
     stream: bool | None = Field(False, description="Stream response (not implemented)")
+    messages_output: bool = Field(True, description="IaaS service requires message objects for OpenAI API compatibility (overridden to True)")
 
     @field_validator("messages")
     @classmethod
@@ -246,7 +247,19 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         )
 
         # Generate response using scaling algorithm with full conversation history
-        response_message_obj = SCALING_ALG.infer(lm, conversation_messages, request.budget)
+        # IaaS service ALWAYS uses message objects for OpenAI API compatibility
+        if not request.messages_output:
+            logger.warning(
+                "⚠️  IaaS service requires messages_output=True for API compatibility. "
+                "Overriding user setting from False to True."
+            )
+        
+        response_message_obj = SCALING_ALG.infer(
+            lm, 
+            conversation_messages, 
+            request.budget, 
+            messages_output=True  # Always True for API compatibility
+        )
 
         # TODO: Implement proper token counting
         response = ChatCompletionResponse(
