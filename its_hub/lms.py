@@ -378,7 +378,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         temperature: float | list[float] | None = None,
         include_stop_str_in_output: bool
         | None = None,  # If True, keep stop strings in generated text; if False, strip them
-    ) -> dict | list[dict]:
+        messages_output: bool = False,  # If True, return message objects; if False, return content strings
+    ) -> str | dict | list[str] | list[dict]:
         # Check if we have a single list of messages or a list of message lists
         # Single list: [{"role": "user", "content": "..."}] or [Message(...)]
         # Multiple lists: [[{"role": "user", "content": "..."}], [{"role": "user", "content": "..."}]]
@@ -450,7 +451,18 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 for messages, _temperature in zip(messages_lst, temperature_lst)
             ]
             response_or_responses = responses
-        return response_or_responses[0] if is_single else response_or_responses
+        
+        # Handle backward compatibility: extract content strings if messages_output=False
+        if not messages_output:
+            if is_single:
+                # Single response: extract content from message object
+                return response_or_responses[0].get("content", "")
+            else:
+                # Multiple responses: extract content from each message object
+                return [resp.get("content", "") for resp in response_or_responses]
+        else:
+            # Return full message objects
+            return response_or_responses[0] if is_single else response_or_responses
 
     # TODO implement evaluation
     def evaluate(self, prompt: str, generation: str) -> list[float]:
