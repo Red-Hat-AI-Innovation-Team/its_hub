@@ -14,12 +14,12 @@ from its_hub.types import ChatMessage
 
 @dataclass
 class SelfConsistencyResult(AbstractScalingResult):
-    responses: list[str]
+    responses: list[dict]
     response_counts: Counter[str]
     selected_index: int
 
     @property
-    def the_one(self) -> str:
+    def the_one(self) -> dict:
         return self.responses[self.selected_index]
 
 
@@ -50,18 +50,28 @@ class SelfConsistency(AbstractScalingAlgorithm):
     def infer(
         self,
         lm: AbstractLanguageModel,
-        prompt: str,
+        prompt: str | list[ChatMessage],
         budget: int,
         return_response_only: bool = True,
-    ) -> str | SelfConsistencyResult:
-        # generate responses
-        responses = lm.generate(
-            [[ChatMessage(role="user", content=prompt)] for _ in range(budget)]
-        )
+    ) -> dict | SelfConsistencyResult:
+        # Handle both string prompts and conversation history
+        if isinstance(prompt, str):
+            # Legacy string prompt
+            messages_list = [[ChatMessage(role="user", content=prompt)] for _ in range(budget)]
+        else:
+            # Full conversation history
+            messages_list = [prompt for _ in range(budget)]
+        
+        # generate responses (now returns list of message objects)
+        responses = lm.generate(messages_list)
+
+        # Extract text content from message objects for projection function
+        def extract_text_for_projection(message_obj: dict) -> str:
+            return message_obj.get("content", "")
 
         # project responses into consistency space
         responses_projected = [
-            self.consistency_space_projection_func(r) for r in responses
+            self.consistency_space_projection_func(extract_text_for_projection(r)) for r in responses
         ]
 
         # select the most common or random response
