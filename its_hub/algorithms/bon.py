@@ -7,16 +7,17 @@ from its_hub.base import (
     AbstractScalingResult,
 )
 from its_hub.types import ChatMessage
+from its_hub.utils import extract_response_content
 
 
 @dataclass
 class BestOfNResult(AbstractScalingResult):
-    responses: list[str]
+    responses: list[str] | list[dict]
     scores: list[float]
     selected_index: int
 
     @property
-    def the_one(self) -> str:
+    def the_one(self) -> str | dict:
         return self.responses[self.selected_index]
 
 
@@ -27,27 +28,52 @@ class BestOfN(AbstractScalingAlgorithm):
     def infer(
         self,
         lm: AbstractLanguageModel,
-        prompt: str,
+        prompt: str | list[ChatMessage],
         budget: int,
         return_response_only: bool = True,
         messages_output: bool = False,
-    ) -> str | BestOfNResult:
-        # generate responses
-        responses = lm.generate(
-            [[ChatMessage(role="user", content=prompt)] for _ in range(budget)],
-            messages_output=messages_output
-        )
+    ) -> str | dict | BestOfNResult:
+        # Handle both string prompts and conversation history
+        if isinstance(prompt, str):
+            # Legacy string prompt
+            messages_list = [[ChatMessage(role="user", content=prompt)] for _ in range(budget)]
+        else:
+            # Full conversation history
+            messages_list = [prompt for _ in range(budget)]
+            # TODO: Update ORM interface to natively support conversation history
+            # Currently using a simple flattening approach as a temporary workaround
+            import warnings
+            warnings.warn(
+                "BestOfN with conversation history uses simplified prompt flattening for ORM scoring. "
+                "This may not preserve full conversation context. ORM interface should be updated to "
+                "support message format natively.",
+                UserWarning,
+                stacklevel=2
+            )
+
+        # Generate responses in user's preferred format
+        responses = lm.generate(messages_list, messages_output=messages_output)
+
+        # Prepare prompt for ORM scoring
+        if isinstance(prompt, str):
+            scoring_prompt = prompt
+        else:
+            # Flatten conversation for current ORM interface
+            scoring_prompt = "\n".join(f"{msg.role}: {msg.content}" for msg in prompt)
+
+        # Extract content for scoring (ORM expects string content)
+        response_contents = [extract_response_content(r) for r in responses]
 
         # score responses
         # TODO: make batched a configurable parameter or remove non-batched branch
         # Currently hardcoded to True, will be addressed in future PR
         batched = True
         if batched:
-            scores = self.orm.score(prompt, responses)
+            scores = self.orm.score(scoring_prompt, response_contents)
         else:
             scores = []
-            for r in responses:
-                scores.append(self.orm.score(prompt, r))
+            for r in response_contents:
+                scores.append(self.orm.score(scoring_prompt, r))
 
         # select the best response
         selected_index = scores.index(max(scores))
