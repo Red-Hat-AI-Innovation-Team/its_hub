@@ -14,12 +14,12 @@ from its_hub.types import ChatMessage
 
 @dataclass
 class SelfConsistencyResult(AbstractScalingResult):
-    responses: list[dict]
+    responses: list[str] | list[dict]
     response_counts: Counter[str]
     selected_index: int
 
     @property
-    def the_one(self) -> dict:
+    def the_one(self) -> str | dict:
         return self.responses[self.selected_index]
 
 
@@ -53,7 +53,8 @@ class SelfConsistency(AbstractScalingAlgorithm):
         prompt: str | list[ChatMessage],
         budget: int,
         return_response_only: bool = True,
-    ) -> dict | SelfConsistencyResult:
+        messages_output: bool = False,
+    ) -> str | dict | SelfConsistencyResult:
         # Handle both string prompts and conversation history
         if isinstance(prompt, str):
             # Legacy string prompt
@@ -62,12 +63,15 @@ class SelfConsistency(AbstractScalingAlgorithm):
             # Full conversation history
             messages_list = [prompt for _ in range(budget)]
         
-        # generate responses (now returns list of message objects)
-        responses = lm.generate(messages_list)
+        # Always generate as message objects internally for consistency
+        responses = lm.generate(messages_list, messages_output=True)
 
-        # Extract text content from message objects for projection function
-        def extract_text_for_projection(message_obj: dict) -> str:
-            return message_obj.get("content", "")
+        # Single extraction function that works regardless of format
+        def extract_text_for_projection(response) -> str:
+            if isinstance(response, dict):
+                return response.get("content", "")
+            else:
+                return str(response)
 
         # project responses into consistency space
         responses_projected = [
@@ -79,10 +83,24 @@ class SelfConsistency(AbstractScalingAlgorithm):
             responses_projected
         )
 
-        # return the result
-        result = SelfConsistencyResult(
-            responses=responses,
-            response_counts=response_counts,
-            selected_index=selected_index,
-        )
-        return result.the_one if return_response_only else result
+        # return the result in user's preferred format
+        if return_response_only:
+            # Return just the selected response in the requested format
+            selected_response = responses[selected_index]
+            if messages_output:
+                return selected_response  # Keep as message object
+            else:
+                return selected_response.get("content", "")  # Extract content string
+        else:
+            # Return full result object with responses in the requested format
+            if messages_output:
+                result_responses = responses  # Keep as message objects
+            else:
+                result_responses = [resp.get("content", "") for resp in responses]  # Extract content strings
+                
+            result = SelfConsistencyResult(
+                responses=result_responses,
+                response_counts=response_counts,
+                selected_index=selected_index,
+            )
+            return result
