@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from its_hub.algorithms import BestOfN, ParticleFiltering
 from its_hub.lms import OpenAICompatibleLanguageModel, StepGeneration
 from its_hub.types import ChatMessage
+from its_hub.utils import extract_response_content
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -271,7 +272,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
                     index=0,
                     message=ChatMessage(
                         role="assistant", 
-                        content=response_message_obj.get("content", "") if isinstance(response_message_obj, dict) else str(response_message_obj)
+                        content=extract_response_content(response_message_obj)
                     ),
                     finish_reason="stop",
                 )

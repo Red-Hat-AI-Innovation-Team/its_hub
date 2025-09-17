@@ -10,6 +10,7 @@ from its_hub.base import (
     AbstractScalingResult,
 )
 from its_hub.types import ChatMessage
+from its_hub.utils import extract_response_content
 
 
 @dataclass
@@ -68,10 +69,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
 
         # Single extraction function that works regardless of format
         def extract_text_for_projection(response) -> str:
-            if isinstance(response, dict):
-                return response.get("content", "")
-            else:
-                return str(response)
+            return extract_response_content(response)
 
         # project responses into consistency space
         responses_projected = [
@@ -83,34 +81,18 @@ class SelfConsistency(AbstractScalingAlgorithm):
             responses_projected
         )
 
-        # return the result in user's preferred format
-        if return_response_only:
-            # Return just the selected response in the requested format
-            selected_response = responses[selected_index]
-            if messages_output:
-                return selected_response  # Keep as message object
-            else:
-                # Extract content string, handling both message objects and plain strings
-                if isinstance(selected_response, dict):
-                    return selected_response.get("content", "")
-                else:
-                    return str(selected_response)
+        # Format responses according to user preference
+        if messages_output:
+            formatted_responses = responses  # Keep as message objects
         else:
-            # Return full result object with responses in the requested format
-            if messages_output:
-                result_responses = responses  # Keep as message objects
-            else:
-                # Extract content strings, handling both message objects and plain strings
-                result_responses = []
-                for resp in responses:
-                    if isinstance(resp, dict):
-                        result_responses.append(resp.get("content", ""))
-                    else:
-                        result_responses.append(str(resp))
-                
-            result = SelfConsistencyResult(
-                responses=result_responses,
+            formatted_responses = [extract_response_content(resp) for resp in responses]
+
+        # Return result based on format preference
+        if return_response_only:
+            return formatted_responses[selected_index]
+        else:
+            return SelfConsistencyResult(
+                responses=formatted_responses,
                 response_counts=response_counts,
                 selected_index=selected_index,
             )
-            return result

@@ -4,3 +4,20 @@ SAL_STEP_BY_STEP_SYSTEM_PROMPT = "Solve the following math problem efficiently a
 QWEN_SYSTEM_PROMPT = (
     "Please reason step by step, and put your final answer within \\boxed{}."
 )
+
+
+def extract_response_content(response):
+    """Extract string content from response, handling both dict and string formats.
+    
+    Args:
+        response: Response object that can be either:
+            - dict: Message object with 'content' field (e.g., {"role": "assistant", "content": "..."})
+            - str: Plain string response
+            - other: Any other type that can be converted to string
+    
+    Returns:
+        str: The extracted content string
+    """
+    if isinstance(response, dict):
+        return response.get("content", "")
+    return str(response)
