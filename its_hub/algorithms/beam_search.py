@@ -133,6 +133,12 @@ class BeamSearch(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         messages_output: bool = False,
     ) -> str | BeamSearchResult:
+        # TODO: Add support for conversation history (list[ChatMessage]) and messages_output
+        if not isinstance(prompt, str):
+            raise TypeError("BeamSearch currently only supports string prompts. Conversation history support will be added in a future update.")
+        if messages_output:
+            raise NotImplementedError("BeamSearch does not support messages_output=True yet. This feature will be added in a future update.")
+        
         assert budget % self.beam_width == 0, "budget must be divisible by beam_width"
         assert budget >= self.beam_width, (
             "budget must be greater than or equal to beam_width"

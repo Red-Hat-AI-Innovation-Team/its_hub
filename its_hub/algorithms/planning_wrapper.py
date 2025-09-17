@@ -146,6 +146,11 @@ class PlanningWrapper(AbstractScalingAlgorithm):
         Returns:
             Best response string or full result object
         """
+        # TODO: Add support for conversation history (list[ChatMessage]) and messages_output
+        if not isinstance(prompt, str):
+            raise TypeError("PlanningWrapper currently only supports string prompts. Conversation history support will be added in a future update.")
+        if messages_output:
+            raise NotImplementedError("PlanningWrapper does not support messages_output=True yet. This feature will be added in a future update.")
         # Step 1: Generate plan (uses 1 generation from budget)
         planning_prompt = PlanningPromptTemplate.create_planning_prompt(prompt)
         plan = lm.generate([ChatMessage(role="user", content=planning_prompt)])

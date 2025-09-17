@@ -191,6 +191,12 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         messages_output: bool = False,
     ) -> str | ParticleGibbsResult:
+        # TODO: Add support for conversation history (list[ChatMessage]) and messages_output
+        if not isinstance(prompt, str):
+            raise TypeError("ParticleGibbs currently only supports string prompts. Conversation history support will be added in a future update.")
+        if messages_output:
+            raise NotImplementedError("ParticleGibbs does not support messages_output=True yet. This feature will be added in a future update.")
+        
         assert budget % self.num_iterations == 0, (
             "budget must be divisible by num_iterations"
         )
@@ -316,6 +322,12 @@ class ParticleFiltering(ParticleGibbs):
         return_response_only: bool = True,
         messages_output: bool = False,
     ) -> str | ParticleFilteringResult:
+        # TODO: Add support for conversation history (list[ChatMessage]) and messages_output
+        if not isinstance(prompt, str):
+            raise TypeError("ParticleFiltering currently only supports string prompts. Conversation history support will be added in a future update.")
+        if messages_output:
+            raise NotImplementedError("ParticleFiltering does not support messages_output=True yet. This feature will be added in a future update.")
+        
         result = super().infer(lm, prompt, budget, return_response_only=False, messages_output=messages_output)
 
         # Flatten the single-iteration result
