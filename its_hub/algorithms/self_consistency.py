@@ -146,6 +146,63 @@ class SelfConsistency(AbstractScalingAlgorithm):
         self.tool_vote = tool_vote
         self.exclude_args = exclude_args or []
 
+    async def ainfer(
+        self,
+        lm: AbstractLanguageModel,
+        prompt_or_messages: str | list[ChatMessage] | ChatMessages,
+        budget: int,
+        return_response_only: bool = True,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict | SelfConsistencyResult:
+        # Convert to uniform ChatMessages format
+        chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
+
+        # generate responses using async method
+        responses = await lm.agenerate(
+            chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
+        )
+
+        # Check if majority of responses have tool calls to decide voting method
+        tool_call_count = sum(1 for r in responses if r.get("tool_calls"))
+        has_majority_tool_calls = tool_call_count >= len(responses) // 2
+
+        if has_majority_tool_calls and self.tool_vote:
+            logging.info("Tool voting is invoked")
+            # mutate responses variable to be only responses with tool calls;
+            responses = [r for r in responses if r.get("tool_calls")]
+
+            # Vote on tool calls directly
+            responses_projected = [
+                self._extract_tool_call_features(r) for r in responses
+            ]
+        else:
+            # Vote on message content (existing behavior)
+            response_contents = [r.get("content", "") or "" for r in responses]
+            responses_projected = [
+                self.consistency_space_projection_func(r) for r in response_contents
+            ]
+
+        # determine if we're dealing with hierarchical (tuple) or flat (string) projections
+        if responses_projected and isinstance(responses_projected[0], tuple):
+            # hierarchical consistency space
+            response_counts, selected_index = (
+                _select_hierarchical_most_common_or_random(responses_projected)
+            )
+        else:
+            # flat consistency space (backward compatibility)
+            response_counts, selected_index = _select_most_common_or_random(
+                responses_projected
+            )
+
+        # return the result - preserve original message format with tool calls
+        result = SelfConsistencyResult(
+            responses=responses,  # Keep original dict format with tool calls
+            response_counts=response_counts,
+            selected_index=selected_index,
+        )
+        return result.the_one if return_response_only else result
+
     def infer(
         self,
         lm: AbstractLanguageModel,
@@ -178,7 +235,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
             ]
         else:
             # Vote on message content (existing behavior)
-            response_contents = [r.get("content", "") for r in responses]
+            response_contents = [r.get("content", "") or "" for r in responses]
             responses_projected = [
                 self.consistency_space_projection_func(r) for r in response_contents
             ]
@@ -294,9 +351,13 @@ def create_regex_projection_function(
         re.compile(pattern, re.DOTALL | re.IGNORECASE) for pattern in patterns
     ]
 
-    def projection_function(response: str) -> tuple:
+    def projection_function(response: str | None) -> tuple:
         """Extract features from response using compiled regex patterns."""
         results = []
+
+        # Handle None or empty response
+        if response is None:
+            response = ""
 
         for pattern in compiled_patterns:
             match = pattern.search(response)
