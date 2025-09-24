@@ -161,7 +161,12 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
 
         elif request.alg == "self-consistency":
             # Create projection function from regex patterns
-            projection_func = create_regex_projection_function(request.regex_patterns)
+            if request.regex_patterns:
+                projection_func = create_regex_projection_function(
+                    request.regex_patterns
+                )
+            else:
+                projection_func = None
             SCALING_ALG = SelfConsistency(
                 projection_func,
                 tool_vote=request.tool_vote,

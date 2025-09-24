@@ -14,6 +14,24 @@ from its_hub.base import (
 from its_hub.types import ChatMessage, ChatMessages
 
 
+def _default_projection_func(response: str) -> str:
+    """Default projection function that uses exact content matching.
+
+    This function strips whitespace and returns the content as-is for voting.
+    Responses with identical content (after stripping) will be considered equivalent.
+
+    Args:
+        response: The response content string to project.
+
+    Returns:
+        The stripped response content.
+    """
+
+    logging.info(f"Default projection function called with response: {response}")
+
+    return response.strip()
+
+
 @dataclass
 class SelfConsistencyResult(AbstractScalingResult):
     responses: list[dict]  # Keep original message format with tool calls
@@ -110,7 +128,7 @@ def _select_hierarchical_most_common_or_random(
 class SelfConsistency(AbstractScalingAlgorithm):
     def __init__(
         self,
-        consistency_space_projection_func: Callable,
+        consistency_space_projection_func: Callable | None = None,
         tool_vote: str | None = None,
         exclude_args: list[str] | None = None,
     ):
@@ -120,6 +138,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
             consistency_space_projection_func: Function that maps response content (str)
                 to a comparable value for voting. Used when tool_vote is None or when
                 responses don't contain tool calls. Can return str, tuple, or any hashable type.
+                If None, defaults to exact content matching (after stripping whitespace).
 
             tool_vote: Tool voting strategy when responses contain tool calls. Options:
                 - None (default): Vote on message content using consistency_space_projection_func
@@ -141,8 +160,13 @@ class SelfConsistency(AbstractScalingAlgorithm):
             raise ValueError(
                 f"tool_vote must be one of {valid_tool_vote_options}, got: {tool_vote}"
             )
+        self.consistency_space_projection_func = (
+            consistency_space_projection_func or _default_projection_func
+        )
 
-        self.consistency_space_projection_func = consistency_space_projection_func
+        logging.info(
+            f"Initializing with projection function: {self.consistency_space_projection_func}"
+        )
         self.tool_vote = tool_vote
         self.exclude_args = exclude_args or []
 
@@ -169,16 +193,20 @@ class SelfConsistency(AbstractScalingAlgorithm):
 
         if has_majority_tool_calls and self.tool_vote:
             logging.info("Tool voting is invoked")
-            # mutate responses variable to be only responses with tool calls;
-            responses = [r for r in responses if r.get("tool_calls")]
+            # Keep track of original indices for responses with tool calls
+            tool_call_indices = [
+                i for i, r in enumerate(responses) if r.get("tool_calls")
+            ]
+            tool_call_responses = [responses[i] for i in tool_call_indices]
 
             # Vote on tool calls directly
             responses_projected = [
-                self._extract_tool_call_features(r) for r in responses
+                self._extract_tool_call_features(r) for r in tool_call_responses
             ]
         else:
             # Vote on message content (existing behavior)
-            response_contents = [r.get("content", "") for r in responses]
+            content_indices = [i for i, r in enumerate(responses) if "content" in r]
+            response_contents = [responses[i].get("content") for i in content_indices]
             responses_projected = [
                 self.consistency_space_projection_func(r) for r in response_contents
             ]
@@ -194,6 +222,12 @@ class SelfConsistency(AbstractScalingAlgorithm):
             response_counts, selected_index = _select_most_common_or_random(
                 responses_projected
             )
+
+        # Map back to original index for both tool calls and content voting
+        if has_majority_tool_calls and self.tool_vote:
+            selected_index = tool_call_indices[selected_index]
+        else:
+            selected_index = content_indices[selected_index]
 
         # return the result - preserve original message format with tool calls
         result = SelfConsistencyResult(

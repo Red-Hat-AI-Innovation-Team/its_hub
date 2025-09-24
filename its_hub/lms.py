@@ -454,18 +454,33 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 asyncio.get_running_loop()
                 # Run async code in a new thread to avoid "event loop already running" error
                 import concurrent.futures
+
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     response_or_responses = executor.submit(
-                        lambda: asyncio.run(self._generate(
-                            messages_lst, stop, max_tokens, temperature,
-                            include_stop_str_in_output, tools, tool_choice
-                        ))
+                        lambda: asyncio.run(
+                            self._generate(
+                                messages_lst,
+                                stop,
+                                max_tokens,
+                                temperature,
+                                include_stop_str_in_output,
+                                tools,
+                                tool_choice,
+                            )
+                        )
                     ).result()
             except RuntimeError:
                 # No running loop, safe to use run_until_complete
                 response_or_responses = asyncio.get_event_loop().run_until_complete(
-                    self._generate(messages_lst, stop, max_tokens, temperature,
-                                 include_stop_str_in_output, tools, tool_choice)
+                    self._generate(
+                        messages_lst,
+                        stop,
+                        max_tokens,
+                        temperature,
+                        include_stop_str_in_output,
+                        tools,
+                        tool_choice,
+                    )
                 )
         else:
 
