@@ -309,9 +309,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 )
                 request_data["include_stop_str_in_output"] = include_stop_str_in_output
         else:
-            # logging.info(
-            #     "openai endpoint does not support add_generation_prompt, continue_final_message, or include_stop_str_in_output"
-            # )
+            logging.info(
+                "openai endpoint does not support add_generation_prompt, continue_final_message, or include_stop_str_in_output"
+            )
             if include_stop_str_in_output is not None:
                 logging.warning(
                     "include_stop_str_in_output parameter is not supported with OpenAI endpoints and will be ignored"
@@ -351,15 +351,11 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
     ) -> list[dict]:
-        import time
-        start_time = time.time()
-        logging.info(f"Starting async _generate with {len(messages_lst)} requests at {start_time}")
 
         # limit concurrency to max_concurrency using a semaphore
         semaphore = asyncio.Semaphore(
             len(messages_lst) if self.max_concurrency == -1 else self.max_concurrency
         )
-        logging.info(f"Using semaphore with limit: {semaphore._value}")
 
         # create a single session for all requests in this call
         # Use the same SSL behavior as requests library
@@ -376,9 +372,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             async def fetch_response(
                 messages: list[ChatMessage], _temperature: float | None
             ) -> dict:
-                request_start = time.time()
                 async with semaphore:
-                    logging.info(f"Request started at {request_start}, acquired semaphore")
                     request_data = self._prepare_request_data(
                         messages,
                         stop,
