@@ -648,6 +648,38 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
             for msg in messages
         ]
 
+        # Filter out messages with empty/None content and no tool calls
+        # This prevents 422 errors from providers like AWS Bedrock
+        filtered_messages = []
+        for msg in messages:
+            # Handle both string and structured content
+            if hasattr(msg, 'get_text_content'):
+                # Use the ChatMessage method if available
+                text_content = msg.get_text_content().strip()
+                has_content = text_content != ""
+            else:
+                # Fallback for dict messages or other formats
+                if isinstance(msg.content, str):
+                    has_content = msg.content is not None and msg.content.strip() != ""
+                elif isinstance(msg.content, list):
+                    # Extract text from structured content
+                    text_parts = []
+                    for block in msg.content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            text_parts.append(block.get("text", ""))
+                    has_content = "".join(text_parts).strip() != ""
+                else:
+                    has_content = msg.content is not None
+            
+            has_tool_calls = msg.tool_calls is not None and len(msg.tool_calls) > 0
+            
+            if has_content or has_tool_calls:
+                filtered_messages.append(msg)
+            else:
+                logging.info(f"LiteLLM: Filtered out empty message with role: {msg.role}")
+        
+        messages = filtered_messages
+
         if self.system_prompt:
             messages = [
                 ChatMessage(role="system", content=self.system_prompt),
