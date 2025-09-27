@@ -225,33 +225,99 @@ async def list_models() -> dict[str, list[dict[str, str]]]:
 class ChatCompletionRequest(BaseModel):
     """Chat completion request with inference-time scaling support."""
 
-    model: str = Field(..., description="Model identifier")
-    messages: list[ChatMessage] = Field(..., description="Conversation messages")
-    budget: int = Field(
-        8, ge=1, le=1000, description="Computational budget for scaling"
+    model: str | None = Field(None, description="Model identifier")
+    messages: list[dict | ChatMessage | None] | None = Field(None, description="Conversation messages - flexible format")
+    budget: int | str | float | None = Field(
+        8, description="Computational budget for scaling - flexible type"
     )
-    temperature: float | None = Field(
-        None, ge=0.0, le=2.0, description="Sampling temperature"
+    temperature: float | int | str | None = Field(
+        None, description="Sampling temperature - flexible type"
     )
-    max_tokens: int | None = Field(None, ge=1, description="Maximum tokens to generate")
-    stream: bool | None = Field(False, description="Stream response (not implemented)")
-    tools: list[dict[str, Any]] | None = Field(
-        None, description="Available tools for the model to call"
+    max_tokens: int | str | None = Field(None, description="Maximum tokens to generate - flexible type")
+    stream: bool | str | None = Field(False, description="Stream response (not implemented)")
+    tools: list[dict[str, Any]] | dict[str, Any] | None = Field(
+        None, description="Available tools for the model to call - flexible format"
     )
     tool_choice: str | dict[str, Any] | None = Field(
         None, description="Tool choice strategy ('auto', 'none', or specific tool)"
     )
-    return_response_only: bool = Field(
-        True, description="Return only final response or include algorithm metadata"
+    return_response_only: bool | str | None = Field(
+        True, description="Return only final response or include algorithm metadata - flexible type"
     )
+    
+    # Additional flexible fields to catch unexpected data
+    model_config = {"extra": "allow"}  # Allow extra fields
 
     @field_validator("messages")
     @classmethod
     def validate_messages(cls, v):
-        """Validate message format - flexible validation for various conversation formats."""
+        """Flexible validation and debug logging for messages."""
+        logger.info(f"Raw messages received: {v}")
+        logger.info(f"Messages type: {type(v)}")
+        if v:
+            for i, msg in enumerate(v):
+                logger.info(f"  Raw message {i}: {msg} (type: {type(msg)})")
+        
         if not v:
-            raise ValueError("At least one message is required")
+            logger.warning("No messages provided, using empty list")
+            return []
         return v
+    
+    @field_validator("budget")
+    @classmethod  
+    def validate_budget(cls, v):
+        """Flexible budget validation."""
+        logger.info(f"Budget received: {v} (type: {type(v)})")
+        if v is None:
+            return 8  # default
+        if isinstance(v, str):
+            try:
+                v = int(float(v))  # handle string numbers
+            except ValueError:
+                logger.warning(f"Invalid budget string: {v}, using default 8")
+                return 8
+        if isinstance(v, float):
+            v = int(v)
+        if not isinstance(v, int) or v < 1:
+            logger.warning(f"Invalid budget: {v}, using default 8")
+            return 8
+        return min(v, 1000)  # cap at 1000
+    
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, v):
+        """Flexible model validation."""
+        logger.info(f"Model received: {v} (type: {type(v)})")
+        if v is None:
+            raise ValueError("Model is required")
+        return str(v)
+    
+    @field_validator("temperature")
+    @classmethod
+    def validate_temperature(cls, v):
+        """Flexible temperature validation."""
+        if v is None:
+            return None
+        logger.info(f"Temperature received: {v} (type: {type(v)})")
+        if isinstance(v, str):
+            try:
+                v = float(v)
+            except ValueError:
+                logger.warning(f"Invalid temperature string: {v}, ignoring")
+                return None
+        if isinstance(v, (int, float)):
+            return max(0.0, min(2.0, float(v)))  # clamp to valid range
+        return None
+    
+    @field_validator("return_response_only")
+    @classmethod
+    def validate_return_response_only(cls, v):
+        """Flexible boolean validation."""
+        if v is None:
+            return True
+        if isinstance(v, str):
+            return v.lower() in ('true', '1', 'yes', 'on')
+        return bool(v)
 
 
 class ChatCompletionChoice(BaseModel):
@@ -337,6 +403,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         )
 
     try:
+
         # Configure language model for this request
         # FIXME: Mutating the shared lm instance is not thread-safe and can cause race conditions
         if request.temperature is not None:
