@@ -20,6 +20,7 @@ from its_hub.algorithms.self_consistency import (
 )
 from its_hub.lms import OpenAICompatibleLanguageModel, StepGeneration
 from its_hub.types import ChatMessage, ChatMessages
+from its_hub.integration.elevance import _elevance_projection_func
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -161,7 +162,10 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
 
         elif request.alg == "self-consistency":
             # Create projection function from regex patterns
-            if request.regex_patterns:
+
+            if "elevance" in request.regex_patterns:
+                projection_func = _elevance_projection_func
+            elif request.regex_patterns:
                 projection_func = create_regex_projection_function(
                     request.regex_patterns
                 )

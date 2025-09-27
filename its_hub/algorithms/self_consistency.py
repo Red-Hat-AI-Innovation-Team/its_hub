@@ -221,16 +221,37 @@ class SelfConsistency(AbstractScalingAlgorithm):
 
         # Determine if we're dealing with hierarchical (tuple) or flat projections
         if responses_projected and isinstance(responses_projected[0], tuple):
+            print(f"Hierarchical projection")
             response_counts, filtered_selected_index = (
                 _select_hierarchical_most_common_or_random(responses_projected)
             )
         else:
+            # print(f"Flat projection: {responses_projected}")
             response_counts, filtered_selected_index = _select_most_common_or_random(
                 responses_projected
             )
 
+        # print the chosen response vote counts
+        max_count = max(response_counts.values())
+        print(f"Chosen response (count={max_count})")
+
+
         # Map back to original index
         selected_index = eligible_indices[filtered_selected_index]
+
+        # DEBUG Elevance
+        print(f"DEBUG Elevance chosen response: {responses[selected_index].get('content')}")
+        print(f"DEBUG most voted response: {response_counts.most_common(1)[0][0]}")
+        # Only assert if there's a clear winner (not tied)
+        most_common = response_counts.most_common(2)
+        if len(most_common) == 1 or most_common[0][1] > most_common[1][1]:
+            try:
+                assert self.consistency_space_projection_func(responses[selected_index].get("content")) == response_counts.most_common(1)[0][0]
+            except:
+                print("#######################"*3)
+                print("Inconsitency between most voted response and chosen response!")
+                print(response_counts)
+                print("#######################"*3)
 
         # Return result with original responses preserved
         result = SelfConsistencyResult(
