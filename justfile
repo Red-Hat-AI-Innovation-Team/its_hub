@@ -75,7 +75,7 @@ test-collie:
     source .env
     curl -s -X POST http://localhost:8108/v1/chat/completions \
         -H "Content-Type: application/json" \
-        -d '{"model": "bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0", "messages": [{"role": "user", "content": "Explain quantum computing in one sentence."}], "budget": 2, "return_response_only": false}' | jq .
+        -d '{"model": "bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0", "messages": [{"role": "user", "content": [{"type": "text", "text": "Explain quantum computing in one sentence."}]}], "budget": 2, "return_response_only": false}' | jq .
 
 # Test conversation with empty assistant response in history
 test-collie-empty-chat:

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from pydantic.dataclasses import dataclass
 
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Function:
@@ -42,11 +47,14 @@ class ChatMessage:
             return self.content
         if isinstance(self.content, list):
             # Extract text from structured content blocks
+            # Handles the case where the content is a list of dicts with a "type" key and a "text" key
+            # Eg. {"content": [{"type": "text", "text": "I have responded"}]}
             text_parts = []
             for block in self.content:
                 if isinstance(block, dict) and block.get("type") == "text":
                     text_parts.append(block.get("text", ""))
-            return "".join(text_parts)
+            logger.info(f"Text parts: {"".join(text_parts)}")
+            return "\n".join(text_parts)
         return str(self.content)
 
     def to_dict(self) -> dict:
@@ -57,6 +65,7 @@ class ChatMessage:
             if isinstance(self.content, list):
                 # Convert structured content to simple string for compatibility
                 result["content"] = self.get_text_content()
+                logger.info(f"Role of the message content list: {self.role}")
             elif isinstance(self.content, str) and self.content != "":
                 result["content"] = self.content
             # If content is empty string, don't include it

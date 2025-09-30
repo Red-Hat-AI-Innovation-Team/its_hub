@@ -251,13 +251,7 @@ class ChatCompletionRequest(BaseModel):
     @field_validator("messages")
     @classmethod
     def validate_messages(cls, v):
-        """Flexible validation and debug logging for messages."""
-        logger.info(f"Raw messages received: {v}")
-        logger.info(f"Messages type: {type(v)}")
-        if v:
-            for i, msg in enumerate(v):
-                logger.info(f"  Raw message {i}: {msg} (type: {type(msg)})")
-        
+        """Flexible validation for messages."""
         if not v:
             logger.warning("No messages provided, using empty list")
             return []
