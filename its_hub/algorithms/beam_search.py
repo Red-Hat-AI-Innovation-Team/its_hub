@@ -160,6 +160,7 @@ class BeamSearch(AbstractScalingAlgorithm):
                 lm,
                 candidates,
                 chat_messages.to_prompt(),
+                batched=True,
                 tools=tools,
                 tool_choice=tool_choice,
             )

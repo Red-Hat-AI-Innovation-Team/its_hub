@@ -229,6 +229,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
                     lm,
                     particles,
                     chat_messages.to_prompt(),
+                    batched=True,
                     tools=tools,
                     tool_choice=tool_choice,
                 )
