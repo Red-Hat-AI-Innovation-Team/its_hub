@@ -1,6 +1,6 @@
 """Clean tests for the Inference-as-a-Service (IaaS) integration."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -279,7 +279,7 @@ class TestSelfConsistencyToolVote:
         # Mock the scaling algorithm
         import its_hub.integration.iaas as iaas_module
         mock_scaling_alg = MagicMock()
-        mock_scaling_alg.infer.return_value = {"role": "assistant", "content": "Tool voting response"}
+        mock_scaling_alg.infer_async = AsyncMock(return_value={"role": "assistant", "content": "Tool voting response"})
         iaas_module.SCALING_ALG = mock_scaling_alg
 
         # Make chat completion request
@@ -295,7 +295,7 @@ class TestSelfConsistencyToolVote:
         assert data["choices"][0]["message"]["content"] == "Tool voting response"
 
         # Verify the scaling algorithm was called
-        mock_scaling_alg.infer.assert_called_once()
+        mock_scaling_alg.infer_async.assert_called_once()
 
     @pytest.mark.parametrize("tool_vote_config", [
         {"tool_vote": "tool_name"},
@@ -357,7 +357,7 @@ class TestChatCompletions:
         # Mock the scaling algorithm
         import its_hub.integration.iaas as iaas_module
         mock_scaling_alg = MagicMock()
-        mock_scaling_alg.infer.return_value = {"role": "assistant", "content": "Mocked scaling response"}
+        mock_scaling_alg.infer_async = AsyncMock(return_value={"role": "assistant", "content": "Mocked scaling response"})
         iaas_module.SCALING_ALG = mock_scaling_alg
 
         request_data = TestDataFactory.create_chat_completion_request(
@@ -379,8 +379,8 @@ class TestChatCompletions:
         assert "usage" in data
 
         # Verify the scaling algorithm was called correctly
-        mock_scaling_alg.infer.assert_called_once()
-        call_args = mock_scaling_alg.infer.call_args
+        mock_scaling_alg.infer_async.assert_called_once()
+        call_args = mock_scaling_alg.infer_async.call_args
 
         # Check that ChatMessages object was passed with correct content
         chat_messages_arg = call_args[0][1]
@@ -396,7 +396,7 @@ class TestChatCompletions:
         # Mock the scaling algorithm
         import its_hub.integration.iaas as iaas_module
         mock_scaling_alg = MagicMock()
-        mock_scaling_alg.infer.return_value = {"role": "assistant", "content": "Response with system prompt"}
+        mock_scaling_alg.infer_async = AsyncMock(return_value={"role": "assistant", "content": "Response with system prompt"})
         iaas_module.SCALING_ALG = mock_scaling_alg
 
         request_data = TestDataFactory.create_chat_completion_request(
@@ -411,7 +411,7 @@ class TestChatCompletions:
         assert data["choices"][0]["message"]["content"] == "Response with system prompt"
 
         # Verify the scaling algorithm was called
-        mock_scaling_alg.infer.assert_called_once()
+        mock_scaling_alg.infer_async.assert_called_once()
 
     def test_chat_completions_algorithm_error(self, iaas_client, vllm_server):
         """Test chat completion when scaling algorithm raises an error."""

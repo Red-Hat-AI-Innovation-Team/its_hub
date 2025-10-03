@@ -199,7 +199,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
     ) -> dict | ParticleGibbsResult:
-        # Convert to uniform ChatMessages format
+        """run inference synchronously with particle gibbs"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
         assert budget % self.num_iterations == 0, (
             "budget must be divisible by num_iterations"
@@ -221,7 +221,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
                 for _ in range(num_free_particles)
             ] + ref_particles
 
-            current_step = 0  # Track current step outside the loop
+            current_step = 0
 
             while not all(p.is_stopped for p in particles):
                 # TODO: Update _propagate to support native ChatMessages format instead of string conversion
@@ -229,7 +229,6 @@ class ParticleGibbs(AbstractScalingAlgorithm):
                     lm,
                     particles,
                     chat_messages.to_prompt(),
-                    batched=True,
                     tools=tools,
                     tool_choice=tool_choice,
                 )
@@ -311,6 +310,18 @@ class ParticleGibbs(AbstractScalingAlgorithm):
 
         return result.the_one if return_response_only else result
 
+    async def infer_async(
+        self,
+        lm: AbstractLanguageModel,
+        prompt_or_messages: str | list[ChatMessage] | ChatMessages,
+        budget: int,
+        return_response_only: bool = True,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict | ParticleGibbsResult:
+        """run inference asynchronously with particle gibbs"""
+        raise NotImplementedError("Async implementation not yet available for ParticleGibbs")
+
 
 class ParticleFiltering(ParticleGibbs):
     """
@@ -342,6 +353,7 @@ class ParticleFiltering(ParticleGibbs):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
     ) -> dict | ParticleFilteringResult:
+        """run inference synchronously with particle filtering"""
         result = super().infer(
             lm,
             prompt_or_messages,
@@ -363,3 +375,15 @@ class ParticleFiltering(ParticleGibbs):
             return flattened_result.the_one
 
         return flattened_result
+
+    async def infer_async(
+        self,
+        lm: AbstractLanguageModel,
+        prompt_or_messages: str | list[ChatMessage] | ChatMessages,
+        budget: int,
+        return_response_only: bool = True,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict | ParticleFilteringResult:
+        """run inference asynchronously with particle filtering"""
+        raise NotImplementedError("Async implementation not yet available for ParticleFiltering")

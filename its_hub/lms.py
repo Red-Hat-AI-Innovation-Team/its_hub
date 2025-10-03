@@ -201,6 +201,92 @@ class StepGeneration:
                 ]
             return list(zip(next_steps, is_stopped))
 
+    async def forward_async(
+        self,
+        lm: AbstractLanguageModel,
+        prompt_or_prompts: str | list[str],
+        steps_so_far: list[str] | list[list[str]] | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> tuple[str, bool] | list[tuple[str, bool]]:
+        """generate next step(s) asynchronously"""
+        if steps_so_far is None:
+            steps_so_far = []
+        is_single_prompt = isinstance(prompt_or_prompts, str)
+        if is_single_prompt:
+            prompt = prompt_or_prompts
+            current_step = len(steps_so_far) + 1
+            logging.info("Generating step %s/%s", current_step, self.max_steps)
+
+            messages = [
+                ChatMessage(role="user", content=prompt),
+            ]
+            if steps_so_far:
+                messages.append(
+                    ChatMessage(
+                        role="assistant", content=self._post_process(steps_so_far)
+                    )
+                )
+            next_step_response = await lm.generate_async(
+                messages,
+                stop=self.step_token,
+                max_tokens=self.tokens_per_step,
+                temperature=self._get_temperature(messages),
+                include_stop_str_in_output=self.include_stop_str_in_output,
+                tools=tools,
+                tool_choice=tool_choice,
+            )
+            next_step = extract_content_from_lm_response(next_step_response)
+            is_stopped = len(steps_so_far) >= self.max_steps
+            if self.stop_token:
+                is_stopped = is_stopped or self.stop_token in next_step
+            return next_step, is_stopped
+        else:
+            prompts = prompt_or_prompts
+            step_numbers = [
+                len(steps_so_far_per_prompt) + 1
+                for steps_so_far_per_prompt in steps_so_far
+            ]
+            logging.info(
+                "Generating steps (batch): %s / %s", step_numbers, self.max_steps
+            )
+
+            messages_lst = []
+            for prompt, steps_so_far_per_prompt in zip(prompts, steps_so_far):
+                messages = [
+                    ChatMessage(role="user", content=prompt),
+                ]
+                if steps_so_far_per_prompt:
+                    messages.append(
+                        ChatMessage(
+                            role="assistant",
+                            content=self._post_process(steps_so_far_per_prompt),
+                        )
+                    )
+                messages_lst.append(messages)
+            next_steps_responses = await lm.generate_async(
+                messages_lst,
+                stop=self.step_token,
+                max_tokens=self.tokens_per_step,
+                temperature=self._get_temperature(messages_lst),
+                include_stop_str_in_output=self.include_stop_str_in_output,
+                tools=tools,
+                tool_choice=tool_choice,
+            )
+            next_steps = [
+                extract_content_from_lm_response(r) for r in next_steps_responses
+            ]
+            is_stopped = [
+                len(steps_so_far_per_prompt) >= self.max_steps
+                for steps_so_far_per_prompt in steps_so_far
+            ]
+            if self.stop_token:
+                is_stopped = [
+                    is_stopped_per_prompt or self.stop_token in next_step
+                    for is_stopped_per_prompt, next_step in zip(is_stopped, next_steps)
+                ]
+            return list(zip(next_steps, is_stopped))
+
 
 class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     def __init__(
@@ -510,9 +596,40 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             ]
         return response_or_responses[0] if is_single else response_or_responses
 
+    async def generate_async(
+        self,
+        messages_or_messages_lst: list[ChatMessage] | list[list[ChatMessage]],
+        stop: str | None = None,
+        max_tokens: int | None = None,
+        temperature: float | list[float] | None = None,
+        include_stop_str_in_output: bool | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict | list[dict]:
+        """generate response(s) asynchronously"""
+        # Check if we have a single list of messages or a list of message lists
+        is_single = not isinstance(messages_or_messages_lst[0], list)
+        messages_lst = (
+            [messages_or_messages_lst] if is_single else messages_or_messages_lst
+        )
+        response_or_responses = await self._generate(
+            messages_lst,
+            stop,
+            max_tokens,
+            temperature,
+            include_stop_str_in_output,
+            tools,
+            tool_choice,
+        )
+        return response_or_responses[0] if is_single else response_or_responses
+
     # TODO implement evaluation
     def evaluate(self, prompt: str, generation: str) -> list[float]:
         raise NotImplementedError("evaluate method not implemented")
+
+    async def evaluate_async(self, prompt: str, generation: str) -> list[float]:
+        """evaluate the likelihoods asynchronously"""
+        raise NotImplementedError("evaluate_async method not implemented")
 
 
 # TODO(GX) implement local VLLM-based language model

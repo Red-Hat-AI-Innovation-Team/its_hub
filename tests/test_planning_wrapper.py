@@ -58,6 +58,14 @@ class MockLanguageModel(AbstractLanguageModel):
         """Return dummy evaluation scores."""
         return [0.5] * len(generation.split())
 
+    async def generate_async(self, messages, stop=None, max_tokens=None, include_stop_str_in_output=False, temperature=None, **kwargs):
+        """generate response(s) asynchronously"""
+        return self.generate(messages, stop, max_tokens, include_stop_str_in_output, temperature, **kwargs)
+
+    async def evaluate_async(self, prompt: str, generation: str) -> list[float]:
+        """evaluate the likelihoods asynchronously"""
+        return self.evaluate(prompt, generation)
+
 
 class MockProcessRewardModel(AbstractProcessRewardModel):
     """Mock process reward model for testing."""
@@ -72,6 +80,10 @@ class MockProcessRewardModel(AbstractProcessRewardModel):
             return random.uniform(0.1, 0.9)
         else:  # List of responses
             return [random.uniform(0.1, 0.9) for _ in response]
+
+    async def score_async(self, prompt: str, response: str | list[str]) -> float | list[float]:
+        """score response(s) asynchronously"""
+        return self.score(prompt, response)
 
 
 class ProcessToOutcomeRewardModel(AbstractOutcomeRewardModel):
@@ -104,6 +116,10 @@ class ProcessToOutcomeRewardModel(AbstractOutcomeRewardModel):
                     return process_scores if process_scores else 0.0
             except Exception:
                 return 0.0
+
+    async def score_async(self, prompt: str, responses: str | list[str]) -> float | list[float]:
+        """score response(s) asynchronously"""
+        return self.score(prompt, responses)
 
 
 class TestPlanningWrapper:

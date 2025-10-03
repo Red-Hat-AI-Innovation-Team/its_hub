@@ -40,6 +40,14 @@ class MockLanguageModelForResampling(AbstractLanguageModel):
         # Not used in these tests
         return 0.5
 
+    async def generate_async(self, messages, max_tokens=100, **kwargs):
+        """generate response(s) asynchronously"""
+        return self.generate(messages, max_tokens, **kwargs)
+
+    async def evaluate_async(self, prompt, response):
+        """evaluate the likelihoods asynchronously"""
+        return self.evaluate(prompt, response)
+
 
 class MockProcessRewardModelForResampling(AbstractProcessRewardModel):
     """Mock PRM that gives higher scores to longer sequences."""
@@ -59,6 +67,10 @@ class MockProcessRewardModelForResampling(AbstractProcessRewardModel):
         num_steps = response.count("step")
         # Return a score between 0.5 and 0.9 based on length
         return min(0.5 + 0.1 * num_steps, 0.9)
+
+    async def score_async(self, prompt, response):
+        """score response(s) asynchronously"""
+        return self.score(prompt, response)
 
 
 class TestParticleGibbsResampling:

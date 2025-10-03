@@ -141,7 +141,7 @@ class BeamSearch(AbstractScalingAlgorithm):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
     ) -> dict | BeamSearchResult:
-        # Convert to uniform ChatMessages format
+        """run inference synchronously with beam search"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
         assert budget % self.beam_width == 0, "budget must be divisible by beam_width"
         assert budget >= self.beam_width, (
@@ -160,7 +160,6 @@ class BeamSearch(AbstractScalingAlgorithm):
                 lm,
                 candidates,
                 chat_messages.to_prompt(),
-                batched=True,
                 tools=tools,
                 tool_choice=tool_choice,
             )
@@ -191,3 +190,15 @@ class BeamSearch(AbstractScalingAlgorithm):
             steps_used=steps_used,
         )
         return result.the_one if return_response_only else result
+
+    async def infer_async(
+        self,
+        lm: AbstractLanguageModel,
+        prompt_or_messages: str | list[ChatMessage] | ChatMessages,
+        budget: int,
+        return_response_only: bool = True,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict | BeamSearchResult:
+        """run inference asynchronously with beam search"""
+        raise NotImplementedError("Async implementation not yet available for BeamSearch")

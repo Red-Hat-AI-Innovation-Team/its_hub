@@ -27,6 +27,9 @@ class MockOutcomeRewardModel(AbstractOutcomeRewardModel):
             self.call_count += 1
             return score
 
+    async def score_async(self, prompt: str, response: str | list[str]) -> float | list[float]:
+        return self.score(prompt, response)
+
 
 class MockProcessRewardModel:
     """Mock process reward model with configurable scores."""
@@ -100,3 +103,6 @@ class ErrorRewardModel:
             score = self.scores[self.call_count % len(self.scores)]
             self.call_count += 1
             return score
+
+    async def score_async(self, prompt: str, response: str | list[str]) -> float | list[float]:
+        return self.score(prompt, response)

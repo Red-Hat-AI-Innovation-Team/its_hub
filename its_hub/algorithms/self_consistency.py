@@ -1,7 +1,7 @@
 import logging
+import math
 import random
 import re
-import math
 from collections import Counter
 from collections.abc import Callable
 
@@ -171,11 +171,89 @@ class SelfConsistency(AbstractScalingAlgorithm):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
     ) -> dict | SelfConsistencyResult:
-        # Convert to uniform ChatMessages format
+        """run inference synchronously with self-consistency"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
         # generate responses
         responses = lm.generate(
+            chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
+        )
+
+        # Check if majority of responses have tool calls to decide voting method
+        tool_call_count = sum(1 for r in responses if r.get("tool_calls"))
+        required_majority = math.ceil(len(responses) / 2)
+        has_majority_tool_calls = tool_call_count >= required_majority
+
+        # Warn if tool calls detected but tool_vote not set
+        if tool_call_count > 0 and not self.tool_vote:
+            logging.warning(
+                f"Detected {tool_call_count}/{len(responses)} responses with tool calls, "
+                "but tool_vote is not set. Consider setting tool_vote parameter "
+                "(e.g., 'tool_name', 'tool_args', 'tool_hierarchical') for tool call voting."
+            )
+
+        # Determine eligible responses and create projections
+        if has_majority_tool_calls and self.tool_vote:
+            logging.info("Tool voting is invoked")
+            eligible_indices = [
+                i for i, r in enumerate(responses) if r.get("tool_calls")
+            ]
+            responses_projected = [
+                self._extract_tool_call_features(responses[i]) for i in eligible_indices
+            ]
+        else:
+            # Content voting - filter out tool call responses
+            eligible_indices = [
+                i for i, r in enumerate(responses) if not r.get("tool_calls")
+            ]
+            responses_projected = [
+                self.consistency_space_projection_func(responses[i].get("content", ""))
+                for i in eligible_indices
+            ]
+
+        # Error if no eligible responses after filtering
+        if not eligible_indices:
+            raise ValueError(
+                f"No eligible responses found after filtering. "
+                f"Total responses: {len(responses)}, responses with tool calls: {tool_call_count}. "
+                "This typically happens when tool_vote is not set but all responses contain tool calls."
+            )
+
+        # Determine if we're dealing with hierarchical (tuple) or flat projections
+        if responses_projected and isinstance(responses_projected[0], tuple):
+            response_counts, filtered_selected_index = (
+                _select_hierarchical_most_common_or_random(responses_projected)
+            )
+        else:
+            response_counts, filtered_selected_index = _select_most_common_or_random(
+                responses_projected
+            )
+
+        # Map back to original index
+        selected_index = eligible_indices[filtered_selected_index]
+
+        # Return result with original responses preserved
+        result = SelfConsistencyResult(
+            responses=responses,  # ALL original responses
+            response_counts=response_counts,
+            selected_index=selected_index,  # Index into original responses
+        )
+        return result.the_one if return_response_only else result
+
+    async def infer_async(
+        self,
+        lm: AbstractLanguageModel,
+        prompt_or_messages: str | list[ChatMessage] | ChatMessages,
+        budget: int,
+        return_response_only: bool = True,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict | SelfConsistencyResult:
+        """run inference asynchronously with self-consistency"""
+        chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
+
+        # generate responses
+        responses = await lm.generate_async(
             chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
         )
 

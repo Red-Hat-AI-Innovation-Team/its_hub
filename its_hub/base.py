@@ -12,29 +12,26 @@ class AbstractLanguageModel(ABC):
         messages: list[ChatMessage] | list[list[ChatMessage]],
         stop: str | None = None,
     ) -> str | list[str]:
-        """
-        generate a response from the model
+        """generate a response from the model synchronously"""
+        pass
 
-        Args:
-            messages: the input messages
-
-        Returns:
-            the generated output string
-        """
+    @abstractmethod
+    async def generate_async(
+        self,
+        messages: list[ChatMessage] | list[list[ChatMessage]],
+        stop: str | None = None,
+    ) -> str | list[str]:
+        """generate a response from the model asynchronously"""
         pass
 
     @abstractmethod
     def evaluate(self, prompt: str, generation: str) -> list[float]:
-        """
-        evaluate the likelihoods of the generation given the prompt
+        """evaluate the likelihoods of the generation synchronously"""
+        pass
 
-        Args:
-            prompt: the input prompt
-            generation: the generated output string
-
-        Returns:
-            the likelihoods of the generation per token
-        """
+    @abstractmethod
+    async def evaluate_async(self, prompt: str, generation: str) -> list[float]:
+        """evaluate the likelihoods of the generation asynchronously"""
         pass
 
 
@@ -61,20 +58,20 @@ class AbstractScalingAlgorithm(ABC):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
     ) -> str | AbstractScalingResult:
-        """
-        run inference with the given language model and prompt under the specified budget
+        """run inference synchronously with the given language model and prompt"""
+        pass
 
-        Args:
-            lm: a language model that takes a prompt and returns a response
-            prompt_or_messages: the input prompt (string) or conversation history (list of ChatMessage) or ChatMessages object
-            budget: the computational budget for inference
-            return_response_only: whether to return only the selected response
-            tools: available tools for the model to call
-            tool_choice: tool choice strategy ('auto', 'none', or specific tool)
-
-        Returns:
-            the generated output string or the complete scaling result
-        """
+    @abstractmethod
+    async def infer_async(
+        self,
+        lm: AbstractLanguageModel,
+        prompt_or_messages: str | list[ChatMessage] | ChatMessages,
+        budget: int,
+        return_response_only: bool = True,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> str | AbstractScalingResult:
+        """run inference asynchronously with the given language model and prompt"""
         pass
 
 
@@ -85,7 +82,14 @@ class AbstractOutcomeRewardModel(ABC):
     def score(
         self, prompt_or_messages: str | list[ChatMessage] | ChatMessages, response: str
     ) -> float:
-        """the score for a given conversation context and response"""
+        """score a response synchronously"""
+        pass
+
+    @abstractmethod
+    async def score_async(
+        self, prompt_or_messages: str | list[ChatMessage] | ChatMessages, response: str
+    ) -> float:
+        """score a response asynchronously"""
         pass
 
 
@@ -99,5 +103,14 @@ class AbstractProcessRewardModel(ABC):
         prompt_or_messages: str | list[ChatMessage] | ChatMessages,
         steps: list[str],
     ) -> list[float]:
-        """the score for a given conversation context and steps"""
+        """score steps synchronously"""
+        pass
+
+    @abstractmethod
+    async def score_async(
+        self,
+        prompt_or_messages: str | list[ChatMessage] | ChatMessages,
+        steps: list[str],
+    ) -> list[float]:
+        """score steps asynchronously"""
         pass

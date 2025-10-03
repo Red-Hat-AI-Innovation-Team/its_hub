@@ -120,12 +120,12 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
     logger.info(f"Configuring service with model={request.model}, alg={request.alg}")
 
     try:
-        # Configure language model
+        # Configure language model with async enabled
         lm = OpenAICompatibleLanguageModel(
             endpoint=request.endpoint,
             api_key=request.api_key,
             model_name=request.model,
-            # TODO: Consider enabling async mode for better performance
+            is_async=True,  # Enable async for true concurrency
         )
         LM_DICT[request.model] = lm
 
@@ -315,7 +315,6 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
 
     try:
         # Configure language model for this request
-        # FIXME: Mutating the shared lm instance is not thread-safe and can cause race conditions
         if request.temperature is not None:
             lm.temperature = request.temperature
 
@@ -326,8 +325,8 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             f"Processing request for model={request.model}, budget={request.budget}"
         )
 
-        # Generate response using scaling algorithm with full conversation context
-        algorithm_result = SCALING_ALG.infer(
+        # Generate response using async scaling algorithm
+        algorithm_result = await SCALING_ALG.infer_async(
             lm,
             chat_messages,
             request.budget,

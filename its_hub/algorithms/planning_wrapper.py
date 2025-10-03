@@ -137,7 +137,7 @@ class PlanningWrapper(AbstractScalingAlgorithm):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
     ) -> dict | PlanningWrappedResult:
-        # Convert to uniform ChatMessages format
+        """run planning-enhanced inference synchronously"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
         """Run Planning-Enhanced version of the base algorithm.
 
@@ -234,6 +234,18 @@ class PlanningWrapper(AbstractScalingAlgorithm):
         )
 
         return result.the_one if return_response_only else result
+
+    async def infer_async(
+        self,
+        lm: AbstractLanguageModel,
+        prompt_or_messages: str | list[ChatMessage] | ChatMessages,
+        budget: int,
+        return_response_only: bool = True,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict | PlanningWrappedResult:
+        """run planning-enhanced inference asynchronously"""
+        raise NotImplementedError("Async implementation not yet available for PlanningWrapper")
 
     def _select_best_approach(
         self, approach_results: dict[str, AbstractScalingResult]

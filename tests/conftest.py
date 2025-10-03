@@ -235,6 +235,12 @@ class MockLanguageModel(AbstractLanguageModel):
     def evaluate(self, prompt: str, generation: str) -> list[float]:
         return [0.1] * len(generation.split())
 
+    async def generate_async(self, messages, stop=None, temperature=None, include_stop_str_in_output=None):
+        return self.generate(messages, stop, temperature, include_stop_str_in_output)
+
+    async def evaluate_async(self, prompt: str, generation: str) -> list[float]:
+        return self.evaluate(prompt, generation)
+
 
 class MockOutcomeRewardModel(AbstractOutcomeRewardModel):
     """Mock outcome reward model for testing."""

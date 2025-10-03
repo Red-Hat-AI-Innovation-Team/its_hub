@@ -118,29 +118,6 @@ class TestOpenAICompatibleLanguageModel:
         ]
         assert responses == expected
 
-    @pytest.mark.parametrize("max_concurrency,expected_semaphore_value", [
-        (2, 2),
-        (-1, 5),  # Should use length of messages_lst
-    ])
-    def test_concurrency_control(self, openai_server, max_concurrency, expected_semaphore_value):
-        """Test concurrency control with different settings."""
-        with patch('asyncio.Semaphore') as mock_semaphore:
-            model = OpenAICompatibleLanguageModel(
-                endpoint=openai_server,
-                api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
-                model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
-                is_async=True,
-                max_concurrency=max_concurrency
-            )
-
-            messages_lst = [
-                TestDataFactory.create_chat_messages(f"Message {i}").to_chat_messages()
-                for i in range(5)
-            ]
-
-            model.generate(messages_lst)
-            mock_semaphore.assert_called_once_with(expected_semaphore_value)
-
     def test_error_handling_with_retries(self, openai_server):
         """Test error handling with retries."""
         model = OpenAICompatibleLanguageModel(

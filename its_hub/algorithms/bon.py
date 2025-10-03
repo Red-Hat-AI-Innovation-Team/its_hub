@@ -34,7 +34,7 @@ class BestOfN(AbstractScalingAlgorithm):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
     ) -> dict | BestOfNResult:
-        # Convert to uniform ChatMessages format
+        """run inference synchronously with best-of-n"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
         # generate responses
@@ -66,3 +66,15 @@ class BestOfN(AbstractScalingAlgorithm):
             selected_index=selected_index,
         )
         return result.the_one if return_response_only else result
+
+    async def infer_async(
+        self,
+        lm: AbstractLanguageModel,
+        prompt_or_messages: str | list[ChatMessage] | ChatMessages,
+        budget: int,
+        return_response_only: bool = True,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict | BestOfNResult:
+        """run inference asynchronously with best-of-n"""
+        raise NotImplementedError("Async implementation not yet available for BestOfN")

@@ -52,6 +52,12 @@ class StepMockLanguageModel(AbstractLanguageModel):
         """Return mock evaluation scores."""
         return [0.1] * len(generation.split())
 
+    async def generate_async(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
+        return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
+
+    async def evaluate_async(self, prompt: str, generation: str) -> list[float]:
+        return self.evaluate(prompt, generation)
+
 
 class ErrorMockLanguageModel(AbstractLanguageModel):
     """Mock language model that can simulate errors."""
@@ -86,3 +92,9 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
 
     def evaluate(self, prompt: str, generation: str) -> list[float]:
         return [0.1] * len(generation.split())
+
+    async def generate_async(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
+        return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
+
+    async def evaluate_async(self, prompt: str, generation: str) -> list[float]:
+        return self.evaluate(prompt, generation)
