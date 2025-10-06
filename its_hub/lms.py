@@ -1,8 +1,10 @@
 import asyncio
 import logging
+import ssl
 
 import aiohttp
 import backoff
+import certifi
 import requests
 
 from .base import AbstractLanguageModel
@@ -124,9 +126,9 @@ class StepGeneration:
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
     ) -> tuple[str, bool] | list[tuple[str, bool]]:
-        if steps_so_far is None:
-            steps_so_far = []
         is_single_prompt = isinstance(prompt_or_prompts, str)
+        if steps_so_far is None:
+            steps_so_far = [] if is_single_prompt else [[] for _ in prompt_or_prompts]
         if is_single_prompt:
             prompt = prompt_or_prompts
             current_step = len(steps_so_far) + 1
@@ -210,9 +212,9 @@ class StepGeneration:
         tool_choice: str | dict | None = None,
     ) -> tuple[str, bool] | list[tuple[str, bool]]:
         """generate next step(s) asynchronously"""
-        if steps_so_far is None:
-            steps_so_far = []
         is_single_prompt = isinstance(prompt_or_prompts, str)
+        if steps_so_far is None:
+            steps_so_far = [] if is_single_prompt else [[] for _ in prompt_or_prompts]
         if is_single_prompt:
             prompt = prompt_or_prompts
             current_step = len(steps_so_far) + 1
@@ -424,7 +426,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         )
 
         # create a single session for all requests in this call
-        async with aiohttp.ClientSession() as session:
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        connector = aiohttp.TCPConnector(ssl=ssl_context)
+        async with aiohttp.ClientSession(connector=connector) as session:
 
             @backoff.on_exception(
                 backoff.expo,
