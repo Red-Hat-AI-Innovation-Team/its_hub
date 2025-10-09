@@ -126,6 +126,7 @@ def _select_hierarchical_most_common_or_random(
         # Count occurrences at this level
         level_counts = Counter(level_values)
         max_count = max(level_counts.values())
+        logger.info(f"Level {level} counts: {level_counts}")
 
         # Filter candidates to only those with the most common value at this level
         new_candidates = []
@@ -237,9 +238,9 @@ class SelfConsistency(AbstractScalingAlgorithm):
             responses_projected = [
                 self._extract_tool_call_features(responses[i]) for i in eligible_indices
             ]
-            logger.info(
-                f"Responses projected: {responses_projected}"
-            )
+            # logger.info(
+            #     f"Responses projected: {responses_projected}"
+            # )
         else:
             # Content voting - filter out tool call responses
             eligible_indices = [
