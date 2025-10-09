@@ -18,7 +18,7 @@ from its_hub.algorithms.self_consistency import (
     SelfConsistency,
     create_regex_projection_function,
 )
-from its_hub.lms import OpenAICompatibleLanguageModel, StepGeneration
+from its_hub.lms import OpenAICompatibleLanguageModel, LiteLLMLanguageModel, StepGeneration
 from its_hub.types import ChatMessage, ChatMessages
 
 # Configure logging
@@ -33,17 +33,19 @@ app = FastAPI(
 )
 
 # Global state - TODO: Replace with proper dependency injection in production
-LM_DICT: dict[str, OpenAICompatibleLanguageModel] = {}
+LM_DICT: dict[str, OpenAICompatibleLanguageModel | LiteLLMLanguageModel] = {}
 SCALING_ALG: Any | None = None  # TODO: Add proper type annotation
 
 
 class ConfigRequest(BaseModel):
     """Configuration request for setting up the IaaS service."""
 
+    provider: str = Field("openai", description="LM provider: 'openai' or 'litellm'")
     endpoint: str = Field(..., description="Language model endpoint URL")
-    api_key: str = Field(..., description="API key for the language model")
+    api_key: str | None = Field(None, description="API key for the language model")
     model: str = Field(..., description="Model name identifier")
     alg: str = Field(..., description="Scaling algorithm to use")
+    extra_args: dict[str, Any] | None = Field(None, description="Additional provider-specific arguments")
     step_token: str | None = Field(None, description="Token to mark generation steps")
     stop_token: str | None = Field(None, description="Token to stop generation")
     rm_name: str | None = Field(
@@ -149,6 +151,15 @@ class ConfigRequest(BaseModel):
             raise ValueError("judge_model is required when use_llm_judge is True")
         return v
 
+    @field_validator("api_key")
+    @classmethod
+    def validate_api_key(cls, v, info):
+        """Validate api_key is provided when using OpenAI provider."""
+        provider = info.data.get("provider", "openai")
+        if provider == "openai" and not v:
+            raise ValueError("api_key is required when using openai provider")
+        return v
+
 
 @app.post("/configure", status_code=status.HTTP_200_OK)
 async def config_service(request: ConfigRequest) -> dict[str, str]:
@@ -172,13 +183,25 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
     logger.info(f"Configuring service with model={request.model}, alg={request.alg}")
 
     try:
-        # Configure language model with async enabled
-        lm = OpenAICompatibleLanguageModel(
-            endpoint=request.endpoint,
-            api_key=request.api_key,
-            model_name=request.model,
-            is_async=True,  # Enable async for true concurrency
-        )
+        # Configure language model based on provider
+        if request.provider == "litellm":
+            extra_kwargs = request.extra_args or {}
+            lm = LiteLLMLanguageModel(
+                model_name=request.model,
+                api_key=request.api_key,
+                api_base=request.endpoint if request.endpoint != "auto" else None,
+                is_async=True,  # Enable async mode for better performance
+                **extra_kwargs
+            )
+        else:
+            # Default to OpenAI compatible
+            lm = OpenAICompatibleLanguageModel(
+                endpoint=request.endpoint,
+                api_key=request.api_key,
+                model_name=request.model,
+                is_async=True,  # Enable async mode for better performance
+                # SSL verification enabled by default (same as synchronous requests)
+            )
         LM_DICT[request.model] = lm
 
         # Configure scaling algorithm
@@ -418,7 +441,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             f"Processing request for model={request.model}, budget={request.budget}"
         )
 
-        # Generate response using async scaling algorithm
+        # Generate response using scaling algorithm with full conversation context
         algorithm_result = await SCALING_ALG.ainfer(
             lm,
             chat_messages,
