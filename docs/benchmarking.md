@@ -9,6 +9,7 @@ python scripts/benchmark.py --help
 ```
 
 Example benchmark command:
+
 ```bash
 python scripts/benchmark.py \
     --benchmark aime-2024 \
@@ -25,6 +26,7 @@ python scripts/benchmark.py \
 ## Supported Datasets
 
 ### MATH500
+
 A subset of 500 problems from the MATH dataset, covering various mathematical topics.
 
 ```bash
@@ -32,10 +34,35 @@ python scripts/benchmark.py --benchmark math-500 --model_name Qwen/Qwen2.5-Math-
 ```
 
 ### AIME-2024
+
 American Invitational Mathematics Examination problems from 2024.
 
 ```bash
 python scripts/benchmark.py --benchmark aime-2024 --model_name Qwen/Qwen2.5-Math-1.5B-Instruct
+```
+
+### AIME-2025
+
+American Invitational Mathematics Examination problems from 2025.
+
+```bash
+python scripts/benchmark.py --benchmark aime-2025 --model_name Qwen/Qwen2.5-Math-1.5B-Instruct
+```
+
+### GSM8K
+
+GSM8K (Grade School Math 8K) is a dataset of 8.5K high quality linguistically diverse grade school math word problems. The dataset was created to support the task of question answering on basic mathematical problems that require multi-step reasoning.
+
+```bash
+python scripts/benchmark.py --benchmark gsm8k --model_name Qwen/Qwen2.5-Math-1.5B-Instruct
+```
+
+### OMNI-MATH
+
+OMNI-MATH dataset focuses exclusively on mathematics and comprises a vast collection of 4428 competition-level problems. These problems are meticulously categorized into 33 (and potentially more) sub-domains and span across 10 distinct difficulty levels, enabling a nuanced analysis of model performance across various mathematical disciplines and levels of complexity.
+
+```bash
+python scripts/benchmark.py --benchmark omnimath --model_name Qwen/Qwen2.5-Math-1.5B-Instruct
 ```
 
 ## Algorithm Comparison
@@ -70,7 +97,7 @@ python scripts/benchmark.py \
 
 ### Basic Parameters
 
-- `--benchmark`: Dataset to use (`math-500`, `aime-2024`)
+- `--benchmark`: Dataset to use (`math-500`, `aime-2024`, `aime-2025`)
 - `--model_name`: Model identifier (e.g., `Qwen/Qwen2.5-Math-1.5B-Instruct`)
 - `--alg`: Algorithm to benchmark (`self-consistency`, `best-of-n`, `beam-search`, `particle-filtering`)
 - `--budgets`: Comma-separated list of budget values
@@ -95,24 +122,24 @@ The benchmark script generates detailed results including:
 
 ```json
 {
-    "algorithm": "particle-filtering",
-    "dataset": "math-500",
-    "model": "Qwen/Qwen2.5-Math-1.5B-Instruct",
-    "budget": 8,
-    "accuracy": 0.756,
-    "total_problems": 500,
-    "correct_answers": 378,
-    "average_response_time": 12.34,
-    "detailed_results": [
-        {
-            "problem_id": "001",
-            "problem": "Solve x^2 + 5x + 6 = 0",
-            "correct_answer": "x = -2, -3",
-            "model_response": "...",
-            "is_correct": true,
-            "response_time": 8.21
-        }
-    ]
+  "algorithm": "particle-filtering",
+  "dataset": "math-500",
+  "model": "Qwen/Qwen2.5-Math-1.5B-Instruct",
+  "budget": 8,
+  "accuracy": 0.756,
+  "total_problems": 500,
+  "correct_answers": 378,
+  "average_response_time": 12.34,
+  "detailed_results": [
+    {
+      "problem_id": "001",
+      "problem": "Solve x^2 + 5x + 6 = 0",
+      "correct_answer": "x = -2, -3",
+      "model_response": "...",
+      "is_correct": true,
+      "response_time": 8.21
+    }
+  ]
 }
 ```
 
@@ -226,18 +253,21 @@ python scripts/benchmark.py \
 ### Common Issues
 
 **Out of Memory Errors:**
+
 ```bash
 # Reduce batch size or budget
 python scripts/benchmark.py --budgets 1,2,4 --rm_device cuda:0
 ```
 
 **Slow Evaluation:**
+
 ```bash
 # Disable evaluation for faster benchmarking
 python scripts/benchmark.py --no_eval
 ```
 
 **Model Loading Issues:**
+
 ```bash
 # Verify model availability
 curl http://localhost:8000/v1/models
