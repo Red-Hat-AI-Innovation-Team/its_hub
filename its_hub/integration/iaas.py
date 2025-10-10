@@ -460,13 +460,8 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         logger.info(
             f"Processing request for model={request.model}, budget={request.budget}"
         )
-<<<<<<< HEAD
-        print(SCALING_ALG.__class__.__name__)
-        # Generate response using async scaling algorithm
-=======
 
         # Generate response using scaling algorithm with full conversation context
->>>>>>> a2c7c04183affffed3f336faa58b5b5ecbb04c31
         algorithm_result = await SCALING_ALG.ainfer(
             lm,
             chat_messages,

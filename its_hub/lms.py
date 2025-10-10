@@ -559,6 +559,10 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         return response_or_responses[0] if is_single else response_or_responses
 
     # TODO implement evaluation
+    async def aevaluate(self, prompt: str, generation: str) -> list[float]:
+        """evaluate the likelihoods of the generation asynchronously"""
+        raise NotImplementedError("aevaluate method not implemented")
+
     def evaluate(self, prompt: str, generation: str) -> list[float]:
         """evaluate the likelihoods synchronously"""
         raise NotImplementedError("evaluate method not implemented")
@@ -874,5 +878,10 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
 
         return response_or_responses[0] if is_single else response_or_responses
 
+    async def aevaluate(self, prompt: str, generation: str) -> list[float]:
+        """evaluate the likelihoods of the generation asynchronously"""
+        raise NotImplementedError("aevaluate method not implemented")
+
     def evaluate(self, prompt: str, generation: str) -> list[float]:
+        """evaluate the likelihoods of the generation synchronously"""
         raise NotImplementedError("evaluate method not implemented")
