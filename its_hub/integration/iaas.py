@@ -460,7 +460,6 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
 
         # Use the selected response directly without any modification
         response_chat_message = response_message
-        print("algorithm_result", algorithm_result)
         if hasattr(algorithm_result, "usage"):
             usage = algorithm_result.usage  if algorithm_result.usage else {}
         else:
