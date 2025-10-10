@@ -3,6 +3,9 @@ from reward_hub.base import AggregationMethod
 from its_hub.base import AbstractProcessRewardModel, AbstractOutcomeRewardModel
 from its_hub.types import ChatMessage, ChatMessages
 
+import litellm
+from typing import Tuple
+
 
 class LocalVllmProcessRewardModel(AbstractProcessRewardModel):
     def __init__(
@@ -75,8 +78,10 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
         criterion: str = "overall_quality",
         api_key: str | None = None,
         base_url: str | None = None,
+        judge_type: str = "pointwise",
         temperature: float = 0.0,
         max_tokens: int = 512,
+        top_n: int | None = None,
         **litellm_kwargs,
     ):
         """
@@ -95,19 +100,25 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
         """
         from reward_hub import AutoJudge
 
+        if top_n:
+            self.top_n = top_n
+        else:
+            self.top_n = None
+
         self.judge = AutoJudge.from_litellm(
             model=model,
-            judge_type="pointwise",
+            judge_type=judge_type,
             criterion=criterion,
             api_key=api_key,
             base_url=base_url,
             temperature=temperature,
             max_tokens=max_tokens,
+            top_n=top_n,
             **litellm_kwargs,
         )
         self.criterion = criterion
         self.model = model
-
+        
     def score(
         self,
         prompt_or_messages: str | list[ChatMessage] | ChatMessages,
@@ -174,6 +185,54 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
         else:
             # Judge returns List[float] for multiple conversations
             return [score / 10.0 for score in raw_scores]
+        
+    async def ascore_with_usage(self,
+        prompt_or_messages: str | list[ChatMessage] | ChatMessages,
+        response: str | list[str],
+    ) -> Tuple[float | list[float], litellm.utils.Usage]:
+        """
+        Async version of score with usage
+        
+        Score response(s) asynchronously using the LLM judge.
+
+        Args:
+            prompt_or_messages: The prompt or conversation context
+            response: The response(s) to evaluate (single string or list of strings)
+
+        Returns:
+            Score from 0.0 to 1.0 (normalized from judge's 0-10 scale)
+            Returns float for single response, list[float] for multiple responses
+        """
+        # Convert to ChatMessages format
+        chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
+
+        # Build base conversation in OpenAI format
+        base_messages = [
+            {"role": msg.role, "content": msg.content}
+            for msg in chat_messages.to_chat_messages()
+        ]
+
+        # Handle both single response and batch of responses
+        is_single_response = isinstance(response, str)
+        responses = [response] if is_single_response else response
+
+        # Build complete conversations (base + each response)
+        conversations = [
+            base_messages + [{"role": "assistant", "content": resp}]
+            for resp in responses
+        ]
+
+        # Call judge with multiple conversations
+        # Judge expects List[List[dict]] for multiple conversations
+        raw_scores, usage = await self.judge.ascore_with_usage(conversations, top_n=self.top_n)
+
+        # Normalize scores to 0-1 range
+        if is_single_response:
+            # Judge returns float for single conversation
+            return raw_scores / 10.0, usage
+        else:
+            # Judge returns List[float] for multiple conversations
+            return [score / 10.0 for score in raw_scores], usage
     
     
     
