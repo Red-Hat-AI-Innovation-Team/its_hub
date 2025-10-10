@@ -74,6 +74,25 @@ class AbstractScalingAlgorithm(ABC):
         """run inference synchronously with the given language model and prompt"""
         pass
 
+    async def ainfer(
+        self,
+        lm: AbstractLanguageModel,
+        prompt_or_messages: str | list[ChatMessage] | ChatMessages,
+        budget: int,
+        return_response_only: bool = True,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> str | AbstractScalingResult:
+        """
+        async version of infer - default implementation falls back to sync version
+
+        Subclasses should override this for true async performance
+        """
+        import asyncio
+        return await asyncio.to_thread(
+            self.infer, lm, prompt_or_messages, budget, return_response_only, tools, tool_choice
+        )
+
 
 class AbstractOutcomeRewardModel(ABC):
     """abstract base class for outcome reward models"""

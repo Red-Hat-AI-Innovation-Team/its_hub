@@ -6,6 +6,7 @@ from collections import Counter
 from collections.abc import Callable
 
 from pydantic.dataclasses import dataclass
+import logging
 
 from its_hub.base import (
     AbstractLanguageModel,
@@ -13,6 +14,34 @@ from its_hub.base import (
     AbstractScalingResult,
 )
 from its_hub.types import ChatMessage, ChatMessages
+
+def _default_projection_func(response: str) -> str:
+    """Default projection function that uses exact content matching.
+    This function strips whitespace and returns the content as-is for voting.
+    Responses with identical content (after stripping) will be considered equivalent.
+    Args:
+        response: The response content string to project.
+    Returns:
+        The stripped response content.
+    """
+
+
+def setup_logging():
+    """Setup logging for the self_consistency module."""
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    # Add a file handler to log to a file
+    file_handler = logging.FileHandler('self_consistency.log')
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    logger.addHandler(file_handler)
+    return logger
+
+
+logger = setup_logging()
+
+
 
 def _default_projection_func(response: str) -> str:
     """Default projection function that uses exact content matching.
@@ -54,6 +83,7 @@ def _select_most_common_or_random(
     # note above implementation ensures that if there are multiple
     #      elements with the same count, a random one is selected
     selected_index = random.choice(most_common_indices)
+    
 
     return counts, selected_index
 
@@ -156,7 +186,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
         self.consistency_space_projection_func = (
             consistency_space_projection_func or _default_projection_func
         )
-        logging.info(
+        logger.info(
             f"Initializing with projection function: {self.consistency_space_projection_func}"
         )
         self.tool_vote = tool_vote
@@ -179,6 +209,12 @@ class SelfConsistency(AbstractScalingAlgorithm):
             chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
         )
 
+    def _process_responses(
+        self,
+        responses: list[dict],
+        return_response_only: bool = True
+    ) -> dict | SelfConsistencyResult:
+        """Process responses and return result."""
         # Check if majority of responses have tool calls to decide voting method
         tool_call_count = sum(1 for r in responses if r.get("tool_calls"))
         required_majority = math.ceil(len(responses) / 2)
@@ -201,6 +237,9 @@ class SelfConsistency(AbstractScalingAlgorithm):
             responses_projected = [
                 self._extract_tool_call_features(responses[i]) for i in eligible_indices
             ]
+            logger.info(
+                f"Responses projected: {responses_projected}"
+            )
         else:
             # Content voting - filter out tool call responses
             eligible_indices = [
@@ -349,6 +388,10 @@ def create_regex_projection_function(
     def projection_function(response: str) -> tuple:
         """Extract features from response using compiled regex patterns."""
         results = []
+
+        # Handle None or empty response
+        if response is None:
+            response = ""
 
         for pattern in compiled_patterns:
             match = pattern.search(response)
