@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from pydantic.dataclasses import dataclass
@@ -27,12 +28,52 @@ class ToolCall:
 
 @dataclass
 class ChatMessage:
-    """A chat message with role and content."""
+    """A chat message with role and content.
+
+    Content can be:
+    - str: Simple text content
+    - list[dict]: Multi-modal content (text, images, etc.)
+    - None: No content (e.g., when using tool_calls)
+    """
 
     role: Literal["system", "user", "assistant", "tool"]
-    content: str | None
+    content: str | list[dict] | None
     tool_calls: list[dict] | None = None  # Store as plain dicts, not Pydantic objects
     tool_call_id: str | None = None
+
+    def extract_text_content(self) -> str:
+        """Extract text content from message, handling both string and list formats.
+
+        For list content (multi-modal), extracts all text parts and warns about non-text content.
+        Returns empty string if no text content is found.
+        """
+        if self.content is None:
+            return ""
+
+        if isinstance(self.content, str):
+            return self.content
+
+        # Must be list[dict] at this point
+        text_parts = []
+        has_image = False
+
+        for item in self.content:
+            content_type = item.get("type", "")
+
+            if content_type == "text":
+                text_parts.append(item.get("text", ""))
+            elif content_type == "image_url":
+                has_image = True
+            elif content_type:
+                logging.warning(f"Unsupported content type '{content_type}' detected and will be ignored.")
+
+        if has_image:
+            logging.warning(
+                "Image content detected in message but is not supported. "
+                "Image content will be ignored. Only text content is processed."
+            )
+
+        return " ".join(text_parts)
 
     def to_dict(self) -> dict:
         """Convert ChatMessage to dictionary, excluding None values."""
@@ -69,9 +110,11 @@ class ChatMessages:
 
         lines = []
         for msg in self._str_or_messages:
+            text_content = msg.extract_text_content()
+
             if msg.role == "tool":
                 # Tool messages: include tool_call_id context
-                lines.append(f"tool[{msg.tool_call_id}]: {msg.content}")
+                lines.append(f"tool[{msg.tool_call_id}]: {text_content}")
             elif msg.role == "assistant" and msg.tool_calls:
                 # Assistant with tool calls: show tool calls + content if any
                 tool_call_strs = []
@@ -79,13 +122,13 @@ class ChatMessages:
                     if tc.function:
                         tool_call_strs.append(f"{tc.function.name}()")
                 tool_calls_text = ", ".join(tool_call_strs)
-                if msg.content:
-                    lines.append(f"assistant: {msg.content} [calls: {tool_calls_text}]")
+                if text_content:
+                    lines.append(f"assistant: {text_content} [calls: {tool_calls_text}]")
                 else:
                     lines.append(f"assistant: [calls: {tool_calls_text}]")
             else:
                 # Regular messages
-                lines.append(f"{msg.role}: {msg.content}")
+                lines.append(f"{msg.role}: {text_content}")
 
         return "\n".join(lines)
 

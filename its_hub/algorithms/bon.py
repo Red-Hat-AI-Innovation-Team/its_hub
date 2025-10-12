@@ -44,6 +44,7 @@ class BestOfN(AbstractScalingAlgorithm):
         )
 
         # extract content from message dict responses
+        # TODO: this is not ideal, judge should be able to support chat_completion return objects directly.
         response_contents = [extract_content_from_lm_response(r) for r in responses]
 
         # score responses

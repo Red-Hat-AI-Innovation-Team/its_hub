@@ -518,9 +518,15 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             metadata=metadata,
         )
 
-        logger.info(
-            f"Successfully generated response (content length: {len(response_message.get('content') or '')})"
-        )
+        # Log response with content info
+        content = response_message.get('content')
+        if isinstance(content, list):
+            has_image = any(item.get('type') == 'image_url' for item in content if isinstance(item, dict))
+            text_content = ' '.join(item.get('text', '') for item in content if isinstance(item, dict) and item.get('type') == 'text')
+            img_note = " (with images)" if has_image else ""
+            logger.info(f"Successfully generated response (length: {len(text_content)}{img_note})")
+        else:
+            logger.info(f"Successfully generated response (content length: {len(content or '')})")
         return response
 
     except Exception as e:

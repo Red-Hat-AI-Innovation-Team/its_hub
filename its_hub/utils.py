@@ -17,8 +17,27 @@ def extract_content_from_lm_response(message: dict) -> str:
         The content string. If the message contains tool calls, returns the content
         if available, otherwise returns an empty string.
     """
-    # Extract text content (may be empty if message only has tool calls)
-    content = message.get("content", "") or ""
+    # TODO: This conversion to text is not ideal as it involves manually formatting
+    # tool calls and neglects images in multi-modal content. Consider refactoring
+    # to work with structured message objects instead of flattening to strings.
+
+    # Extract text content (handle both string and list[dict] formats)
+    raw_content = message.get("content")
+
+    if raw_content is None:
+        content = ""
+    elif isinstance(raw_content, str):
+        content = raw_content
+    elif isinstance(raw_content, list):
+        # Multi-modal content: extract text parts (images are ignored)
+        text_parts = [
+            item.get("text", "")
+            for item in raw_content
+            if isinstance(item, dict) and item.get("type") == "text"
+        ]
+        content = " ".join(text_parts)
+    else:
+        content = ""
 
     # If there are tool calls but no text content, create a text representation
     if message.get("tool_calls") and not content:

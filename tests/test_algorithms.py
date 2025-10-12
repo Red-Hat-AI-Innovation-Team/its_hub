@@ -320,6 +320,33 @@ class TestSelfConsistency:
         assert result.response_counts["answer: 42"] == 3
         assert result.response_counts["answer: 24"] == 1
 
+    def test_with_multimodal_content(self):
+        """Test SelfConsistency with multi-modal list[dict] content."""
+        # Mock LM returns responses with multimodal content
+        mock_lm = StepMockLanguageModel([
+            [{"type": "text", "text": "Answer: 42"}],
+            [{"type": "text", "text": "Answer: 24"}],
+            [{"type": "text", "text": "Answer: 42"}],
+        ])
+
+        messages = [
+            ChatMessage(
+                role="user",
+                content=[
+                    {"type": "text", "text": "What is the answer?"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/img.jpg"}}
+                ]
+            )
+        ]
+
+        sc = SelfConsistency(consistency_space_projection_func=None)
+        result = sc.infer(mock_lm, messages, budget=3, return_response_only=True)
+
+        # Should select most common answer (42 appears twice)
+        assert isinstance(result, dict)
+        # Content should be preserved as list
+        assert result["content"] == [{"type": "text", "text": "Answer: 42"}]
+
 
 class TestDataStructures:
     """Test core data structures used by algorithms."""
@@ -451,6 +478,31 @@ class TestBestOfN:
         result = bon.infer(mock_lm, messages, budget=2, return_response_only=True)
 
         assert result["content"] == "response2"
+
+    def test_with_multimodal_content(self):
+        """Test BestOfN with multi-modal list[dict] content."""
+        # Mock LM returns responses with multimodal content
+        mock_lm = StepMockLanguageModel([
+            [{"type": "text", "text": "Answer is 42"}],
+            [{"type": "text", "text": "Answer is 24"}]
+        ])
+        mock_orm = MockOutcomeRewardModel([0.3, 0.7])
+
+        messages = [
+            ChatMessage(
+                role="user",
+                content=[
+                    {"type": "text", "text": "What is the answer?"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/img.jpg"}}
+                ]
+            )
+        ]
+
+        bon = BestOfN(mock_orm)
+        result = bon.infer(mock_lm, messages, budget=2, return_response_only=True)
+
+        # Should extract text from list content
+        assert result["content"] == [{"type": "text", "text": "Answer is 24"}]
 
 
 class TestBeamSearch:
