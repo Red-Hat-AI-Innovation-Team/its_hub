@@ -528,36 +528,6 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         )
         return response_or_responses[0] if is_single else response_or_responses
 
-    async def agenerate(
-        self,
-        messages_or_messages_lst: list[ChatMessage] | list[list[ChatMessage]],
-        stop: str | None = None,
-        max_tokens: int | None = None,
-        temperature: float | list[float] | None = None,
-        include_stop_str_in_output: bool | None = None,
-        tools: list[dict] | None = None,
-        tool_choice: str | dict | None = None,
-    ) -> dict | list[dict]:
-        """Async version of generate method for use in async contexts."""
-        # Check if we have a single list of messages or a list of message lists
-        is_single = not isinstance(messages_or_messages_lst[0], list)
-        messages_lst = (
-            [messages_or_messages_lst] if is_single else messages_or_messages_lst
-        )
-
-        # Always use async implementation for agenerate
-        response_or_responses = await self._generate(
-            messages_lst,
-            stop,
-            max_tokens,
-            temperature,
-            include_stop_str_in_output,
-            tools,
-            tool_choice,
-        )
-
-        return response_or_responses[0] if is_single else response_or_responses
-
     # TODO implement evaluation
     async def aevaluate(self, prompt: str, generation: str) -> list[float]:
         """evaluate the likelihoods of the generation asynchronously"""

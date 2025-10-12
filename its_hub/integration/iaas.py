@@ -484,20 +484,18 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         # Use the selected response directly without any modification
         response_chat_message = response_message
         if hasattr(algorithm_result, "usage"):
-            usage = algorithm_result.usage  if algorithm_result.usage else {}
+            usage = algorithm_result.usage if algorithm_result.usage else {}
+        elif isinstance(algorithm_result, dict) and "usage" in algorithm_result:
+            usage = algorithm_result["usage"]
         else:
-            if "usage" in algorithm_result:
-                usage = algorithm_result["usage"]
-            else:
-                usage = {}
-                
+            usage = {}
+
         if hasattr(algorithm_result, "reward_usage"):
             extra_usage = algorithm_result.reward_usage if algorithm_result.reward_usage else {}
+        elif isinstance(algorithm_result, dict) and "reward_usage" in algorithm_result:
+            extra_usage = algorithm_result["reward_usage"]
         else:
-            if "reward_usage" in algorithm_result:
-                extra_usage = algorithm_result["reward_usage"]
-            else:
-                extra_usage = {}
+            extra_usage = {}
         
         # TODO: Implement proper token counting
         response = ChatCompletionResponse(

@@ -53,18 +53,15 @@ class BestOfN(AbstractScalingAlgorithm):
         reward_usage = None
         batched = True
         if batched:
-            scores, judge_usage = await self.orm.ascore_with_usage(chat_messages, response_contents)
+            scores = await self.orm.ascore(chat_messages, response_contents)
         else:
             scores = []
             for r in response_contents:
-                scores, judge_usage = await self.orm.ascore_with_usage(chat_messages, r)
-                scores.append(scores)
+                score = await self.orm.ascore(chat_messages, r)
+                scores.append(score)
 
         # select the best response
         selected_index = scores.index(max(scores))
-        
-        reward_usage = judge_usage.model_dump()
-        print("judge_usage", reward_usage)
         total_usage = {}
         for response in responses:
             if "usage" in response:

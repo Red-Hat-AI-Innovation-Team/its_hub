@@ -81,7 +81,7 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
         judge_type: str = "pointwise",
         temperature: float = 0.0,
         max_tokens: int = 512,
-        top_n: int | None = None,
+        top_n: int | None = 1,
         **litellm_kwargs,
     ):
         """
@@ -159,8 +159,9 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
         # Build base conversation in OpenAI format
+        # Extract text content to handle multi-modal inputs
         base_messages = [
-            {"role": msg.role, "content": msg.content}
+            {"role": msg.role, "content": msg.extract_text_content()}
             for msg in chat_messages.to_chat_messages()
         ]
 
@@ -176,7 +177,7 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
 
         # Call judge with multiple conversations
         # Judge expects List[List[dict]] for multiple conversations
-        raw_scores = await self.judge.ascore(conversations)
+        raw_scores = await self.judge.ascore(conversations, top_n=self.top_n)
 
         # Normalize scores to 0-1 range
         if is_single_response:
@@ -207,8 +208,9 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
         # Build base conversation in OpenAI format
+        # Extract text content to handle multi-modal inputs
         base_messages = [
-            {"role": msg.role, "content": msg.content}
+            {"role": msg.role, "content": msg.extract_text_content()}
             for msg in chat_messages.to_chat_messages()
         ]
 
