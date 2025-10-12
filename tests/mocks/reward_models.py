@@ -30,6 +30,18 @@ class MockOutcomeRewardModel(AbstractOutcomeRewardModel):
             self.call_count += 1
             return score
 
+    async def ascore_with_usage(self, prompt, responses):
+        """Mock version with usage tracking."""
+        from pydantic import BaseModel
+
+        class Usage(BaseModel):
+            prompt_tokens: int = 0
+            completion_tokens: int = 0
+            total_tokens: int = 0
+
+        scores = await self.ascore(prompt, responses)
+        return scores, Usage()
+
 
 class MockProcessRewardModel:
     """Mock process reward model with configurable scores."""
