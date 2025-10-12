@@ -25,8 +25,8 @@ dependencies = [
     "openai>=1.75.0",
     "tqdm>=4.65.0",
     "typing-extensions>=4.0.0",
-#   "reward-hub==0.1.1",
-    "vllm<=0.9.1",  # Pin to avoid build issues with newer versions requiring Rust compilation
+    "reward-hub @ git+https://github.com/Red-Hat-AI-Innovation-Team/reward_hub.git@feature/llm-judge-litellm",
+    "vllm>=0.10.0",  # Required by reward-hub feature/llm-judge-litellm branch
     "transformers==4.53.2",  # Pin to exact version that worked in CI to avoid aimv2 config conflict with vLLM 0.9.1
     "backoff>=2.2.0",
     "click>=8.1.0",
