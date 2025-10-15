@@ -44,7 +44,7 @@ class BestOfN(AbstractScalingAlgorithm):
         )
 
         # extract content from message dict responses
-        response_contents = [extract_content_from_lm_response(r) for r in responses]
+        response_contents = [extract_content_from_lm_response(r["choices"][0]["message"]) for r in responses]
 
         # score responses
         # TODO: make batched a configurable parameter or remove non-batched branch
