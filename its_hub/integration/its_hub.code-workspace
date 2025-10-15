@@ -1,0 +1,32 @@
+{
+	"folders": [
+		{
+			"path": "../.."
+		},
+		{
+			"path": "../../../reward_hub"
+		}
+	],
+	"settings": {
+		"workbench.colorCustomizations": {
+			"activityBar.activeBackground": "#ef656a",
+			"activityBar.background": "#ef656a",
+			"activityBar.foreground": "#15202b",
+			"activityBar.inactiveForeground": "#15202b99",
+			"activityBarBadge.background": "#57ed52",
+			"activityBarBadge.foreground": "#15202b",
+			"commandCenter.border": "#e7e7e799",
+			"sash.hoverBorder": "#ef656a",
+			"statusBar.background": "#ea373d",
+			"statusBar.foreground": "#e7e7e7",
+			"statusBarItem.hoverBackground": "#ef656a",
+			"statusBarItem.remoteBackground": "#ea373d",
+			"statusBarItem.remoteForeground": "#e7e7e7",
+			"titleBar.activeBackground": "#ea373d",
+			"titleBar.activeForeground": "#e7e7e7",
+			"titleBar.inactiveBackground": "#ea373d99",
+			"titleBar.inactiveForeground": "#e7e7e799"
+		},
+		"peacock.color": "#ea373d"
+	}
+}

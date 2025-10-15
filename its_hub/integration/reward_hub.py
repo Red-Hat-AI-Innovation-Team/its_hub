@@ -189,6 +189,7 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
     async def ascore_with_usage(self,
         prompt_or_messages: str | list[ChatMessage] | ChatMessages,
         response: str | list[str],
+        custom_criterion: str = None,
     ) -> Tuple[float | list[float], litellm.utils.Usage]:
         """
         Async version of score with usage
@@ -224,7 +225,7 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
 
         # Call judge with multiple conversations
         # Judge expects List[List[dict]] for multiple conversations
-        raw_scores, usage = await self.judge.ascore_with_usage(conversations, top_n=self.top_n)
+        raw_scores, usage = await self.judge.ascore_with_usage(conversations, top_n=self.top_n, custom_criterion=custom_criterion)
 
         # Normalize scores to 0-1 range
         if is_single_response:

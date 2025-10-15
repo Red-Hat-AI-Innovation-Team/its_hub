@@ -1,5 +1,5 @@
 from pydantic.dataclasses import dataclass
-
+from typing import Any
 from its_hub.base import (
     AbstractLanguageModel,
     AbstractOutcomeRewardModel,
@@ -8,6 +8,9 @@ from its_hub.base import (
 )
 from its_hub.types import ChatMessage, ChatMessages
 from its_hub.utils import extract_content_from_lm_response
+
+from loguru import logger
+import os
 
 
 @dataclass
@@ -22,6 +25,17 @@ class BestOfNResult(AbstractScalingResult):
         return self.responses[self.selected_index]
 
 
+def create_judge_criterion(extra_data: dict[str, Any] | None = None) -> str:
+    if 'ground_truth' in extra_data:
+        ground_truth_actions = extra_data['ground_truth']        
+        criterion = os.getenv("TAU_BENCH_JUDGE_PROMPT_GT")
+        criterion = criterion + f"\n\nGround truth actions: {ground_truth_actions}"
+    else:
+        logger.info("No ground truth actions provided", extra_data)
+        criterion = os.getenv("TAU_BENCH_JUDGE_PROMPT")
+    return criterion
+        
+
 class BestOfN(AbstractScalingAlgorithm):
     def __init__(self, orm: AbstractOutcomeRewardModel):
         self.orm = orm
@@ -34,6 +48,7 @@ class BestOfN(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        extra_data: dict[str, Any] | None = None,
     ) -> dict | BestOfNResult:
         """run inference asynchronously with best-of-n"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
@@ -42,9 +57,11 @@ class BestOfN(AbstractScalingAlgorithm):
         responses = await lm.agenerate(
             chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
         )
-
+        print("responses", responses)
         # extract content from message dict responses
-        response_contents = [extract_content_from_lm_response(r) for r in responses]
+        response_contents = [extract_content_from_lm_response(r['choices'][0]['message']) for r in responses]
+        
+        criterion = create_judge_criterion(extra_data)
 
         # score responses
         # TODO: make batched a configurable parameter or remove non-batched branch
@@ -52,18 +69,17 @@ class BestOfN(AbstractScalingAlgorithm):
         reward_usage = None
         batched = True
         if batched:
-            scores, judge_usage = await self.orm.ascore_with_usage(chat_messages, response_contents)
+            scores, judge_usage = await self.orm.ascore_with_usage(chat_messages, response_contents, custom_criterion=criterion)
         else:
             scores = []
             for r in response_contents:
-                scores, judge_usage = await self.orm.ascore_with_usage(chat_messages, r)
+                scores, judge_usage = await self.orm.ascore_with_usage(chat_messages, r, custom_criterion=criterion)
                 scores.append(scores)
 
         # select the best response
         selected_index = scores.index(max(scores))
         
         reward_usage = judge_usage.model_dump()
-        print("judge_usage", reward_usage)
         total_usage = {}
         for response in responses:
             if "usage" in response:

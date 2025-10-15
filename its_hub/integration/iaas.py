@@ -315,6 +315,9 @@ class ChatCompletionRequest(BaseModel):
     return_response_only: bool = Field(
         True, description="Return only final response or include algorithm metadata"
     )
+    extra_data: dict[str, Any] | None = Field(
+        None, description="Extra data to pass to use other functionalities"
+    )
 
     @field_validator("messages")
     @classmethod
@@ -446,6 +449,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             return_response_only=request.return_response_only,
             tools=request.tools,
             tool_choice=request.tool_choice,
+            extra_data=request.extra_data
         )
 
         # Extract response content and metadata
