@@ -354,12 +354,19 @@ class ChatCompletionUsage(BaseModel):
 def _extract_algorithm_metadata(algorithm_result: Any) -> dict[str, Any] | None:
     """Extract metadata from algorithm results for API response."""
     from its_hub.algorithms.self_consistency import SelfConsistencyResult
-
+    from its_hub.algorithms.bon import BestOfNResult
     if isinstance(algorithm_result, SelfConsistencyResult):
         return {
             "algorithm": "self-consistency",
             "all_responses": algorithm_result.responses,  # Now contains full message dicts with tool calls
             "response_counts": dict(algorithm_result.response_counts),
+            "selected_index": algorithm_result.selected_index,
+        }
+    elif isinstance(algorithm_result, BestOfNResult):
+        return {
+            "algorithm": "best-of-n",
+            "responses": algorithm_result.responses,
+            "scores": algorithm_result.scores,
             "selected_index": algorithm_result.selected_index,
         }
 
@@ -439,10 +446,11 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             tools=request.tools,
             tool_choice=request.tool_choice,
         )
-
+        print(f"algorithm_result: {algorithm_result}")
         # Extract response content and metadata
         if not request.return_response_only and hasattr(algorithm_result, "the_one"):
             # Got a full result object
+            print(f"Returning response only: {request.return_response_only}")
             response_message = algorithm_result.the_one
             metadata = _extract_algorithm_metadata(algorithm_result)
         else:
