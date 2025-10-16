@@ -102,6 +102,10 @@ class ConfigRequest(BaseModel):
         512,
         description="Maximum tokens for judge response"
     )
+    judge_top_n: int | None = Field(
+        None,
+        description="Top-N for groupwise judge"
+    )
 
     @field_validator("alg")
     @classmethod
@@ -228,15 +232,23 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
                     f"Configuring LLM Judge: model={request.judge_model}, "
                     f"criterion={request.judge_criterion}"
                 )
-
+                print(f"request.judge_type: {request.judge_type}")
+                print(f"request.judge_criterion: {request.judge_criterion}")
+                print(f"request.judge_api_key: {request.judge_api_key}")
+                print(f"request.judge_base_url: {request.judge_base_url}")
+                print(f"request.judge_temperature: {request.judge_temperature}")
+                print(f"request.judge_max_tokens: {request.judge_max_tokens}")
+                print(f"request.judge_top_n: {request.judge_top_n}")
                 # Create LLM Judge using the adapter (handles ChatMessages conversion)
                 orm = LLMJudgeRewardModel(
                     model=request.judge_model,
                     criterion=request.judge_criterion,
+                    judge_type=request.judge_type,
                     api_key=request.judge_api_key,
                     base_url=request.judge_base_url,
                     temperature=request.judge_temperature,
                     max_tokens=request.judge_max_tokens,
+                    top_n=request.judge_top_n,
                 )
             else:
                 # Use traditional process reward model

@@ -113,6 +113,7 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
             base_url=base_url,
             temperature=temperature,
             max_tokens=max_tokens,
+            top_n=top_n,
             **litellm_kwargs,
         )
         
