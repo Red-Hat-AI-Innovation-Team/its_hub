@@ -25,7 +25,7 @@ dependencies = [
     "openai>=1.75.0",
     "tqdm>=4.65.0",
     "typing-extensions>=4.0.0",
-    "reward-hub @ git+https://github.com/Red-Hat-AI-Innovation-Team/reward_hub.git@main",
+    "reward-hub @ git+https://github.com/Red-Hat-AI-Innovation-Team/reward_hub.git@v0.1.3",
     "transformers==4.53.2",  # Pin to exact version that worked in CI to avoid aimv2 config conflict with vLLM 0.9.1
     "backoff>=2.2.0",
     "click>=8.1.0",
