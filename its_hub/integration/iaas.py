@@ -22,7 +22,28 @@ from its_hub.lms import OpenAICompatibleLanguageModel, LiteLLMLanguageModel, Ste
 from its_hub.types import ChatMessage, ChatMessages
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+import sys
+from pathlib import Path
+
+# Set up logging to both console and file
+log_file = Path("iaas_tau.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),  # Console output
+        logging.FileHandler(log_file, mode='a')  # File output
+    ]
+)
+
+# Also configure reward_hub loggers to use the same handlers
+reward_hub_logger = logging.getLogger('its_hub.integration.reward_hub')
+reward_hub_logger.setLevel(logging.INFO)
+
+# Configure litellm loggers (they're set to WARNING in lms.py, but ensure they also log to file)
+litellm_logger = logging.getLogger('litellm')
+litellm_logger.addHandler(logging.FileHandler(log_file, mode='a'))
+
 logger = logging.getLogger(__name__)
 
 # FastAPI app with metadata
