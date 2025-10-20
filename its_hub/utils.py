@@ -44,7 +44,7 @@ def extract_content_from_lm_response(message: dict) -> str:
     if message.get("tool_calls"):
         tool_calls = message.get("tool_calls", [])
         tool_descriptions = []
-        for tc in tool_calls:
+        for tc in tool_calls[:1]:
             if isinstance(tc, dict) and "function" in tc:
                 func = tc["function"]
                 func_name = func.get("name", "unknown")

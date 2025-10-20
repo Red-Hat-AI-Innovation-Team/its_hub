@@ -8,7 +8,7 @@ from its_hub.base import (
 )
 from its_hub.types import ChatMessage, ChatMessages
 from its_hub.utils import extract_content_from_lm_response
-
+import logging
 
 def _dedupe_with_inverse(seq: list[str]) -> tuple[list[str], list[int]]:
     """
