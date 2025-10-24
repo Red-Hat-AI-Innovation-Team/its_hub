@@ -36,14 +36,14 @@ class LocalVllmProcessRewardModel(AbstractProcessRewardModel):
 
         # Build conversation messages with responses
         base_msgs = [
-            ChatMessage(role="user", content=f"System: {msg.content}")
+            ChatMessage(role="user", content=f"System: {msg.extract_text_content()}")
             if msg.role == "system"
             else msg
             for msg in chat_messages.to_chat_messages()
         ]
         messages = [
             [
-                *[{"role": msg.role, "content": msg.content} for msg in base_msgs],
+                *[{"role": msg.role, "content": msg.extract_text_content()} for msg in base_msgs],
                 {"role": "assistant", "content": response},
             ]
             for response in responses
@@ -193,7 +193,7 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
 
         # Build base conversation in OpenAI format
         base_messages = [
-            {"role": msg.role, "content": msg.content}
+            {"role": msg.role, "content": msg.extract_text_content()} # Reward Hub expects content to be a string
             for msg in chat_messages.to_chat_messages()
         ]
 

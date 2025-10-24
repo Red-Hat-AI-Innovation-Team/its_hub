@@ -12,12 +12,14 @@ class MockOutcomeRewardModel(AbstractOutcomeRewardModel):
             self.scores = [scores]
         else:
             self.scores = scores
-        self.call_count = 0
+        self.call_count = 0  # tracks total number of individual scores returned
+        self.score_call_count = 0  # tracks number of times score() is called
 
     async def ascore(self, prompt: str, response: str | list[str]) -> float | list[float]:
         return self.score(prompt, response)
 
     def score(self, prompt: str, response: str | list[str]) -> float | list[float]:
+        self.score_call_count += 1
         if isinstance(response, list):
             scores = []
             for i in range(len(response)):

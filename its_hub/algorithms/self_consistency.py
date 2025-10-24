@@ -13,6 +13,7 @@ from its_hub.base import (
     AbstractScalingResult,
 )
 from its_hub.types import ChatMessage, ChatMessages
+from its_hub.utils import extract_content_from_lm_response
 
 
 def _default_projection_func(response: str) -> str:
@@ -214,7 +215,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
                 i for i, r in enumerate(responses) if not r.get("tool_calls")
             ]
             responses_projected = [
-                self.consistency_space_projection_func(responses[i].get("content", ""))
+                self.consistency_space_projection_func(extract_content_from_lm_response(responses[i]))
                 for i in eligible_indices
             ]
 
