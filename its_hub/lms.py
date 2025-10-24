@@ -666,7 +666,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
-    ) -> list[dict]:
+    ) -> list[tuple[dict, dict]]:
         import time
         start_time = time.time()
 
@@ -684,7 +684,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
         )
         async def fetch_response(
             messages: list[ChatMessage], _temperature: float | None
-        ) -> dict:
+        ) -> tuple[dict, dict]:
             async with semaphore:
                 request_data = self._prepare_request_data(
                     messages,
@@ -697,21 +697,24 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
                 )
 
                 response = await litellm.acompletion(**request_data)
-                # Return the full message object to preserve tool calls
-                return response.choices[0].message.dict()
+                # Return the full message object to preserve tool calls and usage info
+                return response.choices[0].message.dict(), response.usage.dict()
 
         async def safe_fetch_response(
             messages: list[ChatMessage], _temperature: float | None
-        ) -> dict:
+        ) -> tuple[dict, dict]:
             if self.replace_error_with_message is not None:
                 try:
                     return await fetch_response(messages, _temperature)
                 except Exception as e:
                     logging.error(f"Error during async generation: {e}")
-                    return {
-                        "role": "assistant",
-                        "content": self.replace_error_with_message,
-                    }
+                    return (
+                        {
+                            "role": "assistant",
+                            "content": self.replace_error_with_message,
+                        },
+                        {},
+                    )
             else:
                 return await fetch_response(messages, _temperature)
 
@@ -737,7 +740,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
-    ) -> dict | list[dict]:
+    ) -> tuple[dict, dict] | list[tuple[dict, dict]]:
 
         # Check if we have a single list of messages or a list of message lists
         is_single = not isinstance(messages_or_messages_lst[0], list)
@@ -774,7 +777,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
             )
             def fetch_single_response(
                 messages: list[ChatMessage], _temperature: float | None
-            ) -> dict:
+            ) -> tuple[dict, dict]:
                 request_data = self._prepare_request_data(
                     messages,
                     stop,
@@ -786,21 +789,24 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
                 )
 
                 response = litellm.completion(**request_data)
-                # Return the full message object to preserve tool calls
-                return response.choices[0].message.dict()
+                # Return the full message object to preserve tool calls and usage info
+                return response.choices[0].message.dict(), response.usage.dict()
 
             def safe_fetch_single_response(
                 messages: list[ChatMessage], _temperature: float | None
-            ) -> dict:
+            ) -> tuple[dict, dict]:
                 if self.replace_error_with_message is not None:
                     try:
                         return fetch_single_response(messages, _temperature)
                     except Exception as e:
                         logging.error(f"Error during sync generation: {e}")
-                        return {
-                            "role": "assistant",
-                            "content": self.replace_error_with_message,
-                        }
+                        return (
+                            {
+                                "role": "assistant",
+                                "content": self.replace_error_with_message,
+                            },
+                            {},
+                        )
                 else:
                     return fetch_single_response(messages, _temperature)
 
@@ -824,7 +830,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
-    ) -> dict | list[dict]:
+    ) -> tuple[dict, dict] | list[tuple[dict, dict]]:
         """Async version of generate method for use in async contexts."""
         # Check if we have a single list of messages or a list of message lists
         is_single = not isinstance(messages_or_messages_lst[0], list)

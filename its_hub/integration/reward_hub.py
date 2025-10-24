@@ -170,7 +170,7 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
         self,
         prompt_or_messages: str | list[ChatMessage] | ChatMessages,
         response: str | list[str],
-    ) -> float | list[float]:
+    ) -> tuple[float | list[float], any] | float | list[float]:
         """
         Score response(s) asynchronously using the LLM judge.
 
@@ -179,8 +179,8 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
             response: The response(s) to evaluate (single string or list of strings)
 
         Returns:
-            - For single response: float score
-            - For multiple responses: list[float] scores
+            - With new reward_hub: tuple of (scores, usage) where scores is float for single response or list[float] for multiple
+            - With old reward_hub: float for single response or list[float] for multiple responses
 
         Note:
             - If enable_judge_logging=True, the judge's reasoning is logged internally
@@ -211,18 +211,25 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
         # Judge expects List[List[dict]] for multiple conversations
 
         if self.judge_type == "groupwise":
-            judge_result = await self.judge.ascore(
+            result = await self.judge.ascore(
                 conversations,
                 return_judge_reasoning=self.enable_judge_logging,
                 top_n=self.top_n,
             )
         else:
-            judge_result = await self.judge.ascore(
+            result = await self.judge.ascore(
                 conversations, return_judge_reasoning=self.enable_judge_logging
             )
 
+        # Handle tuple return (judge_result, usage) from new reward_hub
+        if isinstance(result, tuple) and len(result) == 2:
+            judge_result, usage = result
+        else:
+            judge_result = result
+            usage = None
+
         # Log judge results if enabled
-        if self.enable_judge_logging and judge_result.reasonings:
+        if self.enable_judge_logging and hasattr(judge_result, 'reasonings') and judge_result.reasonings:
             if self.judge_type == "pointwise":
                 # Pointwise: log each response's individual score and reasoning
                 for i, (score, reasoning, response) in enumerate(
@@ -274,7 +281,9 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
                     f"Groupwise Judge Result: selected {len(top_indices)} of {len(responses)} responses\n{json.dumps(extra_data, indent=2, default=str)}"
                 )
 
-        # Return only scores (single float if single response, list otherwise)
-        if is_single_response:
-            return judge_result.scores[0]
-        return judge_result.scores
+        # Return scores and usage (if available from new reward_hub)
+        scores = judge_result.scores[0] if is_single_response else judge_result.scores
+
+        if usage is not None:
+            return scores, usage
+        return scores

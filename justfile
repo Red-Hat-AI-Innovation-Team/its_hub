@@ -20,10 +20,6 @@ test:
 iaas-start:
     uv run its-iaas --host 0.0.0.0 --port 8108
 
-# Start IaaS service with comprehensive logging (captures both stdout and stderr)
-iaas-start-logged:
-    uv run its-iaas --host 0.0.0.0 --port 8108 2>&1 | tee iaas_tau.log
-
 # Check service health
 iaas-health:
     curl -s http://localhost:8108/v1/models | jq .
@@ -123,8 +119,34 @@ config-bon-openai:
             "judge_criterion": "multi_step_tool_judge",
             "judge_api_key": "'"$OPENAI_API_KEY"'",
             "judge_temperature": 0.7,
-            "judge_max_tokens": 4096
+            "judge_max_tokens": 2048
         }' \
+        -w "\nHTTP Status: %{http_code}\n" -v
+
+config-bon-tau:
+    #!/bin/bash
+    source .env
+    jq -n \
+        --arg api_key "$OPENAI_API_KEY" \
+        --arg judge_criterion "$TAU_BENCH_JUDGE_PROMPT" \
+        '{
+            "provider": "litellm",
+            "endpoint": "auto",
+            "api_key": $api_key,
+            "model": "gpt-4.1",
+            "alg": "best-of-n",
+            "rm_name": "llm-judge",
+            "judge_model": "gpt-4.1",
+            "judge_base_url": "auto",
+            "judge_mode": "groupwise",
+            "judge_criterion": $judge_criterion,
+            "judge_api_key": $api_key,
+            "judge_temperature": 0.7,
+            "judge_max_tokens": 4096
+        }' | \
+    curl -X POST http://localhost:8108/configure \
+        -H "Content-Type: application/json" \
+        -d @- \
         -w "\nHTTP Status: %{http_code}\n" -v
 
 

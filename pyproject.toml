@@ -25,11 +25,12 @@ dependencies = [
     "openai>=1.68.2",
     "tqdm>=4.65.0",
     "typing-extensions>=4.12.2",
-    "reward-hub>=0.1.7",
+    "reward-hub @ git+https://github.com/Red-Hat-AI-Innovation-Team/reward_hub.git@new_usage",
     "transformers>=4.53.2",
     "backoff>=2.2.0",
     "click>=8.1.0",
     "fastapi>=0.115.5",
+    "uvicorn>=0.30.0",
     "pydantic>=2.7.2",
     "numpy",
     "requests",
@@ -51,7 +52,7 @@ Homepage = "https://ai-innovation.team/its_hub"
 [project.optional-dependencies]
 
 vllm = [
-    "reward-hub[vllm]>=0.1.6",
+    "reward-hub[vllm] @ git+https://github.com/Red-Hat-AI-Innovation-Team/reward_hub.git@new_usage",
 ]
 
 dev = [
@@ -61,11 +62,11 @@ dev = [
     "ruff>=0.10.0",
     "jupytext>=1.15.0",
     "jupyter>=1.0.0",
-    "reward-hub[vllm]>=0.1.6",
+    "reward-hub[vllm] @ git+https://github.com/Red-Hat-AI-Innovation-Team/reward_hub.git@new_usage",
 ]
 
 prm = [
-    "reward-hub[prm]>=0.1.6"
+    "reward-hub[prm] @ git+https://github.com/Red-Hat-AI-Innovation-Team/reward_hub.git@new_usage"
 ]
 
 research = [

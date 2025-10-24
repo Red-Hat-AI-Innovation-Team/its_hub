@@ -403,12 +403,31 @@ class ChatCompletionChoice(BaseModel):
     finish_reason: str = Field(..., description="Reason for completion")
 
 
+class PromptTokensDetails(BaseModel):
+    """Details about prompt tokens."""
+
+    cached_tokens: int = Field(default=0, description="Number of cached tokens")
+    audio_tokens: int = Field(default=0, description="Number of audio tokens")
+
+
+class CompletionTokensDetails(BaseModel):
+    """Details about completion tokens."""
+
+    reasoning_tokens: int = Field(default=0, description="Number of reasoning tokens")
+    audio_tokens: int = Field(default=0, description="Number of audio tokens")
+    accepted_prediction_tokens: int = Field(default=0, description="Number of accepted prediction tokens")
+    rejected_prediction_tokens: int = Field(default=0, description="Number of rejected prediction tokens")
+
+
 class ChatCompletionUsage(BaseModel):
     """Token usage information."""
 
-    prompt_tokens: int = Field(..., description="Tokens in prompt")
-    completion_tokens: int = Field(..., description="Generated tokens")
-    total_tokens: int = Field(..., description="Total tokens used")
+    prompt_tokens: int = Field(default=0, description="Tokens in prompt")
+    completion_tokens: int = Field(default=0, description="Generated tokens")
+    total_tokens: int = Field(default=0, description="Total tokens used")
+    prompt_tokens_details: PromptTokensDetails = Field(default_factory=PromptTokensDetails, description="Details about prompt tokens")
+    completion_tokens_details: CompletionTokensDetails = Field(default_factory=CompletionTokensDetails, description="Details about completion tokens")
+    extra_usage: dict | None = Field(default=None, description="Extra usage information (e.g., reward model usage)")
 
 
 def _extract_algorithm_metadata(algorithm_result: Any) -> dict[str, Any] | None:
@@ -521,7 +540,24 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         # Use the selected response directly without any modification
         response_chat_message = response_message
 
-        # TODO: Implement proper token counting
+        # Extract usage information from algorithm result
+        if hasattr(algorithm_result, "usage"):
+            usage = algorithm_result.usage if algorithm_result.usage else {}
+        else:
+            if isinstance(algorithm_result, dict) and "usage" in algorithm_result:
+                usage = algorithm_result["usage"]
+            else:
+                usage = {}
+
+        # Extract reward model usage if available
+        if hasattr(algorithm_result, "reward_usage"):
+            extra_usage = algorithm_result.reward_usage if algorithm_result.reward_usage else {}
+        else:
+            if isinstance(algorithm_result, dict) and "reward_usage" in algorithm_result:
+                extra_usage = algorithm_result["reward_usage"]
+            else:
+                extra_usage = {}
+
         response = ChatCompletionResponse(
             id=f"chatcmpl-{uuid.uuid4()}",
             created=int(time.time()),
@@ -534,9 +570,8 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
                 )
             ],
             usage=ChatCompletionUsage(
-                prompt_tokens=0,  # TODO: Implement token counting
-                completion_tokens=0,  # TODO: Implement token counting
-                total_tokens=0,  # TODO: Implement token counting
+                **usage,
+                extra_usage=extra_usage if extra_usage else None,
             ),
             metadata=metadata,
         )
