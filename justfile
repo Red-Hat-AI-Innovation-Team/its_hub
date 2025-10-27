@@ -133,7 +133,7 @@ config-bon-tau:
             "provider": "litellm",
             "endpoint": "auto",
             "api_key": $api_key,
-            "model": "gpt-4.1",
+            "model": "gpt-4.1-mini",
             "alg": "best-of-n",
             "rm_name": "llm-judge",
             "judge_model": "gpt-4.1",
