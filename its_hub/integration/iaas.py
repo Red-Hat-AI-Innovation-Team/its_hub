@@ -56,6 +56,7 @@ app = FastAPI(
 # Global state - TODO: Replace with proper dependency injection in production
 LM_DICT: dict[str, OpenAICompatibleLanguageModel | LiteLLMLanguageModel] = {}
 SCALING_ALG: Any | None = None  # TODO: Add proper type annotation
+ROUTER: Any | None = None  # LLM Router for dynamic algorithm selection
 
 
 class ConfigRequest(BaseModel):
@@ -120,6 +121,25 @@ class ConfigRequest(BaseModel):
     )
     enable_judge_logging: bool | None = Field(
         True, description="Log judge scores and reasoning"
+    )
+
+    # Router settings (optional - for dynamic algorithm selection)
+    enable_router: bool | None = Field(
+        False, description="Enable LLM router for dynamic algorithm selection"
+    )
+    router_model: str | None = Field(
+        "gpt-4o-mini",
+        description="LiteLLM model name for router (e.g., 'gpt-4o-mini', 'claude-3-haiku-20240307')",
+    )
+    router_api_key: str | None = Field(
+        None, description="API key for router model (uses judge_api_key if not provided)"
+    )
+    router_base_url: str | None = Field(
+        None,
+        description="Base URL for router endpoint (uses judge_base_url if not provided, 'auto' for default)",
+    )
+    router_max_budget: int | None = Field(
+        32, description="Maximum budget the router can allocate"
     )
 
     @field_validator("alg")
@@ -188,6 +208,17 @@ class ConfigRequest(BaseModel):
 @app.post("/configure", status_code=status.HTTP_200_OK)
 async def config_service(request: ConfigRequest) -> dict[str, str]:
     """Configure the IaaS service with language model and scaling algorithm."""
+    # Import router if enabled
+    if request.enable_router:
+        try:
+            from its_hub.integration.llm_router import LLMRouter
+        except ImportError as e:
+            logger.error(f"Failed to import LLM Router: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="LLM Router integration not available",
+            ) from e
+
     # Only import reward_hub if needed (not required for self-consistency)
     if request.alg in {"particle-filtering", "best-of-n"}:
         
@@ -209,9 +240,9 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
             logger.error(f"vLLM is required; install with `pip install its-hub[vllm]`: {e}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="vLLM is required; install with `pip install its-hub[vllm]`") from e
 
-    global LM_DICT, SCALING_ALG
+    global LM_DICT, SCALING_ALG, ROUTER
 
-    logger.info(f"Configuring service with model={request.model}, alg={request.alg}")
+    logger.info(f"Configuring service with model={request.model}, alg={request.alg}, router_enabled={request.enable_router}")
 
     try:
         # Configure language model based on provider
@@ -336,10 +367,36 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
                 exclude_args=request.exclude_tool_args,
             )
 
+        # Configure router if enabled
+        if request.enable_router:
+            # Use judge credentials as fallback for router
+            router_api_key = request.router_api_key or request.judge_api_key
+            router_base_url = request.router_base_url or request.judge_base_url
+
+            # Convert "auto" to None for LiteLLM
+            if router_base_url == "auto":
+                router_base_url = None
+
+            logger.info(f"Initializing LLM Router with model={request.router_model}")
+
+            ROUTER = LLMRouter(
+                router_model=request.router_model,
+                router_api_key=router_api_key,
+                router_base_url=router_base_url,
+                max_budget=request.router_max_budget or 32,
+                available_generation_models=list(LM_DICT.keys()),
+                available_judge_models=[request.rm_name] if request.rm_name else [],
+                enable_routing_logging=True,
+            )
+            logger.info("LLM Router initialized successfully")
+        else:
+            ROUTER = None
+
         logger.info(f"Successfully configured {request.alg} algorithm")
         return {
             "status": "success",
-            "message": f"Initialized {request.model} with {request.alg} algorithm",
+            "message": f"Initialized {request.model} with {request.alg} algorithm"
+            + (" (router enabled)" if request.enable_router else ""),
         }
 
     except Exception as e:
@@ -384,6 +441,9 @@ class ChatCompletionRequest(BaseModel):
     )
     return_response_only: bool = Field(
         True, description="Return only final response or include algorithm metadata"
+    )
+    use_router: bool = Field(
+        False, description="Use LLM router to dynamically select algorithm and budget (overrides budget parameter)"
     )
 
     @field_validator("messages")
@@ -513,15 +573,44 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         # Convert Pydantic ChatMessage objects to list if needed
         chat_messages = ChatMessages(list(request.messages))
 
+        # Use router if enabled and requested
+        actual_budget = request.budget
+        routing_info = None
+
+        if request.use_router:
+            if ROUTER is None:
+                logger.warning("Router requested but not configured. Using default budget.")
+            else:
+                logger.info("Using LLM Router for algorithm selection")
+                routing_decision = await ROUTER.route(chat_messages)
+
+                # Override budget with router's decision
+                actual_budget = routing_decision.budget
+                routing_info = {
+                    "complexity": routing_decision.complexity,
+                    "algorithm": routing_decision.algorithm,
+                    "budget": routing_decision.budget,
+                    "reasoning": routing_decision.reasoning,
+                }
+
+                logger.info(
+                    f"Router selected: algorithm={routing_decision.algorithm}, "
+                    f"budget={routing_decision.budget}, complexity={routing_decision.complexity}"
+                )
+
+                # Note: In this version, we still use the pre-configured algorithm
+                # Future enhancement: dynamically switch algorithms based on router decision
+                # For now, the router primarily influences the budget parameter
+
         logger.info(
-            f"Processing request for model={request.model}, budget={request.budget}"
+            f"Processing request for model={request.model}, budget={actual_budget}"
         )
 
         # Generate response using scaling algorithm with full conversation context
         algorithm_result = await SCALING_ALG.ainfer(
             lm,
             chat_messages,
-            request.budget,
+            actual_budget,
             return_response_only=request.return_response_only,
             tools=request.tools,
             tool_choice=request.tool_choice,
@@ -536,6 +625,12 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             # Got just a message dict response
             response_message = algorithm_result
             metadata = None
+
+        # Add routing info to metadata if available
+        if routing_info:
+            if metadata is None:
+                metadata = {}
+            metadata["routing"] = routing_info
 
         # Use the selected response directly without any modification
         response_chat_message = response_message
