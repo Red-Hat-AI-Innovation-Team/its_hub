@@ -4,7 +4,7 @@
 The current MVP (`its_hub/integration/iaas.py`) exposes inference-time scaling (ITS) through an in-process FastAPI server. It keeps algorithm instances (`LM_DICT`, `SCALING_ALG`) as global state, reads a `budget` field from the JSON body, and directly orchestrates ITS loops before proxying responses back in OpenAI format. Reward functions (`its_hub/integration/reward_hub.py`) execute inside the same process and may call local vLLM workers or LLM-as-a-judge endpoints synchronously. While this approach works for experimentation, it lacks production guardrails (auth, rate limiting, circuit breaking, observability) and does not scale horizontally.
 
 As ITS moves toward production, we need a proxy layer that:
-- Remains OpenAI-compatible while ingesting ITS-specific metadata from headers (for example, `X-ITS-Budget`, `X-ITS-Alg`).
+- Remains OpenAI-compatible while ingesting ITS-specific metadata from headers (for example, `X-ITS-Budget`, `X-ITS-Alg`, potentialy other parameters).
 - Executes ITS algorithms across multiple downstream LLM calls safely, including reward-model scoring that can depend on GPU-heavy models or remote evaluators.
 - Leverages industry-proven, lightweight gateways instead of bespoke web servers, so we inherit battle-tested reliability, security, and operational tooling.
 
@@ -12,15 +12,13 @@ Our first production implementation will be built on Envoy with the external pro
 
 ## Implementation Status
 
-### Current State (MVP)
+### Current Phase - Proof of Concept
 **Location**: `its_hub/integration/iaas.py:1`, `its_hub/integration/reward_hub.py`
 
 **What Works**:
 - OpenAI-compatible FastAPI server with `/v1/chat/completions` endpoint
-- Support for self-consistency, best-of-n, and particle-filtering algorithms
+- Support for self-consistency algorithms
 - Budget-based inference-time scaling via request body parameter
-- Integration with vLLM process reward models (`LocalVllmProcessRewardModel`)
-- LLM-as-a-Judge support via `LLMJudgeRewardModel` adapter
 - Async generation with `OpenAICompatibleLanguageModel` and `LiteLLMLanguageModel`
 - Tool calling support for self-consistency algorithm
 - Configuration endpoint (`/configure`) for runtime setup
@@ -29,55 +27,50 @@ Our first production implementation will be built on Envoy with the external pro
 - Global mutable state (`LM_DICT`, `SCALING_ALG`) prevents multi-tenancy and horizontal scaling
 - No authentication, authorization, or API key validation
 - No rate limiting or quota enforcement per tenant/user
-- Synchronous reward model scoring blocks request processing (uses `asyncio.to_thread`)
 - No circuit breaking or graceful degradation for upstream failures
 - Minimal observability (basic logging only, no metrics or distributed tracing)
-- No streaming support for chat completions
 - Hardcoded token counting (returns 0 for all usage statistics)
 - Single-node deployment model with no failover capability
 - Configuration stored in-memory (lost on restart)
 
-### Target State (Production Architecture)
+### Production Readiness: Phase 1 - Support Self-contained ITS Algorithms (i.e. Self-consistency)
+
 **What We're Building**:
-- Stateless ext_proc service with request-scoped configuration lookup
-- Envoy-managed TLS termination, authentication (JWT/API keys), and rate limiting
-- External reward service with GPU resource pooling and queuing
+- Stateless ext_proc service
+- Envoy-managed TLS termination, and rate limiting
 - Distributed tracing (OpenTelemetry), Prometheus metrics, and structured logging
-- Multi-tenant configuration with Redis/PostgreSQL persistence
 - Circuit breakers, retries with backoff, and timeout enforcement
-- Horizontal scaling for both ext_proc and reward services
-- Kubernetes-native deployment with autoscaling and GPU scheduling
+- Horizontal scaling for ext_proc
 
 ### Migration Path
-**Phase 1: Library Refactoring**
+
+**Step 1: Library Refactoring**
 - Extract orchestration logic from `iaas.py` into reusable `ITSOrchestrator` class
 - Abstract LM client to support Envoy-backed HTTP calls
-- Refactor reward models for remote execution (`GrpcRewardClient`, `HttpRewardClient`)
-- Define configuration schema for models, algorithms, and reward endpoints
+- Define configuration schema at Request-level for models
 
-**Phase 2: ext_proc Service**
-- Implement gRPC external processing service skeleton
+**Step 2: ext_proc Service**
+- Implement gRPC external processing service
 - Integrate refactored `ITSOrchestrator` with request/response handling
-- Add header-based ITS metadata parsing (`X-ITS-Budget`, `X-ITS-Alg`)
-- Implement pass-through mode for non-ITS requests
+- Add header-based ITS metadata parsing (`X-ITS-Budget`, `X-ITS-Alg`, and etc.)
+- Support pass-through mode for non-ITS requests
 
-**Phase 3: Reward Service Isolation**
-- Containerize `LocalVllmProcessRewardModel` with GPU runtime
-- Build gRPC/HTTP API with concurrency controls
-- Deploy with resource limits and autoscaling
-
-**Phase 4: Envoy Configuration & Integration**
-- Configure Envoy listeners, clusters, and ext_proc filter
-- Enable mTLS, rate limiting, and circuit breakers
+**Step 3: Standalone Envoy Configuration & Integration**
+- Configure listeners and ext_proc filter on a standalone Envoy
+- Enable TLS, rate limiting, and circuit breakers
 - Set up observability stack (Prometheus, Jaeger/Zipkin, ELK/Loki)
 
-**Phase 5: Validation & Rollout**
-- Integration testing with docker-compose
+**Step 4: Integration with Inference Gateway**
+- Integrate with Envoy Inference Gateway
+- Define the order of integration for ITS ext_proc in IGW
+
+**Step 5: Validation & Release Cut**
+- Integration testing with IGW
 - Load testing for ext_proc and reward service sizing
 - Staged rollout with feature flags and traffic mirroring
-- Gradual cutover with error budget monitoring
 
-## Envoy External Processing Architecture
+### High-Level Flow
+
 ```mermaid
 flowchart TD
       Client["Client<br/>(OpenAI-compatible caller)"]
@@ -121,26 +114,15 @@ flowchart TD
       Listener -- "11" --> Client
 ```
 
-### High-Level Flow
-```
-client → Envoy (HTTP filter chain)
-          ├─ ext_proc filter → ITS Orchestrator Service (gRPC)
-          │                    ├─ ITS Core Library (refactored from iaas.py)
-          │                    ├─ Reward Service (local vLLM or remote judge)
-          │                    └─ Downstream LLM Calls (via Envoy cluster or direct HTTP)
-          └─ Upstream cluster → OpenAI-compatible provider(s)
-```
-
 1. Client sends a standard OpenAI Chat Completions request with additional ITS headers.
-2. Envoy performs front-door auth/rate limiting and invokes the ext_proc filter.
+2. Envoy based IGW performs front-door auth/rate limiting and invokes the ext_proc filter.
 3. ext_proc forwards the request to a dedicated ITS Orchestrator service.
-4. The orchestrator reads ITS headers, runs the scaling algorithm using the refactored `its_hub` library, issues multiple LLM calls (via Envoy or direct), and invokes reward models as needed.
+4. The orchestrator reads ITS headers, runs the scaling algorithm using the refactored `its_hub` library, issues multiple LLM calls (via Envoy or direct)
 5. Once the orchestrator selects the final response, it returns an OpenAI-compatible payload back to Envoy, which relays it to the client.
 
 ### Component Responsibilities
-- **Envoy Gateway**: terminates TLS, authenticates, enforces rate/quotas, fuses in observability (access logs, metrics, distributed tracing), applies retries/circuit breaking, and forwards ext_proc gRPC messages.
+- **Envoy-base IGW Gateway**: terminates TLS, authenticates, enforces rate/quotas, fuses in observability (access logs, metrics, distributed tracing), applies retries/circuit breaking, and forwards ext_proc gRPC messages.
 - **ITS Orchestrator Service**: stateless gRPC service that hosts the refactored ITS algorithms, manages per-request execution (budget enforcement, tool routing, failures), and coordinates reward scoring through asynchronous workers.
-- **Reward Service**: optional out-of-process component that wraps `LocalVllmProcessRewardModel` or LLM Judge, exposing a small gRPC/HTTP API with concurrency controls to avoid blocking the orchestrator.
 - **Downstream LLM Connectivity**: either reuse Envoy clusters (preferred) so the orchestrator sends HTTP requests through Envoy, or embed a hardened HTTP client with mTLS and retries if direct access is required.
 
 ## Implementation Guide
