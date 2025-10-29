@@ -229,6 +229,50 @@ flowchart TD
 3. Staging rollout: deploy behind feature flag; mirror production traffic with ITS disabled, validate latency/availability.
 4. Cutover: gradually enable ITS per tenant or per API key. Monitor error budgets, fallback to pass-through mode if SLA risk detected.
 
+## ITS Input Arguments Options
+
+ITS orchestration requires configurations, there are two ways we could approach this:
+- Using discrete headers
+- Argment OpenAI API's Request Body with ITS parameters
+
+### Parameters
+
+A preliminary list of parameters required to run self-contained ITS:
+- "Budget": integer for ITS Budget that can be used to scale up compute
+- "ITS Algorithm": enum of string to choose ITS Algos, default to Self-consistency
+- "API Endpoint": Endpoint to send ITS scaled-up LLM calls to
+
+Integration with reward hub will require additional parameters and comprehensive list is to be determined.
+
+
+### Headers
+
+- `X-ITS-Budget`
+- `X-ITS-Alg`
+- `X-ITS-APIEndpoint`
+
+Pro: no request body parsing and minimal changes to the incoming OpenAI API request, streaming support in the future can be easily supported
+Con: extending to reward based algorithm will grow the list significantly
+
+### Additional Request Body
+
+Request Body:
+```json
+{
+   ...,
+   "its": {
+      "budget": 10,
+      "alg": "self-consistency",
+      "api_endpoint": "https://api.openai.com",
+      ...
+   },
+   ...
+}
+```
+
+Pro: fully extensible for supporting more complex in request ITS algorithm configurations.
+Con: intercepting ITS configuration in request body required. In streamming, implementation might require additional intercepting implementation in gRPC interface. More complex but doable.
+
 ## Future Considerations
 
 While Envoy ext_proc is our first target, other open-source gateways can host ITS logic with less custom infrastructure.
