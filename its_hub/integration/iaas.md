@@ -121,12 +121,11 @@ flowchart TD
 5. Once the orchestrator selects the final response, it returns an OpenAI-compatible payload back to Envoy, which relays it to the client.
 
 ### Component Responsibilities
-- **Envoy-base IGW Gateway**: terminates TLS, authenticates, enforces rate/quotas, fuses in observability (access logs, metrics, distributed tracing), applies retries/circuit breaking, and forwards ext_proc gRPC messages.
-- **ITS Orchestrator Service**: stateless gRPC service that hosts the refactored ITS algorithms, manages per-request execution (budget enforcement, tool routing, failures), and coordinates reward scoring through asynchronous workers.
+- **Envoy Gateway**: terminates TLS, authenticates, enforces rate/quotas, fuses in observability (access logs, metrics, distributed tracing), applies retries/circuit breaking, and forwards ext_proc gRPC messages.
+- **ITS Orchestrator Service**: stateless gRPC service that hosts the refactored ITS algorithms, manages per-request execution (budget enforcement, tool routing, failures), and coordinates reward scoring (TBD) through asynchronous workers.
 - **Downstream LLM Connectivity**: either reuse Envoy clusters (preferred) so the orchestrator sends HTTP requests through Envoy, or embed a hardened HTTP client with mTLS and retries if direct access is required.
 
-## Implementation Guide
-The steps below are designed to bootstrap engineering work or hand implementation to another team. Each step assumes a Kubernetes-style deployment, but the same instructions apply to VM-based environments with minor adjustments.
+## Implementation
 
 ### 1. Refactor ITS core for gateway integration
 1. Extract orchestration logic from `its_hub/integration/iaas.py` into a new module, e.g., `its_hub.integration.orchestrator`.
@@ -134,9 +133,7 @@ The steps below are designed to bootstrap engineering work or hand implementatio
    - Remove FastAPI globals; instead accept explicit dependencies (model registry, algorithm registry, reward client).
 2. Replace direct instantiation of `OpenAICompatibleLanguageModel` with a provider interface that can call through Envoy (HTTP client abstraction).
    - Create adapters for streaming vs. non-streaming responses, even if streaming is deferred.
-3. Update reward wrappers (`its_hub/integration/reward_hub.py`) to support remote execution.
-   - Factor out synchronous calls into `RewardClient` abstractions (e.g., `GrpcRewardClient`, `HttpRewardClient`) that the orchestrator can await.
-4. Document configuration schema (YAML/JSON) for models, algorithms, budgets, and reward endpoints; store in Redis/Postgres or ConfigMap for runtime lookup.
+4. Document configuration schema (YAML/JSON) for models, algorithms, budgets; potentially, store in Redis/Postgres or ConfigMap for runtime lookup.
 
 ### 2. Build the Envoy ext_proc service
 1. Define the gRPC service using Envoy’s `external_processing.proto`. The service must implement:
@@ -152,39 +149,28 @@ The steps below are designed to bootstrap engineering work or hand implementatio
        external_processing.proto
    ```
 3. Request handling flow inside `processor.py`:
-   - Parse request metadata (method, path, headers). Validate required headers (`X-ITS-Budget`, optional `X-ITS-Alg`, `X-ITS-Reward-Profile`).
+   - Parse request metadata (method, path, headers). Validate required headers (`X-ITS-Budget`, optional `X-ITS-Alg` and other in request parameters).
    - Read/parse JSON body from `HttpBody` message. Forward to `ITSOrchestrator.run_chat_completion()`.
    - Pass along client headers needed for downstream LLM auth (`Authorization`, `OpenAI-Organization`, etc.). Encode them in the orchestrator request context.
    - Short-circuit if ITS headers are absent: return `CONTINUE` so Envoy forwards request upstream without modification.
    - On ITS execution:
      1. Call orchestrator with budget/algorithm.
      2. Orchestrator issues N LLM calls. Calls should use Envoy cluster by making HTTP requests to `http://envoy-cluster-name/v1/chat/completions` (loop back through Envoy) or by leveraging direct provider clients with built-in retry policies.
-     3. Orchestrator invokes reward client; enforce timeouts and fallbacks (e.g., degrade to single completion if reward service unavailable).
+     3. Orchestrator invokes evaluation logic; enforce timeouts and fallbacks.
      4. Construct final OpenAI-compatible response JSON.
    - Populate `HttpResponse` with final payload, status 200, and pass headers like `Content-Type: application/json`.
 4. Add resilience:
-   - Wrap orchestrator calls with deadlines shorter than Envoy timeouts.
+   - Wrap orchestrator calls with deadlines shorter than Envoy timeouts and issues upstream LLM calls concurrently.
    - Map exceptions to appropriate HTTP statuses (`429` for quota exhaustion, `503` for upstream failure, `500` for internal error).
-   - Emit structured logs (request id, user, model, algorithm, budget, latency, reward score).
+   - Emit structured logs (request id, user, model, algorithm, budget, latency).
 5. Package the service (Dockerfile with minimal base, e.g., `python:3.11-slim`). Include health/metrics endpoints (e.g., `/healthz`, `/metrics`) served via aiohttp or Prometheus client.
-
-### 3. Deploy reward model microservice
-1. For vLLM-based scoring:
-   - Containerize `reward_hub.vllm.reward.VllmProcessRewardModel` with GPU runtime (CUDA image).
-   - Expose gRPC/HTTP API: `ScoreRequest { messages[], responses[] } → ScoreResponse { scores[] }`.
-   - Implement concurrency limits and queueing (e.g., asyncio semaphore) to prevent GPU overload.
-2. For LLM Judge:
-   - Create a service that proxies LiteLLM requests; store provider keys securely (Vault/KMS).
-   - Cache judge prompts per criterion to reduce latency.
-3. Provide deployment manifests with resource requests, tolerations for GPU nodes, and autoscaling rules.
-4. Update orchestrator configuration to point to reward service endpoints, with per-tenant overrides.
 
 ### 4. Configure Envoy
 1. Define clusters:
    - `its_ext_proc` (gRPC) → orchestrator service.
    - `openai_primary` (HTTP) → OpenAI endpoint or upstream gateway.
-   - Optional `reward_service` if orchestrator wants to proxy via Envoy.
-2. Configure listeners and HTTP connection manager:
+
+2. Configure listeners and HTTP connection manager, example
    ```yaml
    static_resources:
      listeners:
@@ -221,25 +207,30 @@ The steps below are designed to bootstrap engineering work or hand implementatio
                            response_header_mode: SKIP
                      - name: envoy.filters.http.router
    ```
+
 3. Enable production safeguards:
    - mTLS between Envoy and ext_proc/reward services.
    - Rate limiting via `envoy.filters.http.local_ratelimit` (per API key) plus global rate limits via Redis.
    - Circuit breakers (`max_requests`, `max_connections`) on `openai_primary` and `its_ext_proc`.
    - Retries with backoff on upstream cluster (respect provider limits).
+
 4. Observability:
-   - Enable access logs with additional headers (`x-request-id`, `x-its-budget`, `x-its-alg`).
+   - Enable access logs with additional headers (`x-request-id`, `x-its-budget`, `x-its-alg`, and etc.).
    - Emit Prometheus metrics; configure tracing (Zipkin/OTel) for ext_proc interactions.
+
 5. Security:
    - Require API key/JWT validation via `envoy.filters.http.jwt_authn` or ext_authz.
    - Sanitize ITS headers before forwarding to upstream providers to avoid leaking internal metadata.
 
 ### 5. Observability, testing, and rollout
+
 1. Integration tests: spin up Envoy + ext_proc in docker-compose; test scenarios (with/without ITS headers, reward timeout, upstream failure).
 2. Load testing: simulate concurrent ITS workloads to size ext_proc instances and GPU reward workers.
 3. Staging rollout: deploy behind feature flag; mirror production traffic with ITS disabled, validate latency/availability.
 4. Cutover: gradually enable ITS per tenant or per API key. Monitor error budgets, fallback to pass-through mode if SLA risk detected.
 
-## Alternative Implementations
+## Future Considerations
+
 While Envoy ext_proc is our first target, other open-source gateways can host ITS logic with less custom infrastructure.
 
 ### LiteLLM Proxy
@@ -260,5 +251,3 @@ While Envoy ext_proc is our first target, other open-source gateways can host IT
 - Streaming support: ext_proc currently buffers bodies; decide if/when to support streaming completions.
 - Reward model isolation: determine acceptable latency/throughput for reward scoring and whether synchronous scoring suffices.
 - Configuration management: choose between service discovery (Redis/Postgres) or declarative configs (GitOps) for models, budgets, and tenant overrides.
-
-Document owners should revisit this plan after the initial Envoy build to confirm assumptions and decide whether to invest in alternate gateways for specific deployment environments.
