@@ -37,6 +37,7 @@ Our first production implementation will be built on Envoy with the external pro
 
 **What We're Building**:
 - Stateless ext_proc service
+- Keep the OpenAI compatible APIs so that the ITS service can be used as a drop in replacement of OpenAI API endpoint
 - Envoy-managed TLS termination, and rate limiting
 - Distributed tracing (OpenTelemetry), Prometheus metrics, and structured logging
 - Circuit breakers, retries with backoff, and timeout enforcement
@@ -46,7 +47,6 @@ Our first production implementation will be built on Envoy with the external pro
 
 **Step 1: Library Refactoring**
 - Extract orchestration logic from `iaas.py` into reusable `ITSOrchestrator` class
-- Abstract LM client to support Envoy-backed HTTP calls
 - Define configuration schema at Request-level for models
 
 **Step 2: ext_proc Service**

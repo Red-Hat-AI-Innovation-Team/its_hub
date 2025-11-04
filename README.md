@@ -63,11 +63,53 @@ pip install -e ".[dev]"
 
 ## Development
 
+### Prerequisites
+
+Before setting up the development environment, please ensure you have the following tools installed:
+
+- **git**: For version control and managing submodules. [Installation Guide](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
+- **just**: A command runner used to execute project-specific commands. [Installation Guide](https://github.com/casey/just#installation)
+- **uv**: An extremely fast Python package installer and resolver. [Installation Guide](https://astral.sh/uv/install/)
+
 ```bash
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 cd its_hub
 pip install -e ".[dev]"
 pytest tests
 ```
+
+### Submodule and Protobuf Management
+
+This project uses Git submodules to manage third-party protobuf definitions. The generated Python stub files are build artifacts and are not committed to the repository.
+
+**Initial Setup for Developers:**
+
+To set up your development environment, including initializing submodules and compiling protobufs, use the `just setup` command:
+
+```bash
+just setup
+```
+
+This command performs the following steps:
+1.  Installs Python dependencies.
+2.  Initializes and updates all Git submodules to the versions recorded in this repository.
+3.  Compiles the `.proto` files from the submodules into Python stub files.
+
+**Updating Submodules:**
+
+If you need to update the submodules to their latest upstream versions (e.g., to get new protobuf definitions), use the `just submodule-update` command:
+
+```bash
+just submodule-update
+```
+
+After running this command, the submodules will be updated to the latest commit on their tracked branches. You must then record these changes in the main repository:
+
+```bash
+git add third_party/envoy-data-plane-api third_party/xds third_party/protoc-gen-validate
+git commit -m "Update submodules to latest upstream versions"
+```
+
+**Important**: The generated Python protobuf stub files (located in `its_hub/integration/ext_proc/proto/`) are intentionally excluded from version control via `.gitignore`. They should always be generated as part of the build process to ensure consistency with the `.proto` definitions.
 
 For detailed documentation, visit: [https://ai-innovation.team/its_hub](https://ai-innovation.team/its_hub)

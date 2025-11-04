@@ -186,3 +186,6 @@ cython_debug/
 # local dev
 notebooks/dev.ipynb
 results/
+
+# Generated protobuf Python stubs
+its_hub/integration/ext_proc/proto/

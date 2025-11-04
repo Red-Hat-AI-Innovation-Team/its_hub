@@ -8,9 +8,50 @@
 install:
     uv sync --extra dev
 
+# Setup development environment (install dependencies, initialize submodules, compile protos)
+setup:
+    just install
+    just submodule-init
+    just proto-compile
+
+# Initialize and update git submodules
+submodule-init:
+    git submodule update --init --recursive
+
+# Update git submodules to their latest remote versions
+submodule-update:
+    git submodule update --recursive --remote
+
+
 # Run all tests
 test:
     uv run pytest tests/
+
+# =============================================================================
+# Proto Compilation
+# =============================================================================
+
+# Compile Envoy external processor proto files to Python
+proto-compile:
+    #!/usr/bin/env bash
+    uv run python -m grpc_tools.protoc \
+      --proto_path=third_party/envoy-data-plane-api \
+      --proto_path=third_party/xds \
+      --proto_path=third_party/protoc-gen-validate \
+      --python_out=its_hub/integration/ext_proc/proto \
+      --grpc_python_out=its_hub/integration/ext_proc/proto \
+      third_party/envoy-data-plane-api/envoy/config/core/v3/*.proto \
+      third_party/envoy-data-plane-api/envoy/type/v3/*.proto \
+      third_party/envoy-data-plane-api/envoy/type/matcher/v3/*.proto \
+      third_party/envoy-data-plane-api/envoy/annotations/*.proto \
+      third_party/envoy-data-plane-api/envoy/extensions/filters/http/ext_proc/v3/*.proto \
+      third_party/envoy-data-plane-api/envoy/service/ext_proc/v3/*.proto \
+      third_party/xds/xds/annotations/v3/*.proto \
+      third_party/xds/xds/core/v3/*.proto \
+      third_party/xds/udpa/annotations/*.proto \
+      third_party/protoc-gen-validate/validate/validate.proto
+    find its_hub/integration/ext_proc/proto -type d -exec touch {}/__init__.py \;
+    echo "✓ Proto files compiled successfully!"
 
 # =============================================================================
 # Service Management
@@ -22,7 +63,7 @@ iaas-start:
 
 # Check service health
 iaas-health:
-    curl -s http://localhost:8108/v1/models | jq .
+    curl -v -s http://localhost:8108/v1/models | jq .
 
 # =============================================================================
 # Algorithm Configuration
@@ -63,7 +104,7 @@ config-self-consistency-openai:
             \"provider\": \"litellm\",
             \"endpoint\": \"auto\",
             \"api_key\": \"$OPENAI_API_KEY\",
-            \"model\": \"gpt-4.1-mini\",
+            \"model\": \"gpt-5\",
             \"alg\": \"self-consistency\",
             \"tool_vote\": \"tool_hierarchical\",
             \"exclude_args\": [\"timestamp\", \"request_id\", \"id\", \"type\", \"stepTitle\", \"stepDescription\", \"threadId\", \"domain_id\"]
@@ -196,7 +237,7 @@ config-best-of-n-llm-judge:
 test-chat:
     curl -s -X POST http://localhost:8108/v1/chat/completions \
         -H "Content-Type: application/json" \
-        -d '{"model": "openai/gpt-4.1-mini", "messages": [{"role": "user", "content": "Explain quantum computing in one sentence."}], "budget": 2, "return_response_only": false}' | jq .
+        -d '{"model": "gpt-5", "temperature": 1.0, "messages": [{"role": "user", "content": "Choose 1 word to best represent quantum computing and that word will be: "}], "budget": 2, "return_response_only": false}' | jq .
 
 # Test conversation with empty assistant response
 test-chat-empty:

@@ -34,7 +34,10 @@ dependencies = [
     "numpy",
     "requests",
     "aiohttp>=3.9.0",
-    "litellm>=1.70.0,<1.75.0"
+    "litellm>=1.70.0,<1.75.0",
+    "grpcio>=1.60.0",
+    "grpcio-tools>=1.60.0",
+    "protobuf>=4.25.0"
 ]
 
 [project.scripts]
