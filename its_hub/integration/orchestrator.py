@@ -70,6 +70,7 @@ class ITSOrchestrator:
         endpoint: str,
         model: str,
         api_key: Optional[str] = None,
+        request_id: Optional[str] = None,
     ) -> OpenAICompatibleLanguageModel:
         """Get cached LM client or create new one.
 
@@ -84,9 +85,15 @@ class ITSOrchestrator:
             Cached or new LM client instance
         """
         cache_key = (endpoint, model)
+        log_prefix = f"[{request_id}] " if request_id else ""
 
         if cache_key not in self._lm_cache:
-            logger.info(f"Creating new LM client: endpoint={endpoint}, model={model}")
+            logger.info(
+                "%sCreating new LM client: endpoint=%s, model=%s",
+                log_prefix,
+                endpoint,
+                model,
+            )
             self._lm_cache[cache_key] = OpenAICompatibleLanguageModel(
                 endpoint=endpoint,
                 api_key=api_key,
@@ -94,7 +101,12 @@ class ITSOrchestrator:
                 is_async=True,
             )
         else:
-            logger.debug(f"Reusing cached LM client: endpoint={endpoint}, model={model}")
+            logger.debug(
+                "%sReusing cached LM client: endpoint=%s, model=%s",
+                log_prefix,
+                endpoint,
+                model,
+            )
 
         return self._lm_cache[cache_key]
 
@@ -105,6 +117,7 @@ class ITSOrchestrator:
         tools: Optional[list[dict[str, Any]]] = None,
         tool_choice: Optional[str | dict[str, Any]] = None,
         return_response_only: bool = True,
+        request_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Run chat completion with ITS algorithm.
 
@@ -139,6 +152,8 @@ class ITSOrchestrator:
         Raises:
             Exception: If LLM calls fail or model not specified
         """
+        log_prefix = f"[{request_id}] " if request_id else ""
+
         # Validate that model is set
         if not config.model:
             raise ValueError("Model must be specified in ITSRequestConfig before running")
@@ -148,15 +163,20 @@ class ITSOrchestrator:
             endpoint=config.api_endpoint,
             model=config.model,
             api_key=config.api_key,
+            request_id=request_id,
         )
 
         # Convert to ChatMessages
         chat_messages = ChatMessages([ChatMessage(**msg) for msg in messages])
 
         logger.info(
-            f"Running self-consistency: budget={config.budget}, "
-            f"endpoint={config.api_endpoint}, model={config.model}, "
-            f"messages={len(messages)}, tools={'yes' if tools else 'no'}"
+            "%sRunning self-consistency: budget=%s, endpoint=%s, model=%s, messages=%s, tools=%s",
+            log_prefix,
+            config.budget,
+            config.api_endpoint,
+            config.model,
+            len(messages),
+            "yes" if tools else "no",
         )
 
         try:
@@ -178,8 +198,9 @@ class ITSOrchestrator:
             if return_response_only:
                 # Result is already a dict with message and usage
                 logger.info(
-                    f"ITS algorithm completed successfully. "
-                    f"Usage: {result['usage']}"
+                    "%sITS algorithm completed successfully. Usage: %s",
+                    log_prefix,
+                    result["usage"],
                 )
                 return result
             else:
@@ -193,13 +214,20 @@ class ITSOrchestrator:
                     "usage": result.usage
                 }
                 logger.info(
-                    f"ITS algorithm completed successfully. "
-                    f"Usage: {result.usage}"
+                    "%sITS algorithm completed successfully. Usage: %s (selected_index=%s)",
+                    log_prefix,
+                    result.usage,
+                    result.selected_index,
                 )
                 return result_dict
 
         except Exception as e:
-            logger.error(f"ITS algorithm failed: {e}", exc_info=True)
+            logger.error(
+                "%sITS algorithm failed: %s",
+                log_prefix,
+                e,
+                exc_info=True,
+            )
             raise
 
     def clear_cache(self):

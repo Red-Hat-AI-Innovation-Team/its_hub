@@ -5,6 +5,7 @@ This gRPC service implements the Envoy External Processor protocol to intercept
 HTTP requests to LLM endpoints and apply inference-time scaling algorithms.
 """
 
+import argparse
 import asyncio
 import json
 import logging
@@ -18,6 +19,7 @@ import its_hub.integration.ext_proc.proto
 from envoy.service.ext_proc.v3 import external_processor_pb2 as ext_proc_pb2
 from envoy.service.ext_proc.v3 import external_processor_pb2_grpc as ext_proc_grpc
 from envoy.config.core.v3 import base_pb2
+from envoy.type.v3 import http_status_pb2
 
 from its_hub.integration.orchestrator import ITSOrchestrator, ITSRequestConfig
 
@@ -26,6 +28,55 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+def _preview_message_content(message: dict, limit: int = 160) -> str:
+    """Return a single-line preview of message content for logging."""
+    content = message.get("content")
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                parts.append(part.get("text") or "")
+        content = " ".join(parts)
+    if not isinstance(content, str):
+        content = "" if content is None else str(content)
+    preview = " ".join(content.split())
+    if not preview:
+        return "<empty>"
+    return preview[:limit] + ("…" if len(preview) > limit else "")
+
+
+def _configure_logging(level_name: str) -> None:
+    """Adjust log levels for root and key ITS modules."""
+    numeric_level = getattr(logging, level_name.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError(f"Invalid log level: {level_name}")
+
+    logging.getLogger().setLevel(numeric_level)
+    for logger_name in (
+        "its_hub.integration.ext_proc.processor",
+        "its_hub.integration.orchestrator",
+        "its_hub.algorithms.self_consistency",
+    ):
+        logging.getLogger(logger_name).setLevel(numeric_level)
+
+
+def _parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for the ext_proc server."""
+    parser = argparse.ArgumentParser(description="ITS Envoy External Processor")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=50051,
+        help="Port to bind the gRPC server (default: 50051)",
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        help="Logging level (e.g., DEBUG, INFO, WARNING)",
+    )
+    return parser.parse_args()
 
 
 class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
@@ -177,12 +228,36 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
                                     messages=messages,
                                     tools=tools,
                                     tool_choice=tool_choice,
-                                    return_response_only=True
+                                    return_response_only=False,
+                                    request_id=request_id,
                                 )
 
-                                # Extract message and usage from result
-                                response_message = result["message"]
+                                # Extract message, usage, and decision metadata from result
+                                response_message = dict(result["the_one"])
                                 usage = result["usage"]
+                                decision_counts = result["response_counts"]
+                                selected_index = result["selected_index"]
+                                responses = result["responses"]
+
+                                # Drop internal usage metadata from final message payload
+                                response_message.pop("usage", None)
+
+                                preview = _preview_message_content(response_message)
+                                logger.info(
+                                    f"[{request_id}] ITS selected candidate #{selected_index} "
+                                    f"with usage={usage} preview='{preview}'"
+                                )
+                                logger.debug(
+                                    f"[{request_id}] Candidate vote summary: {decision_counts}"
+                                )
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    for idx, candidate in enumerate(responses):
+                                        logger.debug(
+                                            "[%s] Candidate %s content preview: %s",
+                                            request_id,
+                                            idx,
+                                            _preview_message_content(candidate),
+                                        )
 
                                 # Create OpenAI-compatible response
                                 openai_response = {
@@ -208,33 +283,31 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
                                     f"({len(response_body)} bytes, usage={usage})"
                                 )
 
-                                # Return immediate response (replaces upstream call)
+                                # Return immediate response (short-circuit upstream)
                                 yield ext_proc_pb2.ProcessingResponse(
-                                    request_body=ext_proc_pb2.BodyResponse(
-                                        response=ext_proc_pb2.CommonResponse(
-                                            status=ext_proc_pb2.CommonResponse.CONTINUE_AND_REPLACE,
-                                            body_mutation=ext_proc_pb2.BodyMutation(
-                                                body=response_body
-                                            ),
-                                            header_mutation=ext_proc_pb2.HeaderMutation(
-                                                set_headers=[
-                                                    base_pb2.HeaderValueOption(
-                                                        header=base_pb2.HeaderValue(
-                                                            key="content-type",
-                                                            raw_value=b"application/json"
-                                                        )
-                                                    ),
-                                                    base_pb2.HeaderValueOption(
-                                                        header=base_pb2.HeaderValue(
-                                                            key="x-its-applied",
-                                                            raw_value=b"true"
-                                                        )
+                                    immediate_response=ext_proc_pb2.ImmediateResponse(
+                                        status=http_status_pb2.HttpStatus(code=http_status_pb2.OK),
+                                        body=response_body,
+                                        headers=ext_proc_pb2.HeaderMutation(
+                                            set_headers=[
+                                                base_pb2.HeaderValueOption(
+                                                    header=base_pb2.HeaderValue(
+                                                        key="content-type",
+                                                        raw_value=b"application/json"
                                                     )
-                                                ]
-                                            )
+                                                ),
+                                                base_pb2.HeaderValueOption(
+                                                    header=base_pb2.HeaderValue(
+                                                        key="x-its-applied",
+                                                        raw_value=b"true"
+                                                    )
+                                                )
+                                            ]
                                         )
                                     )
                                 )
+                                logger.info(f"[{request_id}] Immediate response sent to Envoy")
+                                return
 
                             except Exception as e:
                                 logger.error(
@@ -377,8 +450,10 @@ async def serve(port: int = 50051):
 
 def main():
     """Entry point for the external processor service."""
+    args = _parse_args()
+    _configure_logging(args.log_level)
     try:
-        asyncio.run(serve())
+        asyncio.run(serve(port=args.port))
     except KeyboardInterrupt:
         logger.info("Service stopped")
 

@@ -432,8 +432,14 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                                 logging.error(format_non_retryable_error(api_error))
                             raise api_error
                         response_json = await response.json()
-                        # Return the full message object to preserve tool calls
-                        return response_json["choices"][0]["message"]
+                        message = response_json["choices"][0]["message"]
+                        usage = response_json.get("usage")
+                        if isinstance(usage, dict):
+                            # Copy to avoid mutating shared references further upstream
+                            message = dict(message)
+                            message["usage"] = usage
+                        # Return the full message object to preserve tool calls (and usage)
+                        return message
 
             async def safe_fetch_response(
                 messages: list[ChatMessage], _temperature: float | None

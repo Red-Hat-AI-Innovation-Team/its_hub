@@ -15,6 +15,8 @@ from its_hub.base import (
 from its_hub.types import ChatMessage, ChatMessages
 from its_hub.utils import extract_content_from_lm_response
 
+logger = logging.getLogger(__name__)
+
 
 def _default_projection_func(response: str) -> str:
     """Default projection function that uses exact content matching.
@@ -120,6 +122,23 @@ def _select_hierarchical_most_common_or_random(
     tuple_counts = Counter(list_to_select_from)
 
     return tuple_counts, selected_index
+
+
+def _preview_response_content(message: dict, limit: int = 160) -> str:
+    """Build a single-line preview of a response for logging."""
+    content = message.get("content")
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                parts.append(part.get("text") or "")
+        content = " ".join(parts)
+    if not isinstance(content, str):
+        content = "" if content is None else str(content)
+    preview = " ".join(content.split())
+    if not preview:
+        return "<empty>"
+    return preview[:limit] + ("…" if len(preview) > limit else "")
 
 
 class SelfConsistency(AbstractScalingAlgorithm):
@@ -251,6 +270,24 @@ class SelfConsistency(AbstractScalingAlgorithm):
             selected_index=selected_index,  # Index into original responses
             usage=aggregated_usage,  # Aggregated usage from all responses
         )
+
+        logger.info(
+            "SelfConsistency processed %d responses (tool_majority=%s); "
+            "selected_index=%d; usage=%s",
+            len(responses),
+            has_majority_tool_calls,
+            selected_index,
+            aggregated_usage,
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            vote_summary = ", ".join(
+                f"{str(key)[:60]}={count}" for key, count in response_counts.items()
+            ) or "<no votes>"
+            logger.debug("Vote summary: %s", vote_summary)
+            for idx, candidate in enumerate(responses):
+                logger.debug(
+                    "Candidate %d preview: %s", idx, _preview_response_content(candidate)
+                )
 
         # When returning response only, include usage alongside the message
         if return_response_only:
