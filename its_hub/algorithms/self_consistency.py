@@ -30,9 +30,10 @@ def _default_projection_func(response: str) -> str:
 
 @dataclass
 class SelfConsistencyResult(AbstractScalingResult):
-    responses: list[dict]  # Keep original message format with tool calls
+    responses: list[dict]  # Keep original message format with tool calls and usage
     response_counts: Counter[str] | Counter[tuple] | Counter
     selected_index: int
+    usage: dict[str, int]  # Aggregated usage from all responses
 
     @property
     def the_one(self) -> dict:
@@ -187,7 +188,10 @@ class SelfConsistency(AbstractScalingAlgorithm):
         responses: list[dict],
         return_response_only: bool = True
     ) -> dict | SelfConsistencyResult:
-        """Process responses and return result."""
+        """Process responses and return result with aggregated usage."""
+        # Aggregate usage from all responses
+        aggregated_usage = self._aggregate_usage(responses)
+
         # Check if majority of responses have tool calls to decide voting method
         tool_call_count = sum(1 for r in responses if r.get("tool_calls"))
         required_majority = math.ceil(len(responses) / 2)
@@ -240,13 +244,54 @@ class SelfConsistency(AbstractScalingAlgorithm):
         # Map back to original index
         selected_index = eligible_indices[filtered_selected_index]
 
-        # Return result with original responses preserved
+        # Return result with original responses preserved and aggregated usage
         result = SelfConsistencyResult(
-            responses=responses,  # ALL original responses
+            responses=responses,  # ALL original responses (with individual usage)
             response_counts=response_counts,
             selected_index=selected_index,  # Index into original responses
+            usage=aggregated_usage,  # Aggregated usage from all responses
         )
-        return result.the_one if return_response_only else result
+
+        # When returning response only, include usage alongside the message
+        if return_response_only:
+            return {
+                "message": result.the_one,
+                "usage": aggregated_usage
+            }
+        else:
+            return result
+
+    def _aggregate_usage(self, responses: list[dict]) -> dict[str, int]:
+        """Aggregate usage statistics from all LLM responses.
+
+        Args:
+            responses: List of LLM responses, each may contain a 'usage' field
+
+        Returns:
+            Dictionary with aggregated usage:
+            {
+                "prompt_tokens": int,
+                "completion_tokens": int,
+                "total_tokens": int
+            }
+        """
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        total_tokens = 0
+
+        for response in responses:
+            # Each response may have usage info
+            usage = response.get("usage")
+            if usage:
+                total_prompt_tokens += usage.get("prompt_tokens", 0)
+                total_completion_tokens += usage.get("completion_tokens", 0)
+                total_tokens += usage.get("total_tokens", 0)
+
+        return {
+            "prompt_tokens": total_prompt_tokens,
+            "completion_tokens": total_completion_tokens,
+            "total_tokens": total_tokens
+        }
 
     def _extract_tool_call_features(self, message_obj: dict):
         """Extract tool call features for voting based on tool_vote type."""

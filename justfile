@@ -65,6 +65,14 @@ iaas-start:
 iaas-health:
     curl -v -s http://localhost:8108/v1/models | jq .
 
+# Start Envoy External Processor gRPC service on port 50051
+envoy-grpc-start:
+    uv run envoy-grpc
+
+# Test Envoy External Processor with sample requests
+envoy-grpc-test:
+    uv run python scripts/test_envoy_grpc.py
+
 # =============================================================================
 # Algorithm Configuration
 # =============================================================================
@@ -237,7 +245,10 @@ config-best-of-n-llm-judge:
 test-chat:
     curl -s -X POST http://localhost:8108/v1/chat/completions \
         -H "Content-Type: application/json" \
-        -d '{"model": "gpt-5", "temperature": 1.0, "messages": [{"role": "user", "content": "Choose 1 word to best represent quantum computing and that word will be: "}], "budget": 2, "return_response_only": false}' | jq .
+        -H "X-ITS-Budget: 3" \
+        -H "X-ITS-Endpoint: https://api.openai.com/v1" \
+        -H "X-ITS-API-Key: $OPENAI_API_KEY" \
+        -d '{"model": "gpt-5", "messages": [{"role": "user", "content": "Choose 1 word to best represent quantum computing and that word will be: "}]}'
 
 # Test conversation with empty assistant response
 test-chat-empty:

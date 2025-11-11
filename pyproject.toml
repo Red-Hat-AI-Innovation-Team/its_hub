@@ -42,6 +42,7 @@ dependencies = [
 
 [project.scripts]
 its-iaas = "its_hub.integration.iaas:main"
+envoy-grpc = "its_hub.integration.ext_proc.processor:main"
 
 [tool.setuptools_scm]
 version_file = "its_hub/_version.py"
