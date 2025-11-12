@@ -60,11 +60,11 @@ pip install -e ".[dev]"
 - 🧮 **Math-Optimized**: Built for mathematical reasoning with specialized prompts
 - 📊 **Benchmarking Tools**: Compare algorithms on MATH500 and AIME-2024 datasets
 - ⚡ **Async Support**: Concurrent generation with limits and error handling
-- 🌐 **Envoy Gateway**: Transparent ITS integration via Envoy External Processor
+- 🌐 **Envoy Gateway** [Experimental]: Transparent ITS integration via Envoy External Processor
 
-## Envoy Gateway Integration
+## Envoy Gateway Integration 
 
-The Envoy External Processor (ext_proc) provides a transparent gateway for applying inference-time scaling to any LLM API. Deploy it in front of your existing LLM infrastructure without code changes.
+The Envoy External Processor (ext_proc) provides a transparent gateway for applying inference-time scaling to OpenAI API compatible inference API. Deploy it in front of your existing LLM infrastructure with minimal code changes.
 
 ### Architecture
 
@@ -72,22 +72,30 @@ The Envoy External Processor (ext_proc) provides a transparent gateway for apply
 Client → Envoy (port 8108) → ext_proc gRPC (port 50051) → LLM API
 ```
 
-### Quick Start with Envoy
+### Quick Start with Envoy Locally
 
 **Prerequisites:**
 - [Envoy proxy](https://www.envoyproxy.io/docs/envoy/latest/start/install) installed
 - An OpenAI-compatible LLM API endpoint
-- `OPENAI_API_KEY` environment variable (if using OpenAI)
+- `LLM_API_KEY` environment variable to authenticate with LLM APIs
 
 **Step 1: Setup**
+
 ```bash
 # Clone and install dependencies
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 cd its_hub
 just setup
+
+# setup grpc dependencies
+just submodule-init
+just proto-compile
 ```
 
 **Step 2: Start Services (in separate terminals)**
+
+Make sure Envoy is installed, see [Envoy Install](https://www.envoyproxy.io/docs/envoy/latest/start/install).
+
 ```bash
 # Terminal 1: Start Envoy proxy
 just envoy-start
@@ -113,7 +121,7 @@ curl -X POST http://localhost:8108/v1/chat/completions \
 **Without ITS (standard pass-through):**
 ```bash
 # Omit ITS headers for normal processing
-curl -X POST http://localhost:8108/v1/chat/completions \
+curl -X POST https://api.openai.com/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4o-mini",

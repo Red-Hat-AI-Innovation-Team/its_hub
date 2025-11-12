@@ -275,23 +275,6 @@ just proto-compile
 
 Generated files: `its_hub/integration/ext_proc/proto/` (not committed to git)
 
-### Common Issues & Solutions
-
-**Issue: Envoy not sending request body to ext_proc**
-- **Symptom**: Logs show "ITS headers detected" but no "Request body complete"
-- **Cause**: Missing or incorrect `processing_mode` configuration
-- **Solution**: Ensure `request_body_mode: BUFFERED` in Envoy config
-
-**Issue: Invalid URL error (`aiohttp.client_exceptions.InvalidUrlClientError`)**
-- **Symptom**: Error message shows `api.openai.com/chat/completions`
-- **Cause**: Missing protocol in `X-ITS-Endpoint` header
-- **Solution**: Use full URL with protocol: `https://api.openai.com/v1`
-
-**Issue: 503 Service Unavailable**
-- **Symptom**: Requests fail with 503 status
-- **Cause**: ext_proc service not running OR upstream LLM not available
-- **Check**: Run `just envoy-health` to verify cluster status
-
 ### Key Design Decisions
 
 **Stateless Per-Request:**
@@ -299,17 +282,11 @@ Generated files: `its_hub/integration/ext_proc/proto/` (not committed to git)
 - All configuration via headers on each request
 - Enables multi-tenant deployments
 
-**Model from Body:**
-- Model extracted from request body's `"model"` field
-- Follows standard OpenAI API conventions
-- Temperature removed (not needed for ITS)
-
 **Self-Consistency Only (Phase 1):**
 - Currently only implements self-consistency algorithm
 - Future: Add `X-ITS-Algorithm` header for algorithm selection
 
 ### Documentation References
 
-- **Detailed handover**: `its_hub/integration/ext_proc/HANDOVER.md`
 - **Envoy ext_proc docs**: https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/ext_proc_filter
 - **Architecture**: See "Integration" section above
