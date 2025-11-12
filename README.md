@@ -56,10 +56,111 @@ pip install -e ".[dev]"
 ## Key Features
 
 - 🔬 **Multiple Algorithms**: Particle Filtering, Best-of-N, Beam Search, Self-Consistency
-- 🚀 **OpenAI-Compatible API**: Easy integration with existing applications  
+- 🚀 **OpenAI-Compatible API**: Easy integration with existing applications
 - 🧮 **Math-Optimized**: Built for mathematical reasoning with specialized prompts
 - 📊 **Benchmarking Tools**: Compare algorithms on MATH500 and AIME-2024 datasets
 - ⚡ **Async Support**: Concurrent generation with limits and error handling
+- 🌐 **Envoy Gateway**: Transparent ITS integration via Envoy External Processor
+
+## Envoy Gateway Integration
+
+The Envoy External Processor (ext_proc) provides a transparent gateway for applying inference-time scaling to any LLM API. Deploy it in front of your existing LLM infrastructure without code changes.
+
+### Architecture
+
+```
+Client → Envoy (port 8108) → ext_proc gRPC (port 50051) → LLM API
+```
+
+### Quick Start with Envoy
+
+**Prerequisites:**
+- [Envoy proxy](https://www.envoyproxy.io/docs/envoy/latest/start/install) installed
+- An OpenAI-compatible LLM API endpoint
+- `OPENAI_API_KEY` environment variable (if using OpenAI)
+
+**Step 1: Setup**
+```bash
+# Clone and install dependencies
+git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
+cd its_hub
+just setup
+```
+
+**Step 2: Start Services (in separate terminals)**
+```bash
+# Terminal 1: Start Envoy proxy
+just envoy-start
+
+# Terminal 2: Start ext_proc gRPC service
+just envoy-grpc-start
+```
+
+**Step 3: Test with ITS**
+```bash
+# Use ITS with self-consistency (budget=3)
+curl -X POST http://localhost:8108/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "X-ITS-Budget: 3" \
+  -H "X-ITS-Endpoint: https://api.openai.com/v1" \
+  -H "X-ITS-API-Key: $OPENAI_API_KEY" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [{"role": "user", "content": "What is 2+2?"}]
+  }'
+```
+
+**Without ITS (standard pass-through):**
+```bash
+# Omit ITS headers for normal processing
+curl -X POST http://localhost:8108/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [{"role": "user", "content": "What is 2+2?"}]
+  }'
+```
+
+### ITS Header API
+
+Control inference-time scaling via HTTP headers:
+
+| Header | Required | Description | Example |
+|--------|----------|-------------|---------|
+| `X-ITS-Budget` | Yes | Number of LLM calls (1-1000) | `3` |
+| `X-ITS-Endpoint` | Yes | Full LLM API base URL | `https://api.openai.com/v1` |
+| `X-ITS-API-Key` | No | API key for authentication | `sk-...` |
+
+**How it works:**
+1. Requests **with** ITS headers → ext_proc applies self-consistency algorithm
+2. Requests **without** ITS headers → pass through to upstream LLM unchanged
+3. On errors → fail-safe pass-through to upstream
+
+### Testing & Monitoring
+
+```bash
+# Run test suite
+just envoy-grpc-test
+
+# Check Envoy cluster health
+just envoy-health
+
+# View Envoy admin interface
+open http://localhost:9901
+```
+
+### Configuration
+
+The Envoy configuration is located at `config/envoy/ext_proc.yaml`. Key settings:
+
+- **Client listener**: Port 8108
+- **ext_proc gRPC**: Port 50051
+- **LLM upstream**: Port 8100 (configurable)
+- **Admin interface**: Port 9901
+- **Timeouts**: 120s for ITS processing, 300s for upstream
+- **Failure mode**: `allow` (fail-safe pass-through)
+
+For detailed configuration options and troubleshooting, see `its_hub/integration/ext_proc/HANDOVER.md`.
 
 ## Development
 

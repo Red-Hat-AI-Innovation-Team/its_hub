@@ -73,6 +73,17 @@ envoy-grpc-start:
 envoy-grpc-test:
     uv run python scripts/test_envoy_grpc.py
 
+# Start Envoy proxy with ext_proc configuration
+envoy-start:
+    envoy -c config/envoy/ext_proc.yaml
+
+# Check Envoy cluster health and statistics
+envoy-health:
+    @echo "=== Cluster Status ==="
+    @curl -s http://localhost:9901/clusters | grep -A 10 "ext_proc_cluster" || echo "Envoy not running or admin port not accessible"
+    @echo "\n=== ext_proc Statistics ==="
+    @curl -s http://localhost:9901/stats | grep ext_proc || echo "No ext_proc stats found"
+
 # =============================================================================
 # Algorithm Configuration
 # =============================================================================
