@@ -8,7 +8,7 @@ class AbstractLanguageModel(ABC):
     Abstract base class for language models.
 
     Gateway integrators should implement this interface to use its_hub algorithms
-    with their existing LM infrastructure. Both sync and async methods are required.
+    with their existing LM infrastructure. Only async implementation is required.
     """
 
     @abstractmethod
@@ -19,25 +19,6 @@ class AbstractLanguageModel(ABC):
     ) -> dict | list[dict]:
         """
         Generate response(s) asynchronously.
-
-        Args:
-            messages: Single conversation or batch of conversations
-            stop: Optional stop sequence for generation
-
-        Returns:
-            Single response dict or list of response dicts (for batched input)
-            Response dict format: {"role": "assistant", "content": "...", "tool_calls": [...]}
-        """
-        pass
-
-    @abstractmethod
-    def generate(
-        self,
-        messages: list[ChatMessage] | list[list[ChatMessage]],
-        stop: str | None = None,
-    ) -> dict | list[dict]:
-        """
-        Generate response(s) synchronously.
 
         Args:
             messages: Single conversation or batch of conversations
@@ -139,47 +120,58 @@ class AbstractScalingAlgorithm(ABC):
 
 class AbstractOutcomeRewardModel(ABC):
     """
-    Abstract base class for outcome reward models.
+    Abstract base class for outcome reward models and judge models.
 
-    Outcome reward models score complete responses (e.g., LLM-as-judge).
-    Used by Best-of-N algorithm to select the highest-scoring response.
+    This class supports both traditional reward models and LLM-based judge models
+    that evaluate conversation outcomes and quality.
     """
-
-    @abstractmethod
-    async def ascore(
-        self,
-        prompt_or_messages: str | list[ChatMessage] | ChatMessages,
-        response: str | list[str],
-    ) -> float | list[float]:
-        """
-        Score one or more responses asynchronously.
-
-        Args:
-            prompt_or_messages: The input prompt
-            response: Single response or list of responses to score
-
-        Returns:
-            Single score or list of scores (matching input format)
-        """
-        pass
 
     @abstractmethod
     def score(
         self,
-        prompt_or_messages: str | list[ChatMessage] | ChatMessages,
-        response: str | list[str],
-    ) -> float | list[float]:
+        messages: list[list[dict]] | list[dict],
+        **kwargs,
+    ) -> list[float] | float:
         """
-        Score one or more responses synchronously.
+        Score responses/conversations using the OpenAI chat completion format.
 
         Args:
-            prompt_or_messages: The input prompt
-            response: Single response or list of responses to score
+            messages: Either a single conversation (list[dict]) or multiple conversations (list[list[dict]])
+                     Each message dict format: {"role": "user/assistant", "content": "...", "tool_calls": [...]}
+            **kwargs: Additional parameters (e.g., max_input_tokens, top_n, return_judge_reasoning, etc.)
 
         Returns:
-            Single score or list of scores (matching input format)
+            For single conversation: float (single score)
+            For multiple conversations: list[float] (list of scores)
         """
         pass
+
+    async def ascore(
+        self,
+        messages: list[list[dict]] | list[dict],
+        **kwargs,
+    ) -> list[float] | float:
+        """
+        Async version of score method.
+
+        Default implementation raises NotImplementedError. Subclasses that support async scoring
+        (e.g., LLM judges) should override this method.
+
+        Args:
+            messages: Either a single conversation (list[dict]) or multiple conversations (list[list[dict]])
+            **kwargs: Additional parameters (e.g., return_judge_reasoning, etc.)
+
+        Returns:
+            For single conversation: float (single score)
+            For multiple conversations: list[float] (list of scores)
+
+        Raises:
+            NotImplementedError: If the subclass does not implement async scoring
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support async scoring. "
+            f"Use the synchronous score() method instead."
+        )
 
 
 # TODO(GX) deal with aggregation of PRM scores somehow in a common place, e.g. here

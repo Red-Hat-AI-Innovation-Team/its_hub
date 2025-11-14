@@ -19,9 +19,6 @@ from .base import (
 from .algorithms.self_consistency import SelfConsistency
 from .algorithms.bon import BestOfN
 
-# Dummy reward model - always available
-from .reward_models import DummyRewardModel
-
 # Start with core exports
 __all__ = [
     # Version
@@ -35,14 +32,13 @@ __all__ = [
     # Algorithms
     "SelfConsistency",
     "BestOfN",
-    # Reward Models
-    "DummyRewardModel",
 ]
 
 # Optional LM implementations - only available if [lm] extra is installed
 try:
     from .lms import OpenAICompatibleLanguageModel, StepGeneration
-    __all__.extend(["OpenAICompatibleLanguageModel", "StepGeneration"])
+    from .reward_models import LLMJudge
+    __all__.extend(["OpenAICompatibleLanguageModel", "StepGeneration", "LLMJudge"])
 except ImportError:
     # LM implementations not available - install with: pip install its_hub[lm]
     pass

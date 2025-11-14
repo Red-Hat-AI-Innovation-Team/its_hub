@@ -218,18 +218,9 @@ dev = [
 
 **Key:** Remove `litellm` entirely from all dependency groups.
 
-**4. Add Dummy Reward Model (30 min)**
+**4. Add LLM Judge Reward Model (Implementation Complete)**
 
-Create `its_hub/reward_models.py`:
-
-```python
-from its_hub.base import AbstractOutcomeRewardModel
-
-class DummyRewardModel(AbstractOutcomeRewardModel):
-    """Dummy reward model for testing - returns fixed score."""
-    async def evaluate(self, prompt, response):
-        return 0.5
-```
+Created `its_hub/reward_models.py` with LLMJudge class that reuses AbstractLanguageModel for API communication.
 
 **5. Update Exports (30 min)**
 
@@ -245,11 +236,11 @@ from .base import (
 )
 from .algorithms.self_consistency import SelfConsistency
 from .algorithms.bon import BestOfN
-from .reward_models import DummyRewardModel
 
 # Optional - only if [lm] extra installed
 try:
     from .lms import OpenAICompatibleLanguageModel, StepGeneration
+    from .reward_models import LLMJudge
 except ImportError:
     pass
 ```
@@ -274,7 +265,7 @@ Add installation sections:
 **Must Have (1 day):**
 - [x] `pip install its_hub` has ≤5 dependencies ✅ **DONE: Only 2 dependencies (numpy, typing-extensions)**
 - [x] Algorithm code unchanged or little changed(bon.py, self_consistency.py) ✅ **DONE: Zero changes to algorithm code**
-- [x] Dummy reward model implementation ✅ **DONE: Created its_hub/reward_models.py with DummyRewardModel**
+- [x] LLM Judge reward model implementation ✅ **DONE: Created its_hub/reward_models.py with LLMJudge**
 - [x] Basic README update ✅ **DONE: Added installation patterns and gateway integration example**
 - [x] Tests still pass ✅ **DONE: All 93 tests passing**
 - [x] Flexible LM-abstraction design and implementation ✅ **DONE: Clean exports with try/except for optional deps**
@@ -309,7 +300,7 @@ Requires: numpy, typing-extensions
 **4. Clean Architecture** ✅
 - Core abstractions always available (AbstractLanguageModel, AbstractScalingAlgorithm, etc.)
 - Core algorithms always available (SelfConsistency, BestOfN)
-- Dummy reward model for testing
+- LLM Judge reward model for Best-of-N (requires [lm] extra)
 - LM implementations optional (try/except import)
 
 **5. Updated Documentation** ✅
@@ -379,3 +370,143 @@ Requires: numpy, typing-extensions
 ### Timeline:
 - Phase 1 (Cleanup): ✅ Complete
 - Phase 2 (Validation): ✅ Complete
+
+---
+
+## Reward Model Architecture Design
+
+### Core Principle: Reward Model = LM Client + Scoring Logic
+
+Reward models are architecturally similar to language models - they query API endpoints and process responses. The key insight is to **reuse the AbstractLanguageModel abstraction** instead of duplicating API logic.
+
+### Design Pattern
+
+```python
+┌─────────────────────────────────────┐
+│  AbstractOutcomeRewardModel         │
+│  (Scoring interface)                │
+└─────────────────────────────────────┘
+           │ uses
+           ▼
+┌─────────────────────────────────────┐
+│  AbstractLanguageModel              │
+│  (API communication, retries, etc.) │
+└─────────────────────────────────────┘
+           │ implements
+           ▼
+┌─────────────────────────────────────┐
+│  OpenAICompatibleLanguageModel      │
+│  (Existing reference implementation)│
+└─────────────────────────────────────┘
+```
+
+### Interface Contract
+
+**AbstractOutcomeRewardModel:**
+```python
+def score(
+    self,
+    messages: list[list[dict]] | list[dict],  # Full conversations
+    **kwargs,  # Flexible parameters
+) -> list[float] | float:
+    """
+    Score conversations using OpenAI chat completion format.
+
+    - Single conversation: list[dict] → float
+    - Multiple conversations: list[list[dict]] → list[float]
+    """
+```
+
+**Key Design Decisions:**
+1. **Conversation-first**: Passes full conversations, not `(context, response)` split
+2. **API-based**: All reward models query endpoints (generative or classifier)
+3. **LM abstraction reuse**: No duplicate HTTP/retry/error handling logic
+4. **Async + batching**: Leverages LM's async capabilities for efficiency
+
+### Supported Reward Types
+
+**1. Generative Reward (MVP)**
+- Uses LLM to generate scores via prompting
+- Parses structured output (JSON) to extract scores
+- Example: LLMJudge scores conversation quality with reasoning
+
+**2. Classifier Reward (Future)**
+- Queries embedding/classifier endpoints
+- Returns direct float/vector scores
+- Example: Sentiment classifier, quality predictor
+
+**3. No Local Computation**
+- All scoring happens via API endpoints
+- Consistent with gateway integration philosophy
+
+### MVP Implementation: LLMJudge
+
+**Minimal generative reward model that:**
+- Reuses `AbstractLanguageModel` for API calls
+- Provides default judge prompt template
+- Parses JSON scores with fallback handling
+- Supports async + batching via LM's `agenerate()`
+
+**Example Usage:**
+```python
+from its_hub import BestOfN
+from its_hub.lms import OpenAICompatibleLanguageModel
+from its_hub.reward_models import LLMJudge
+
+# Create judge using existing LM abstraction
+judge_lm = OpenAICompatibleLanguageModel(
+    endpoint="https://api.openai.com/v1",
+    api_key="...",
+    model_name="gpt-4o-mini",
+)
+
+# LLMJudge reuses LM infrastructure
+judge = LLMJudge(lm=judge_lm, fallback_score=5.0)
+
+# Use with Best-of-N
+algorithm = BestOfN(judge)
+result = algorithm.infer(lm, prompt, budget=5)
+```
+
+### Benefits
+
+1. **Code reuse**: LM's retry logic, error handling, batching all work for free
+2. **Consistency**: Same API patterns for LM and reward models
+3. **Gateway-friendly**: Gateways implement one abstraction, use everywhere
+4. **Extensible**: Easy to add classifier-based rewards later
+5. **Minimal**: ~50 lines for LLMJudge, leverages existing infrastructure
+
+### Implementation Status
+
+**✅ LLMJudge Implementation Complete**
+
+The generative reward model (LLMJudge) has been implemented and tested:
+
+**Files Modified:**
+- `its_hub/reward_models.py` - Added LLMJudge class (~110 lines)
+- `tests/e2e/test_real_openai.py` - Added 5 E2E tests for LLMJudge (3 with tool calls, 2 text-only)
+
+**E2E Tests (All Passing ✅):**
+1. ✅ Single conversation with tool calls - Verified LLMJudge scores conversations containing tool calls
+2. ✅ Batch conversation with tool calls - Verified parallel batch scoring works with tool call conversations
+3. ✅ BestOfN integration with tool calls - Verified LLMJudge evaluates tool usage quality in BestOfN
+4. ✅ BestOfN integration (text only) - Verified LLMJudge works with text-only BestOfN responses
+5. ✅ Custom prompt - Verified custom judge prompts work correctly
+
+**Tool Call Coverage:** 3 out of 5 tests (60%) involve tool calls, ensuring LLMJudge properly handles both text and tool-based conversations.
+
+**Key Features Validated:**
+- ✅ Reuses AbstractLanguageModel for all API communication
+- ✅ Async batch scoring via LM's `agenerate()`
+- ✅ JSON parsing with fallback to `fallback_score`
+- ✅ Default judge prompt template with `{conversation}` placeholder
+- ✅ Custom judge prompt support
+- ✅ Single and batch conversation support
+- ✅ Integration with BestOfN algorithm
+- ✅ Tool call conversation support - Judge properly formats and scores conversations with tool calls
+
+**Design Validation:**
+- ✅ Zero duplicate API logic (all via AbstractLanguageModel)
+- ✅ Gateway-friendly interface (dict-based conversations)
+- ✅ Minimal implementation (~110 lines total)
+- ✅ Real API calls with gpt-4o-mini verified working

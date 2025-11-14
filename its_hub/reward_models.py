@@ -1,52 +1,136 @@
-"""Dummy reward model implementations for testing and demonstration."""
+"""Reward model implementations for production use."""
 
-from its_hub.base import AbstractOutcomeRewardModel
+import json
+import logging
+
+from its_hub.base import AbstractLanguageModel, AbstractOutcomeRewardModel
 
 
-class DummyRewardModel(AbstractOutcomeRewardModel):
+class LLMJudge(AbstractOutcomeRewardModel):
     """
-    A simple dummy reward model that returns a fixed score.
+    LLM-based judge that scores conversations using generative reward.
 
-    This is useful for testing algorithms without requiring a real reward model.
-    For production use, implement AbstractOutcomeRewardModel with your own
-    reward scoring logic.
+    Reuses AbstractLanguageModel for API communication (retry, error handling, batching).
+    Scores are generated via LLM prompting and parsed from structured JSON output.
     """
 
-    def __init__(self, fixed_score: float = 0.5):
+    DEFAULT_JUDGE_PROMPT = """Score the following conversation on a scale of 0-10.
+Return only a JSON object with your score.
+
+Conversation:
+{conversation}
+
+Format: {{"score": <number>}}"""
+
+    def __init__(
+        self,
+        lm: AbstractLanguageModel,
+        judge_prompt: str | None = None,
+        fallback_score: float = 5.0,
+    ):
         """
-        Initialize the dummy reward model.
+        Initialize LLM judge.
 
         Args:
-            fixed_score: The fixed score to return for all evaluations (default: 0.5)
+            lm: Language model to use for scoring (reuses existing LM abstraction)
+            judge_prompt: Custom judge prompt template. Use {conversation} placeholder.
+                         If None, uses DEFAULT_JUDGE_PROMPT.
+            fallback_score: Score to return if JSON parsing fails (default: 5.0)
         """
-        self.fixed_score = fixed_score
+        self.lm = lm
+        self.judge_prompt = judge_prompt or self.DEFAULT_JUDGE_PROMPT
+        self.fallback_score = fallback_score
 
-    async def ascore(self, prompt_or_messages, response):
+    def _format_conversation(self, messages: list[dict]) -> str:
+        """Format conversation messages as readable text, including tool calls."""
+        lines = []
+        for msg in messages:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+
+            # Format tool calls if present
+            tool_calls = msg.get("tool_calls")
+            if tool_calls:
+                tool_strs = []
+                for tc in tool_calls:
+                    if isinstance(tc, dict) and "function" in tc:
+                        func = tc["function"]
+                        func_name = func.get("name", "unknown")
+                        func_args = func.get("arguments", "{}")
+                        tool_strs.append(f"{func_name}({func_args})")
+                if tool_strs:
+                    lines.append(f"{role} [tool calls]: {', '.join(tool_strs)}")
+                if content:  # Also include content if present
+                    lines.append(f"{role}: {content}")
+            else:
+                # Regular message with content only
+                lines.append(f"{role}: {content}")
+        return "\n".join(lines)
+
+    def _build_judge_prompt(self, conversation: list[dict]) -> list[dict]:
+        """Build judge prompt from conversation."""
+        conversation_text = self._format_conversation(conversation)
+        prompt_text = self.judge_prompt.format(conversation=conversation_text)
+        return [{"role": "user", "content": prompt_text}]
+
+    def _parse_score(self, response_content: str) -> float:
+        """Parse score from LLM response with fallback."""
+        try:
+            # Try to parse JSON
+            parsed = json.loads(response_content)
+            score = float(parsed.get("score", self.fallback_score))
+            return score
+        except (json.JSONDecodeError, ValueError, TypeError) as e:
+            logging.warning(
+                f"Failed to parse score from response: {response_content[:100]}. "
+                f"Using fallback score {self.fallback_score}. Error: {e}"
+            )
+            return self.fallback_score
+
+    def score(
+        self,
+        messages: list[list[dict]] | list[dict],
+        **kwargs,
+    ) -> list[float] | float:
         """
-        Score a response or list of responses asynchronously.
+        Score conversations synchronously.
+
+        Not implemented - LLMJudge requires async for API calls.
+        Use ascore() instead.
+        """
+        raise NotImplementedError(
+            "LLMJudge requires async API calls. Use ascore() instead of score()."
+        )
+
+    async def ascore(
+        self,
+        messages: list[list[dict]] | list[dict],
+        **kwargs,
+    ) -> list[float] | float:
+        """
+        Score conversations asynchronously using LLM.
 
         Args:
-            prompt_or_messages: The input prompt (ignored)
-            response: The model's response or list of responses (ignored)
+            messages: Single conversation or multiple conversations
+            **kwargs: Additional parameters passed to LM (temperature, max_tokens, etc.)
 
         Returns:
-            The fixed score (or list of scores if response is a list)
+            Single score or list of scores
         """
-        if isinstance(response, list):
-            return [self.fixed_score for _ in response]
-        return self.fixed_score
+        # Detect batch vs single
+        is_batch = messages and isinstance(messages[0], list)
 
-    def score(self, prompt_or_messages, response):
-        """
-        Score a response or list of responses synchronously.
+        # Normalize to batch
+        conversations = messages if is_batch else [messages]
 
-        Args:
-            prompt_or_messages: The input prompt (ignored)
-            response: The model's response or list of responses (ignored)
+        # Build judge prompts for all conversations
+        judge_prompts = [self._build_judge_prompt(conv) for conv in conversations]
 
-        Returns:
-            The fixed score (or list of scores if response is a list)
-        """
-        if isinstance(response, list):
-            return [self.fixed_score for _ in response]
-        return self.fixed_score
+        # Leverage LM's async batching!
+        responses = await self.lm.agenerate(judge_prompts, **kwargs)
+
+        # Parse scores from responses
+        scores = [self._parse_score(r.get("content", "")) for r in responses]
+
+        # Return single or batch
+        return scores if is_batch else scores[0]

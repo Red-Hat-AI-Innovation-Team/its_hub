@@ -12,9 +12,6 @@ class SimpleMockLanguageModel:
         self.call_count = 0
 
     async def agenerate(self, messages, **kwargs):
-        return self.generate(messages, **kwargs)
-
-    def generate(self, messages, **kwargs):
         if isinstance(messages[0], list):
             # Multiple message lists
             content_responses = self.responses[self.call_count:self.call_count + len(messages)]
@@ -35,9 +32,6 @@ class StepMockLanguageModel(AbstractLanguageModel):
         self.call_count = 0
 
     async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
-        return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
-
-    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
         if isinstance(messages, list) and len(messages) > 0 and isinstance(messages[0], list):
             # Batched generation
             num_requests = len(messages)
@@ -54,13 +48,6 @@ class StepMockLanguageModel(AbstractLanguageModel):
             self.call_count += 1
             return {"role": "assistant", "content": content}
 
-    async def aevaluate(self, prompt: str, generation: str) -> list[float]:
-        return self.evaluate(prompt, generation)
-
-    def evaluate(self, prompt: str, generation: str) -> list[float]:
-        """Return mock evaluation scores."""
-        return [0.1] * len(generation.split())
-
 
 class ErrorMockLanguageModel(AbstractLanguageModel):
     """Mock language model that can simulate errors."""
@@ -71,9 +58,6 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
         self.call_count = 0
 
     async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
-        return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
-
-    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
         if self.call_count in self.error_on_calls:
             self.call_count += 1
             raise Exception("Simulated LM error")
@@ -95,9 +79,3 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
             content = self.responses[self.call_count % len(self.responses)]
             self.call_count += 1
             return {"role": "assistant", "content": content}
-
-    async def aevaluate(self, prompt: str, generation: str) -> list[float]:
-        return self.evaluate(prompt, generation)
-
-    def evaluate(self, prompt: str, generation: str) -> list[float]:
-        return [0.1] * len(generation.split())
