@@ -6,111 +6,126 @@
 
 **its_hub** is a Python library for inference-time scaling of LLMs, focusing on mathematical reasoning tasks.
 
-## 📚 Documentation
-
-For comprehensive documentation, including installation guides, tutorials, and API reference, visit:
-
-**[https://ai-innovation.team/its_hub](https://ai-innovation.team/its_hub)**
-
 ## Installation
 
-Choose the installation option based on which algorithms you need:
+**its_hub** provides a minimal core focused on algorithms, with optional language model implementations.
+
+### Core Installation (Algorithms Only)
+
+For **gateway integration** - just algorithms and interfaces, minimal dependencies:
 
 ```bash
-# Core installation - includes:
-#   - Best-of-N with LLM Judge
-#   - Self-Consistency
-#   - OpenAI-compatible language models
 pip install its_hub
+```
 
-# Process Reward Model installation - adds:
-#   - Particle Filtering
-#   - Beam Search
-#   - LocalVllmProcessRewardModel
-#   - Required for step-by-step reasoning with process reward models
-pip install its_hub[prm]
+This includes:
+- ✓ Self-Consistency and Best-of-N algorithms
+- ✓ Abstract base classes (`AbstractLanguageModel`, `AbstractOutcomeRewardModel`)
+- ✓ Dummy reward model for testing
+- ✓ Only 2 dependencies: `numpy`, `typing-extensions`
 
-# Development installation
+### With Language Model Support
+
+For **standalone use** - includes OpenAI-compatible language model implementation:
+
+```bash
+pip install its_hub[lm]
+```
+
+Adds: `OpenAICompatibleLanguageModel`, `StepGeneration` (requires `openai`, `aiohttp`, `backoff`)
+
+### Development Installation
+
+```bash
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 cd its_hub
 pip install -e ".[dev]"
+# or using uv:
+uv sync --extra dev
 ```
 
 ## Quick Start
 
-### Example 1: Best-of-N with LLM Judge
+### Example 1: Gateway Integration (Core Installation)
 
-**Installation required:** `pip install its_hub` (core)
+**Installation required:** `pip install its_hub` (core only, minimal dependencies)
 
-Use Best-of-N algorithm with an LLM judge for response selection - works with any OpenAI-compatible API:
+Integrate its_hub algorithms into your AI gateway by implementing the `AbstractLanguageModel` interface:
 
 ```python
-from its_hub.lms import OpenAICompatibleLanguageModel
-from its_hub.algorithms import BestOfN
-from its_hub.integration.reward_hub import LLMJudgeRewardModel
+from its_hub import AbstractLanguageModel, SelfConsistency, BestOfN, DummyRewardModel
+from its_hub.types import ChatMessage
 
-# Initialize language model
+# Step 1: Implement the language model interface with your gateway's LM client
+class MyGatewayLM(AbstractLanguageModel):
+    def __init__(self, gateway_client):
+        self.client = gateway_client
+
+    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, **kwargs):
+        """Use your gateway's existing LM client."""
+        response = await self.client.generate(messages, stop=stop, max_tokens=max_tokens)
+        return {"role": "assistant", "content": response}
+
+# Step 2: Use its_hub algorithms
+lm = MyGatewayLM(your_gateway_client)
+
+# Self-Consistency example
+sc_algorithm = SelfConsistency()
+result = await sc_algorithm.ainfer(lm, "What is 2+2?", budget=5)
+print(result.the_one)  # Most common answer from 5 generations
+
+# Best-of-N example with dummy reward model
+bon_algorithm = BestOfN(DummyRewardModel(fixed_score=0.8))
+result = await bon_algorithm.ainfer(lm, "Explain quantum physics", budget=4)
+print(result.the_one)  # Best response from 4 generations
+```
+
+### Example 2: Standalone Use with OpenAI-Compatible LM
+
+**Installation required:** `pip install its_hub[lm]`
+
+Use the provided OpenAI-compatible language model implementation:
+
+```python
+from its_hub import SelfConsistency
+from its_hub.lms import OpenAICompatibleLanguageModel
+
+# Initialize with any OpenAI-compatible API (OpenAI, vLLM, etc.)
 lm = OpenAICompatibleLanguageModel(
     endpoint="https://api.openai.com/v1",
     api_key="your-api-key",
     model_name="gpt-4o-mini",
 )
 
-# Set up LLM judge for scoring
-judge = LLMJudgeRewardModel(
-    model="gpt-4o-mini",
-    criterion="overall_quality",
-    judge_type="groupwise",
-    api_key="your-api-key",
-)
-scaling_alg = BestOfN(judge)
-
-# Generate multiple responses and select the best
-result = scaling_alg.infer(lm, "Explain quantum entanglement in simple terms", budget=4)
-print(result)
+# Use Self-Consistency algorithm
+algorithm = SelfConsistency()
+result = algorithm.infer(lm, "What is the capital of France?", budget=3)
+print(result.the_one)  # Most common answer from 3 generations
 ```
 
-### Example 2: Particle Filtering with Process Reward Model
+### Example 3: Custom Reward Model for Best-of-N
 
-**Installation required:** `pip install its_hub[prm]`
-
-Use Particle Filtering for step-by-step reasoning with process reward models:
+Implement your own reward model for Best-of-N selection:
 
 ```python
-from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
-from its_hub.lms import OpenAICompatibleLanguageModel, StepGeneration
-from its_hub.algorithms import ParticleFiltering
-from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
+from its_hub import AbstractOutcomeRewardModel, BestOfN
 
-# Initialize language model (requires vLLM server running)
-lm = OpenAICompatibleLanguageModel(
-    endpoint="http://localhost:8100/v1",
-    api_key="NO_API_KEY",
-    model_name="Qwen/Qwen2.5-Math-1.5B-Instruct",
-    system_prompt=SAL_STEP_BY_STEP_SYSTEM_PROMPT,
-)
+class MyCustomRewardModel(AbstractOutcomeRewardModel):
+    async def evaluate(self, prompt: str, response: str) -> float:
+        # Your custom scoring logic here
+        score = len(response) / 100.0  # Example: prefer longer responses
+        return score
 
-# Set up step generation and process reward model
-sg = StepGeneration(step_token="\n\n", max_steps=32, stop_token=r"\boxed")
-prm = LocalVllmProcessRewardModel(
-    model_name="Qwen/Qwen2.5-Math-PRM-7B",
-    device="cuda:0",
-    aggregation_method="prod"
-)
-scaling_alg = ParticleFiltering(sg, prm)
-
-# Solve with step-by-step reasoning
-result = scaling_alg.infer(lm, "Solve x^2 + 5x + 6 = 0", budget=8)
-print(result)
+# Use with Best-of-N
+reward_model = MyCustomRewardModel()
+algorithm = BestOfN(reward_model)
+result = await algorithm.ainfer(lm, "Write a story", budget=5)
 ```
 
 ## Key Features
 
 - 🔬 **Multiple Algorithms**: Particle Filtering, Best-of-N, Beam Search, Self-Consistency
-- 🚀 **OpenAI-Compatible API**: Easy integration with existing applications  
-- 🧮 **Math-Optimized**: Built for mathematical reasoning with specialized prompts
-- 📊 **Benchmarking Tools**: Compare algorithms on MATH500 and AIME-2024 datasets
+- 🚀 **Gateway Integration**: Clean abstractions for easy integration with AI gateways
+- 🧮 **Math-Optimized**: Built for mathematical reasoning tasks
 - ⚡ **Async Support**: Concurrent generation with limits and error handling
-
-
-For detailed documentation, visit: [https://ai-innovation.team/its_hub](https://ai-innovation.team/its_hub)
+- 🎯 **Minimal Core**: Only 2 dependencies (numpy, typing-extensions) for core install

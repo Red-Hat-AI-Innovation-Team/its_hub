@@ -1,27 +1,18 @@
-import json
-# the system prompt for step-by-step reasoning taken from https://github.com/huggingface/search-and-learn
-SAL_STEP_BY_STEP_SYSTEM_PROMPT = "Solve the following math problem efficiently and clearly:\n\n- For simple problems (2 steps or fewer):\nProvide a concise solution with minimal explanation.\n\n- For complex problems (3 steps or more):\nUse this step-by-step format:\n\n## Step 1: [Concise description]\n[Brief explanation and calculations]\n\n## Step 2: [Concise description]\n[Brief explanation and calculations]\n\n...\n\nRegardless of the approach, always conclude with:\n\nTherefore, the final answer is: $\\boxed{answer}$. I hope it is correct.\n\nWhere [answer] is just the final number or expression that solves the problem."
+"""Utility functions for its_hub."""
 
-QWEN_SYSTEM_PROMPT = (
-    "Please reason step by step, and put your final answer within \\boxed{}."
-)
+import json
 
 
 def extract_content_from_lm_response(message: dict) -> str:
     """
-    Extract content from a single LM response message object.
+    Extract content from a language model response message.
 
     Args:
-        message: A message dict returned by fetch_single_response.
+        message: A message dict with 'content' and optional 'tool_calls'
 
     Returns:
-        The content string. If the message contains tool calls, returns the content
-        if available, otherwise returns an empty string.
+        The content string. For tool calls, includes formatted tool information.
     """
-    # TODO: This conversion to text is not ideal as it involves manually formatting
-    # tool calls and neglects images in multi-modal content. Consider refactoring
-    # to work with structured message objects instead of flattening to strings.
-
     # Extract text content (handle both string and list[dict] formats)
     raw_content = message.get("content")
 
@@ -30,7 +21,7 @@ def extract_content_from_lm_response(message: dict) -> str:
     elif isinstance(raw_content, str):
         content = raw_content
     elif isinstance(raw_content, list):
-        # Multi-modal content: extract text parts (images are ignored)
+        # Multi-modal content: extract text parts
         text_parts = [
             item.get("text", "")
             for item in raw_content
@@ -38,9 +29,12 @@ def extract_content_from_lm_response(message: dict) -> str:
         ]
         content = " ".join(text_parts)
     else:
-        raise ValueError(f"Invalid content type: {type(raw_content)}, expected str, list[dict], or None")
+        raise ValueError(
+            f"Invalid content type: {type(raw_content)}, "
+            f"expected str, list[dict], or None"
+        )
 
-    # If there are tool calls, add tool-calls to the content
+    # If there are tool calls, append tool call information
     if message.get("tool_calls"):
         tool_calls = message.get("tool_calls", [])
         tool_descriptions = []
@@ -48,9 +42,14 @@ def extract_content_from_lm_response(message: dict) -> str:
             if isinstance(tc, dict) and "function" in tc:
                 func = tc["function"]
                 func_name = func.get("name", "unknown")
-                tool_descriptions.append(f"[Tool call: {func_name} Tool args: {json.dumps(func.get('arguments', {}))}]")
+                func_args = json.dumps(func.get("arguments", {}))
+                tool_descriptions.append(
+                    f"[Tool call: {func_name} Tool args: {func_args}]"
+                )
             else:
-                raise ValueError(f"Invalid tool call: {tc}, expected a dict with a 'function' key")
+                raise ValueError(
+                    f"Invalid tool call: {tc}, expected dict with 'function' key"
+                )
         content += " ".join(tool_descriptions)
 
     return content
