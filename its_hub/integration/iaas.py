@@ -55,7 +55,10 @@ app = FastAPI(
 
 # Global state - TODO: Replace with proper dependency injection in production
 LM_DICT: dict[str, OpenAICompatibleLanguageModel | LiteLLMLanguageModel] = {}
-SCALING_ALG: Any | None = None  # TODO: Add proper type annotation
+# Store all configured algorithms: {"self-consistency": instance, "best-of-n": instance, ...}
+ALGORITHM_REGISTRY: dict[str, Any] = {}
+# Store algorithm configurations: {"self-consistency": {"models": [...], ...}, ...}
+ALGORITHM_CONFIGS: dict[str, dict] = {}
 ROUTER: Any | None = None  # LLM Router for dynamic algorithm selection
 
 
@@ -140,6 +143,9 @@ class ConfigRequest(BaseModel):
     )
     router_max_budget: int | None = Field(
         32, description="Maximum budget the router can allocate"
+    )
+    router_system_prompt: str | None = Field(
+        None, description="Custom system prompt for router (uses default if not provided)"
     )
 
     @field_validator("alg")
@@ -240,7 +246,7 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
             logger.error(f"vLLM is required; install with `pip install its-hub[vllm]`: {e}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="vLLM is required; install with `pip install its-hub[vllm]`") from e
 
-    global LM_DICT, SCALING_ALG, ROUTER
+    global LM_DICT, ALGORITHM_REGISTRY, ALGORITHM_CONFIGS, ROUTER
 
     logger.info(f"Configuring service with model={request.model}, alg={request.alg}, router_enabled={request.enable_router}")
 
@@ -266,7 +272,7 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
             )
         LM_DICT[request.model] = lm
 
-        # Configure scaling algorithm
+        # Configure scaling algorithm and register it
         if request.alg == "particle-filtering":
             # TODO: Make these parameters configurable
             sg = StepGeneration(
@@ -283,7 +289,12 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
                 device=request.rm_device,
                 aggregation_method=AggregationMethod(request.rm_agg_method or "model"),
             )
-            SCALING_ALG = ParticleFiltering(sg, prm)
+            algorithm = ParticleFiltering(sg, prm)
+            ALGORITHM_REGISTRY["particle-filtering"] = algorithm
+            ALGORITHM_CONFIGS["particle-filtering"] = {
+                "models": [request.model],
+                "judge_model": request.rm_name,
+            }
 
         elif request.alg == "best-of-n":
             if request.rm_name == "llm-judge":
@@ -351,7 +362,12 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
                     aggregation_method=AggregationMethod("model"),
                 )
 
-            SCALING_ALG = BestOfN(reward_model)
+            algorithm = BestOfN(reward_model)
+            ALGORITHM_REGISTRY["best-of-n"] = algorithm
+            ALGORITHM_CONFIGS["best-of-n"] = {
+                "models": [request.model],
+                "judge_model": request.rm_name or "llm-judge",
+            }
 
         elif request.alg == "self-consistency":
             # Create projection function from regex patterns
@@ -361,11 +377,15 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
                 )
             else:
                 projection_func = None
-            SCALING_ALG = SelfConsistency(
+            algorithm = SelfConsistency(
                 projection_func,
                 tool_vote=request.tool_vote,
                 exclude_args=request.exclude_tool_args,
             )
+            ALGORITHM_REGISTRY["self-consistency"] = algorithm
+            ALGORITHM_CONFIGS["self-consistency"] = {
+                "models": [request.model],
+            }
 
         # Configure router if enabled
         if request.enable_router:
@@ -379,15 +399,19 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
 
             logger.info(f"Initializing LLM Router with model={request.router_model}")
 
-            ROUTER = LLMRouter(
-                router_model=request.router_model,
-                router_api_key=router_api_key,
-                router_base_url=router_base_url,
-                max_budget=request.router_max_budget or 32,
-                available_generation_models=list(LM_DICT.keys()),
-                available_judge_models=[request.rm_name] if request.rm_name else [],
-                enable_routing_logging=True,
-            )
+            # Pass custom system prompt if provided
+            router_kwargs = {
+                "router_model": request.router_model,
+                "router_api_key": router_api_key,
+                "router_base_url": router_base_url,
+                "enable_logging": True,
+            }
+
+            if request.router_system_prompt:
+                router_kwargs["system_prompt"] = request.router_system_prompt
+                logger.info("Using custom router system prompt")
+
+            ROUTER = LLMRouter(**router_kwargs)
             logger.info("LLM Router initialized successfully")
         else:
             ROUTER = None
@@ -444,6 +468,12 @@ class ChatCompletionRequest(BaseModel):
     )
     use_router: bool = Field(
         False, description="Use LLM router to dynamically select algorithm and budget (overrides budget parameter)"
+    )
+    router_max_budget: int | None = Field(
+        None, description="Maximum budget the router can allocate (uses configured value if not specified)"
+    )
+    seed: int | None = Field(
+        None, description="Random seed for reproducible outputs"
     )
 
     @field_validator("messages")
@@ -540,6 +570,66 @@ class ChatCompletionResponse(BaseModel):
     )
 
 
+def _sanitize_messages(messages: list[ChatMessage]) -> list[ChatMessage]:
+    """Sanitize incoming messages to handle common client-side formatting issues.
+
+    Fixes:
+    1. tool_calls: None -> removes the field entirely
+    2. Extra 'name' field in tool_calls -> removes it
+    3. Ensures tool_calls follow OpenAI format
+    """
+    sanitized = []
+
+    for msg in messages:
+        # Convert to dict for easier manipulation
+        if hasattr(msg, 'to_dict'):
+            msg_dict = msg.to_dict()
+        elif hasattr(msg, '__dict__'):
+            msg_dict = dict(msg.__dict__)
+        else:
+            # Already a dict
+            msg_dict = dict(msg)
+
+        # Fix tool_calls field
+        if "tool_calls" in msg_dict:
+            if msg_dict["tool_calls"] is None:
+                # Remove None tool_calls
+                del msg_dict["tool_calls"]
+            elif isinstance(msg_dict["tool_calls"], list) and msg_dict["tool_calls"]:
+                # Clean up tool call structure
+                cleaned_tool_calls = []
+                for tc in msg_dict["tool_calls"]:
+                    if not isinstance(tc, dict):
+                        continue
+
+                    # Create properly formatted tool call
+                    cleaned_tc = {
+                        "id": tc.get("id", ""),
+                        "type": tc.get("type", "function"),
+                        "function": tc.get("function", {})
+                    }
+
+                    # Remove any extra 'name' field at the top level
+                    # (it should only be in the 'function' object)
+
+                    cleaned_tool_calls.append(cleaned_tc)
+
+                msg_dict["tool_calls"] = cleaned_tool_calls if cleaned_tool_calls else None
+
+                # Remove tool_calls if it's now None
+                if msg_dict["tool_calls"] is None:
+                    del msg_dict["tool_calls"]
+
+        # Recreate ChatMessage from sanitized dict
+        # Return as-is if already a proper ChatMessage, otherwise create new one
+        if isinstance(msg, ChatMessage) and "tool_calls" not in msg_dict:
+            sanitized.append(msg)
+        else:
+            sanitized.append(ChatMessage(**msg_dict))
+
+    return sanitized
+
+
 @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResponse:
     """Generate chat completion with inference-time scaling."""
@@ -558,7 +648,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             detail=f"Model '{request.model}' not found. Available models: {available_models}",
         ) from None
 
-    if SCALING_ALG is None:
+    if not ALGORITHM_REGISTRY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Service not configured. Please call /configure first.",
@@ -569,46 +659,79 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         if request.temperature is not None:
             lm.temperature = request.temperature
 
+        # Sanitize incoming messages to handle client-side formatting issues
+        sanitized_messages = _sanitize_messages(list(request.messages))
+
         # Create ChatMessages from the full conversation history
-        # Convert Pydantic ChatMessage objects to list if needed
-        chat_messages = ChatMessages(list(request.messages))
+        chat_messages = ChatMessages(sanitized_messages)
 
-        # Use router if enabled and requested
-        actual_budget = request.budget
-        routing_info = None
+        # Determine which algorithm to use
+        if request.use_router and ROUTER is not None:
+            # Use router to select algorithm dynamically
+            logger.info("Using LLM Router for algorithm selection")
+            routing_decision = await ROUTER.route(
+                chat_messages,
+                available_algorithms=ALGORITHM_CONFIGS,
+                max_budget=request.router_max_budget or 32,
+            )
 
-        if request.use_router:
-            if ROUTER is None:
-                logger.warning("Router requested but not configured. Using default budget.")
-            else:
-                logger.info("Using LLM Router for algorithm selection")
-                routing_decision = await ROUTER.route(chat_messages)
+            selected_algorithm = routing_decision.algorithm
+            actual_budget = routing_decision.budget
+            selected_model_name = routing_decision.model
 
-                # Override budget with router's decision
-                actual_budget = routing_decision.budget
-                routing_info = {
-                    "complexity": routing_decision.complexity,
-                    "algorithm": routing_decision.algorithm,
-                    "budget": routing_decision.budget,
-                    "reasoning": routing_decision.reasoning,
-                }
+            routing_info = {
+                "complexity": routing_decision.complexity,
+                "algorithm": routing_decision.algorithm,
+                "budget": routing_decision.budget,
+                "model": routing_decision.model,
+                "reasoning": routing_decision.reasoning,
+            }
 
-                logger.info(
-                    f"Router selected: algorithm={routing_decision.algorithm}, "
-                    f"budget={routing_decision.budget}, complexity={routing_decision.complexity}"
+            logger.info(
+                f"Router selected: algorithm={selected_algorithm}, "
+                f"budget={actual_budget}, model={selected_model_name}, "
+                f"complexity={routing_decision.complexity}"
+            )
+
+            # Get the algorithm instance
+            if selected_algorithm not in ALGORITHM_REGISTRY:
+                logger.error(f"Router selected unavailable algorithm: {selected_algorithm}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Selected algorithm '{selected_algorithm}' not configured",
                 )
 
-                # Note: In this version, we still use the pre-configured algorithm
-                # Future enhancement: dynamically switch algorithms based on router decision
-                # For now, the router primarily influences the budget parameter
+            selected_alg = ALGORITHM_REGISTRY[selected_algorithm]
+
+            # Get the language model for the selected model
+            if selected_model_name in LM_DICT:
+                selected_lm = LM_DICT[selected_model_name]
+            else:
+                logger.warning(
+                    f"Router selected model '{selected_model_name}' not found. "
+                    f"Using '{request.model}'"
+                )
+                selected_lm = lm
+
+        else:
+            # Use the first configured algorithm (backward compatibility)
+            selected_algorithm = next(iter(ALGORITHM_REGISTRY.keys()))
+            selected_alg = ALGORITHM_REGISTRY[selected_algorithm]
+            actual_budget = request.budget
+            selected_lm = lm
+            routing_info = None
+
+            logger.info(
+                f"Using configured algorithm: {selected_algorithm}, budget={actual_budget}"
+            )
 
         logger.info(
-            f"Processing request for model={request.model}, budget={actual_budget}"
+            f"Processing request with algorithm={selected_algorithm}, budget={actual_budget}"
         )
 
-        # Generate response using scaling algorithm with full conversation context
-        algorithm_result = await SCALING_ALG.ainfer(
-            lm,
+        # Generate response using selected algorithm
+        algorithm_result = await selected_alg.ainfer(
+            selected_lm,
             chat_messages,
             actual_budget,
             return_response_only=request.return_response_only,
@@ -631,9 +754,6 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             if metadata is None:
                 metadata = {}
             metadata["routing"] = routing_info
-
-        # Use the selected response directly without any modification
-        response_chat_message = response_message
 
         # Extract usage information from algorithm result
         if hasattr(algorithm_result, "usage"):
@@ -660,7 +780,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             choices=[
                 ChatCompletionChoice(
                     index=0,
-                    message=response_chat_message,
+                    message=response_message,
                     finish_reason="stop",
                 )
             ],
@@ -671,15 +791,6 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             metadata=metadata,
         )
 
-        # Log response with content info
-        content = response_message.get('content')
-        if isinstance(content, list):
-            has_image = any(item.get('type') == 'image_url' for item in content if isinstance(item, dict))
-            text_content = ' '.join(item.get('text', '') for item in content if isinstance(item, dict) and item.get('type') == 'text')
-            img_note = " (with images)" if has_image else ""
-            logger.info(f"Successfully generated response (length: {len(text_content)}{img_note})")
-        else:
-            logger.info(f"Successfully generated response (content length: {len(content or '')})")
         return response
 
     except Exception as e:

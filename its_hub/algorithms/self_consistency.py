@@ -174,10 +174,19 @@ class SelfConsistency(AbstractScalingAlgorithm):
         """run inference asynchronously with self-consistency"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
-        # generate responses
-        responses = await lm.agenerate(
+        # generate responses - may return tuples (message, usage) from LiteLLM or dicts from OpenAI
+        response_or_tuples = await lm.agenerate(
             chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
         )
+
+        # Handle both LiteLLM (returns tuples) and OpenAI (returns dicts)
+        # Check if first element is a tuple to determine format
+        if response_or_tuples and isinstance(response_or_tuples[0], tuple):
+            # LiteLLM format: list of (message_dict, usage_dict) tuples
+            responses = [msg for msg, _ in response_or_tuples]
+        else:
+            # OpenAI format: list of message dicts
+            responses = response_or_tuples
 
         # process responses and return result
         return self._process_responses(responses, return_response_only)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from pydantic.dataclasses import dataclass
+import logging
 
 
 @dataclass
@@ -35,7 +36,7 @@ class ChatMessage:
     """
 
     role: Literal["system", "user", "assistant", "tool"]
-    content: str | list[dict] | None
+    content: str | list[dict] | None = None  # Default to None for messages with only tool_calls
     tool_calls: list[dict] | None = None  # Store as plain dicts, not Pydantic objects
     tool_call_id: str | None = None
 
@@ -118,8 +119,11 @@ class ChatMessages:
                 # Assistant with tool calls: show tool calls + content if any
                 tool_call_strs = []
                 for tc in msg.tool_calls:
-                    if tc.function:
-                        tool_call_strs.append(f"{tc.function.name}()")
+                    # tc is a dict, not an object
+                    if isinstance(tc, dict) and tc.get("function"):
+                        function_info = tc.get("function", {})
+                        function_name = function_info.get("name", "unknown") if isinstance(function_info, dict) else "unknown"
+                        tool_call_strs.append(f"{function_name}()")
                 tool_calls_text = ", ".join(tool_call_strs)
                 if text_content:
                     lines.append(f"assistant: {text_content} [calls: {tool_calls_text}]")

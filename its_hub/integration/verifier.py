@@ -14,45 +14,13 @@ from pydantic import BaseModel
 from its_hub.lms import LiteLLMLanguageModel
 from its_hub.types import ChatMessage, ChatMessages
 
-# Set up dedicated router logger
-logger = logging.getLogger(__name__)
+policy = open("policy.md", "r").read()
 
-# Create a separate file handler for router logs
-router_logger = logging.getLogger("its_hub.router")
-router_logger.setLevel(logging.DEBUG)
+ROUTER_SYSTEM_PROMPT = """You are an AI router that selects the optimal inference strategy for generating the next response in a conversation based on the previous conversation history.
 
-# Create logs directory if it doesn't exist
-log_dir = Path("logs")
-log_dir.mkdir(exist_ok=True)
+The task that you are solving will be a multi-step multi-turn agentic task. 
 
-# Configure file handler for router logs
-router_file_handler = logging.FileHandler(log_dir / "router.log")
-router_file_handler.setLevel(logging.DEBUG)
 
-# Configure console handler for router logs
-router_console_handler = logging.StreamHandler()
-router_console_handler.setLevel(logging.INFO)
-
-# Configure formatter
-router_formatter = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-router_file_handler.setFormatter(router_formatter)
-router_console_handler.setFormatter(router_formatter)
-
-# Add handlers to router logger
-if not router_logger.handlers:
-    router_logger.addHandler(router_file_handler)
-    router_logger.addHandler(router_console_handler)
-
-# Prevent propagation to root logger to avoid duplicate logs
-router_logger.propagate = False
-
-# ============================================================================
-# Router Prompts
-# ============================================================================
-
-ROUTER_SYSTEM_PROMPT = """You are an AI router that selects the optimal inference-time scaling strategy for genrating the next agent response based on the previous conversation history.
 The task is a multi-turn task, so at every step you are trying to select the best strategy to generate only the next(1 response) towards solving the user's task. So decision should be made with this in mind.
 You will be receiving conversation history which basically would contain user query, agent response, tool response, your task is to select the best inference time scaling strategy with the most optimal set of parameters required to get the most immediate next step only.
 
