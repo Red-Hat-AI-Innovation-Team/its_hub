@@ -575,3 +575,120 @@ test-response-formats:
     curl -s -X POST http://localhost:8108/v1/chat/completions \
         -H "Content-Type: application/json" \
         -d '{"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": "What is 2+2?"}], "budget": 2, "return_response_only": false}' | jq .
+
+# =============================================================================
+# Router Configuration
+# =============================================================================
+
+# Configure self-consistency with router enabled (gpt-4.1-mini model)
+config-router-sc:
+    #!/bin/bash
+    source .env
+    curl -X POST http://localhost:8108/configure \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"provider\": \"litellm\",
+            \"endpoint\": \"auto\",
+            \"api_key\": \"$OPENAI_API_KEY\",
+            \"model\": \"gpt-4.1-mini\",
+            \"alg\": \"self-consistency\",
+            \"tool_vote\": \"tool_hierarchical\",
+            \"exclude_tool_args\": [\"timestamp\", \"request_id\", \"id\", \"type\"],
+            \"enable_router\": true,
+            \"router_model\": \"gpt-4.1-mini\",
+            \"router_api_key\": \"$OPENAI_API_KEY\",
+            \"router_base_url\": \"auto\",
+            \"router_max_budget\": 16
+        }" \
+        -w "\nHTTP Status: %{http_code}\n" -v
+
+# Configure best-of-n with LLM judge and router enabled (gpt-4.1-mini model, gpt-4.1-mini judge)
+config-router-bon:
+    #!/bin/bash
+    source .env
+    # Use JUDGE_CRITERION from env if set, otherwise use default
+    CRITERION="${JUDGE_CRITERION:-overall_quality}"
+    curl -X POST http://localhost:8108/configure \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"provider\": \"litellm\",
+            \"endpoint\": \"auto\",
+            \"api_key\": \"$OPENAI_API_KEY\",
+            \"model\": \"gpt-4.1\",
+            \"alg\": \"best-of-n\",
+            \"rm_name\": \"llm-judge\",
+            \"judge_model\": \"gpt-4.1-mini\",
+            \"judge_base_url\": \"auto\",
+            \"judge_mode\": \"groupwise\",
+            \"judge_criterion\": \"$CRITERION\",
+            \"judge_api_key\": \"$OPENAI_API_KEY\",
+            \"judge_temperature\": 0.7,
+            \"judge_max_tokens\": 2048,
+            \"enable_router\": true,
+            \"router_model\": \"gpt-4.1-mini\",
+            \"router_api_key\": \"$OPENAI_API_KEY\",
+            \"router_base_url\": \"auto\",
+            \"router_max_budget\": 16
+        }" \
+        -w "\nHTTP Status: %{http_code}\n" -v
+
+# Configure best-of-n with router and verifier enabled (full pipeline with verification and regeneration)
+config-router-verifier-bon:
+    #!/bin/bash
+    source .env
+    # Use JUDGE_CRITERION from env if set, otherwise use default
+    CRITERION="${JUDGE_CRITERION:-overall_quality}"
+    curl -X POST http://localhost:8108/configure \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"provider\": \"litellm\",
+            \"endpoint\": \"auto\",
+            \"api_key\": \"$OPENAI_API_KEY\",
+            \"model\": \"gpt-4.1\",
+            \"alg\": \"best-of-n\",
+            \"rm_name\": \"llm-judge\",
+            \"judge_model\": \"gpt-4.1\",
+            \"judge_base_url\": \"auto\",
+            \"judge_mode\": \"groupwise\",
+            \"judge_criterion\": \"$CRITERION\",
+            \"judge_api_key\": \"$OPENAI_API_KEY\",
+            \"judge_temperature\": 0.7,
+            \"judge_max_tokens\": 2048,
+            \"enable_router\": true,
+            \"router_model\": \"gpt-4.1\",
+            \"router_api_key\": \"$OPENAI_API_KEY\",
+            \"router_base_url\": \"auto\",
+            \"router_max_budget\": 8,
+            \"enable_verifier\": true,
+            \"verifier_model\": \"gpt-4.1\",
+            \"verifier_api_key\": \"$OPENAI_API_KEY\",
+            \"verifier_base_url\": \"auto\",
+            \"regenerator_model\": \"gpt-4.1\",
+            \"regenerator_max_tokens\": 2048,
+            \"verifier_budget\": 2
+        }" \
+        -w "\nHTTP Status: %{http_code}\n" -v
+
+# Test with router - simple query (should use self-consistency, low complexity)
+test-router-simple:
+    curl -s -X POST http://localhost:8108/v1/chat/completions \
+        -H "Content-Type: application/json" \
+        -d '{"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": "What is 5 + 3?"}], "budget": 8, "use_router": true, "return_response_only": false}' | jq .
+
+# Test with router - complex math problem (should use higher budget)
+test-router-complex:
+    curl -s -X POST http://localhost:8108/v1/chat/completions \
+        -H "Content-Type: application/json" \
+        -d '{"model": "gpt-4.1-mini", "messages": [{"role": "system", "content": "Solve step by step and put your final answer in \\boxed{} format."}, {"role": "user", "content": "A rectangular garden is 3 times as long as it is wide. If the perimeter is 56 meters, what are the dimensions and area?"}], "budget": 8, "use_router": true, "router_max_budget": 24, "return_response_only": false}' | jq .
+
+# Test with router - creative writing (should potentially select different algorithm)
+test-router-creative:
+    curl -s -X POST http://localhost:8108/v1/chat/completions \
+        -H "Content-Type: application/json" \
+        -d '{"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": "Write a creative short story about a robot learning to paint. Make it engaging and emotional."}], "budget": 8, "use_router": true, "return_response_only": false}' | jq .
+
+# Test with verifier - should verify and regenerate if needed
+test-verifier:
+    curl -s -X POST http://localhost:8108/v1/chat/completions \
+        -H "Content-Type: application/json" \
+        -d '{"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": "I want to cancel my basic economy flight immediately"}], "budget": 4, "use_verifier": true, "verifier_budget": 3, "return_response_only": false}' | jq .

@@ -52,17 +52,20 @@ router_logger.propagate = False
 # Router Prompts
 # ============================================================================
 
-ROUTER_SYSTEM_PROMPT = """You are an AI router that selects the optimal inference-time scaling strategy for genrating the next agent response based on the previous conversation history.
+ROUTER_SYSTEM_PROMPT = """You are an AI router that selects the optimal inference strategy for generating the next response in a conversation based on the previous conversation history.
+
+The task that you are solving will be a multi-step multi-turn agentic task. 
+
+
 The task is a multi-turn task, so at every step you are trying to select the best strategy to generate only the next(1 response) towards solving the user's task. So decision should be made with this in mind.
 You will be receiving conversation history which basically would contain user query, agent response, tool response, your task is to select the best inference time scaling strategy with the most optimal set of parameters required to get the most immediate next step only.
 
 You must output:
 
 1. reasoning: reason briefly on what would be the best strategy and parameters for the next step generation
-2. complexity: select from range of 1-10
-3. algorithm: self-consistency | best-of-n
-4. budget: integer sample count
-5. model: model tier or name
+2. algorithm: self-consistency | best-of-n
+3. budget: integer sample count
+4. model: model tier or name
 
 Return ONLY valid JSON.
 
@@ -99,7 +102,6 @@ Required Output Format
 ```json
 {
   "reasoning": "<brief reasoning>",
-  "complexity": "<select from range of 1-10>",
   "algorithm": "self-consistency|best-of-n",
   "budget": <integer>,
   "model": "<model_name_or_size>"
@@ -112,6 +114,7 @@ Conversation:
 {conversation}
 
 Available algorithms and their configurations:
+You can only choose from the following algorithms and their configurations:
 {algorithms_config}
 
 Max allowed budget: {max_budget}
@@ -161,7 +164,6 @@ def parse_router_response(response_content: str) -> dict:
 
 class RouterDecision(BaseModel):
     reasoning: str
-    complexity: int
     algorithm: str
     budget: int
     model: str
@@ -173,7 +175,6 @@ class RouterDecision(BaseModel):
     def to_dict(self) -> dict:
         return {
             "reasoning": self.reasoning,
-            "complexity": self.complexity,
             "algorithm": self.algorithm,
             "budget": self.budget,
             "model": self.model,
@@ -188,6 +189,7 @@ class LLMRouter:
         max_tokens: int = 512,
         enable_logging: bool = True,
         system_prompt: str | None = None,
+        router_max_budget: int = 8,
     ):
         """Initialize the LLM Router.
 
@@ -216,6 +218,7 @@ class LLMRouter:
             max_tokens=max_tokens,
             is_async=True,
         )
+        self.router_max_budget = router_max_budget
 
         router_logger.info(f"Initialized LLM Router with model={router_model}")
 
@@ -223,8 +226,8 @@ class LLMRouter:
         self,
         messages: list[ChatMessage] | ChatMessages,
         available_algorithms: dict[str, dict],
-        max_budget: int = 32,
-        num_turns_to_keep=3
+        num_turns_to_keep=3,
+        max_budget: int | None = None
     ) -> dict:
 
 
@@ -242,7 +245,7 @@ class LLMRouter:
         routing_prompt = prepare_router_content(
             messages=messages,
             algorithms_config=algorithms_config_str,
-            max_budget=max_budget,
+            max_budget=max_budget if max_budget is not None else self.router_max_budget,
             num_turns_to_keep=num_turns_to_keep
         )                
 
@@ -287,14 +290,12 @@ class LLMRouter:
     def _default_routing(self, available_algorithms: dict[str, dict]) -> dict:
         
         default_budget = 1
-        default_complexity = 1
         first_alg = next(iter(available_algorithms.keys()))
         first_model = available_algorithms[first_alg].get("models", ["default"])[0]
 
         router_logger.info(f"Using fallback routing: {first_alg} with budget {default_budget}")
 
         return {
-                "complexity": default_complexity,
                 "algorithm": first_alg,
                 "budget": default_budget,
                 "model": first_model,

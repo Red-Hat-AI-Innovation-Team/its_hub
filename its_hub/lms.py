@@ -697,24 +697,21 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
                 )
 
                 response = await litellm.acompletion(**request_data)
-                # Return the full message object to preserve tool calls and usage info
-                return response.choices[0].message.dict(), response.usage.dict()
+                # Return only the message object
+                return response.choices[0].message.dict()
 
         async def safe_fetch_response(
             messages: list[ChatMessage], _temperature: float | None
-        ) -> tuple[dict, dict]:
+        ) -> dict:
             if self.replace_error_with_message is not None:
                 try:
                     return await fetch_response(messages, _temperature)
                 except Exception as e:
                     logging.error(f"Error during async generation: {e}")
-                    return (
-                        {
-                            "role": "assistant",
-                            "content": self.replace_error_with_message,
-                        },
-                        {},
-                    )
+                    return {
+                        "role": "assistant",
+                        "content": self.replace_error_with_message,
+                    }
             else:
                 return await fetch_response(messages, _temperature)
 
@@ -789,24 +786,21 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
                 )
 
                 response = litellm.completion(**request_data)
-                # Return the full message object to preserve tool calls and usage info
-                return response.choices[0].message.dict(), response.usage.dict()
+                # Return only the message object
+                return response.choices[0].message.dict()
 
             def safe_fetch_single_response(
                 messages: list[ChatMessage], _temperature: float | None
-            ) -> tuple[dict, dict]:
+            ) -> dict:
                 if self.replace_error_with_message is not None:
                     try:
                         return fetch_single_response(messages, _temperature)
                     except Exception as e:
                         logging.error(f"Error during sync generation: {e}")
-                        return (
-                            {
-                                "role": "assistant",
-                                "content": self.replace_error_with_message,
-                            },
-                            {},
-                        )
+                        return {
+                            "role": "assistant",
+                            "content": self.replace_error_with_message,
+                        }
                 else:
                     return fetch_single_response(messages, _temperature)
 

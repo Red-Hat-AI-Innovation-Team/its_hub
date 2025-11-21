@@ -60,7 +60,7 @@ ALGORITHM_REGISTRY: dict[str, Any] = {}
 # Store algorithm configurations: {"self-consistency": {"models": [...], ...}, ...}
 ALGORITHM_CONFIGS: dict[str, dict] = {}
 ROUTER: Any | None = None  # LLM Router for dynamic algorithm selection
-
+VERIFIER: Any | None = None  # LLM Verifier for verification
 
 class ConfigRequest(BaseModel):
     """Configuration request for setting up the IaaS service."""
@@ -148,7 +148,25 @@ class ConfigRequest(BaseModel):
         None, description="Custom system prompt for router (uses default if not provided)"
     )
 
-    @field_validator("alg")
+    # Verifier settings (optional - for verification)
+    enable_verifier: bool | None = Field(
+        False, description="Enable LLM Verifier for verification"
+    )
+    verifier_model: str | None = Field(
+        "gpt-4o-mini", description="LiteLLM model name for verifier (e.g., 'gpt-4o-mini', 'claude-3-haiku-20240307')"
+    )
+    verifier_api_key: str | None = Field(
+        None, description="API key for verifier model (uses judge_api_key if not provided)"
+    )
+    verifier_base_url: str | None = Field(
+        None, description="Base URL for verifier endpoint (uses judge_base_url if not provided, 'auto' for default)"
+    )
+    regenerator_model: str | None = Field(
+        None, description="LiteLLM model name for regenerator (defaults to verifier_model)"
+    )
+    regenerator_max_tokens: int | None = Field(
+        2048, description="Maximum tokens for regenerator response"
+    )
     @classmethod
     def validate_algorithm(cls, v):
         """Validate that the algorithm is supported."""
@@ -224,7 +242,16 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="LLM Router integration not available",
             ) from e
-
+    
+    if request.enable_verifier:
+        try:
+            from its_hub.integration.verifier import LLMVerifier
+        except ImportError as e:
+            logger.error(f"Failed to import LLM Verifier: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="LLM Verifier integration not available",
+            ) from e
     # Only import reward_hub if needed (not required for self-consistency)
     if request.alg in {"particle-filtering", "best-of-n"}:
         
@@ -246,9 +273,9 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
             logger.error(f"vLLM is required; install with `pip install its-hub[vllm]`: {e}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="vLLM is required; install with `pip install its-hub[vllm]`") from e
 
-    global LM_DICT, ALGORITHM_REGISTRY, ALGORITHM_CONFIGS, ROUTER
+    global LM_DICT, ALGORITHM_REGISTRY, ALGORITHM_CONFIGS, ROUTER, VERIFIER
 
-    logger.info(f"Configuring service with model={request.model}, alg={request.alg}, router_enabled={request.enable_router}")
+    logger.info(f"Configuring service with model={request.model}, alg={request.alg}, router_enabled={request.enable_router}, verifier_enabled={request.enable_verifier}")
 
     try:
         # Configure language model based on provider
@@ -416,6 +443,28 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
         else:
             ROUTER = None
 
+        if request.enable_verifier:
+            # Use judge credentials as fallback for verifier
+            verifier_api_key = request.verifier_api_key or request.judge_api_key
+            verifier_base_url = request.verifier_base_url or request.judge_base_url
+
+            # Convert "auto" to None for LiteLLM
+            if verifier_base_url == "auto":
+                verifier_base_url = None
+
+            verifier_kwargs = {
+                "verifier_model": request.verifier_model,
+                "verifier_api_key": verifier_api_key,
+                "verifier_base_url": verifier_base_url,
+                "regenerator_model": request.regenerator_model,
+                "regenerator_max_tokens": request.regenerator_max_tokens or 2048,
+                "enable_logging": True,
+            }
+            VERIFIER = LLMVerifier(**verifier_kwargs)
+            logger.info(f"LLM Verifier initialized successfully (verifier={request.verifier_model}, regenerator={request.regenerator_model or request.verifier_model})")
+        else:
+            VERIFIER = None
+        
         logger.info(f"Successfully configured {request.alg} algorithm")
         return {
             "status": "success",
@@ -452,6 +501,9 @@ class ChatCompletionRequest(BaseModel):
     budget: int = Field(
         8, ge=1, le=1000, description="Computational budget for scaling"
     )
+    verifier_budget: int = Field(
+        2, ge=1, le=100, description="Computational budget for verifier"
+    )
     temperature: float | None = Field(
         None, ge=0.0, le=2.0, description="Sampling temperature"
     )
@@ -475,6 +527,12 @@ class ChatCompletionRequest(BaseModel):
     seed: int | None = Field(
         None, description="Random seed for reproducible outputs"
     )
+    use_verifier: bool = Field(
+        False, description="Use LLM verifier for iterative verification and regeneration"
+    )
+    verifier_policy: str | None = Field(
+        None, description="Custom policy for verification (uses default if not provided)"
+    )
 
     @field_validator("messages")
     @classmethod
@@ -493,31 +551,13 @@ class ChatCompletionChoice(BaseModel):
     finish_reason: str = Field(..., description="Reason for completion")
 
 
-class PromptTokensDetails(BaseModel):
-    """Details about prompt tokens."""
-
-    cached_tokens: int = Field(default=0, description="Number of cached tokens")
-    audio_tokens: int = Field(default=0, description="Number of audio tokens")
-
-
-class CompletionTokensDetails(BaseModel):
-    """Details about completion tokens."""
-
-    reasoning_tokens: int = Field(default=0, description="Number of reasoning tokens")
-    audio_tokens: int = Field(default=0, description="Number of audio tokens")
-    accepted_prediction_tokens: int = Field(default=0, description="Number of accepted prediction tokens")
-    rejected_prediction_tokens: int = Field(default=0, description="Number of rejected prediction tokens")
-
-
 class ChatCompletionUsage(BaseModel):
-    """Token usage information."""
+    """Token usage information - kept for API compatibility but not populated."""
 
     prompt_tokens: int = Field(default=0, description="Tokens in prompt")
     completion_tokens: int = Field(default=0, description="Generated tokens")
     total_tokens: int = Field(default=0, description="Total tokens used")
-    prompt_tokens_details: PromptTokensDetails = Field(default_factory=PromptTokensDetails, description="Details about prompt tokens")
-    completion_tokens_details: CompletionTokensDetails = Field(default_factory=CompletionTokensDetails, description="Details about completion tokens")
-    extra_usage: dict | None = Field(default=None, description="Extra usage information (e.g., reward model usage)")
+
 
 
 def _extract_algorithm_metadata(algorithm_result: Any) -> dict[str, Any] | None:
@@ -665,6 +705,9 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         # Create ChatMessages from the full conversation history
         chat_messages = ChatMessages(sanitized_messages)
 
+        # Initialize routing_info
+        routing_info = None
+
         # Determine which algorithm to use
         if request.use_router and ROUTER is not None:
             # Use router to select algorithm dynamically
@@ -680,7 +723,6 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             selected_model_name = routing_decision.model
 
             routing_info = {
-                "complexity": routing_decision.complexity,
                 "algorithm": routing_decision.algorithm,
                 "budget": routing_decision.budget,
                 "model": routing_decision.model,
@@ -690,7 +732,6 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             logger.info(
                 f"Router selected: algorithm={selected_algorithm}, "
                 f"budget={actual_budget}, model={selected_model_name}, "
-                f"complexity={routing_decision.complexity}"
             )
 
             # Get the algorithm instance
@@ -715,19 +756,9 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
 
         else:
             # Use the first configured algorithm (backward compatibility)
-            selected_algorithm = next(iter(ALGORITHM_REGISTRY.keys()))
-            selected_alg = ALGORITHM_REGISTRY[selected_algorithm]
+            selected_alg = list(ALGORITHM_REGISTRY.values())[0]
             actual_budget = request.budget
             selected_lm = lm
-            routing_info = None
-
-            logger.info(
-                f"Using configured algorithm: {selected_algorithm}, budget={actual_budget}"
-            )
-
-        logger.info(
-            f"Processing request with algorithm={selected_algorithm}, budget={actual_budget}"
-        )
 
         # Generate response using selected algorithm
         algorithm_result = await selected_alg.ainfer(
@@ -739,6 +770,55 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             tool_choice=request.tool_choice,
         )
 
+        # Apply verification and regeneration if enabled
+        verification_history = None
+        if request.use_verifier and VERIFIER is not None:
+            # Extract the response message to verify
+            if not request.return_response_only and hasattr(algorithm_result, "the_one"):
+                response_to_verify = algorithm_result.the_one
+            else:
+                response_to_verify = algorithm_result
+
+            # Defensive check: ensure response_to_verify is not None
+            if response_to_verify is None:
+                logger.error("Algorithm result is None - cannot verify")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Algorithm returned None result",
+                )
+
+            print(f"\n[IAAS] Response BEFORE verification/refinement:")
+            # Handle case where content might be None
+            content_preview = response_to_verify.get('content') or ''
+            if isinstance(content_preview, str):
+                print(f"[IAAS] {content_preview[:300]}...\n")
+            else:
+                print(f"[IAAS] Content type: {type(content_preview)}\n")
+
+            # Create messages with the algorithm's response appended
+            messages_to_verify = chat_messages.to_chat_messages() + [ChatMessage(**response_to_verify)]
+
+            # Get verified response with iterative verification and regeneration
+            verified_response, verification_history = await VERIFIER.get_verified_response(
+                messages=messages_to_verify,
+                policy=request.verifier_policy,
+                verification_budget=request.verifier_budget,
+                tools=request.tools,
+                num_turns_to_keep=8
+            )
+
+            print(f"\n[IAAS] Response AFTER verification/refinement:")
+            print(f"[IAAS] {verified_response.get('content', '')[:300]}...\n")
+
+            # Replace the algorithm result with the verified response
+            if not request.return_response_only and hasattr(algorithm_result, "responses"):
+                # For result objects like BestOfNResult, replace the response at selected_index
+                algorithm_result.responses[algorithm_result.selected_index] = verified_response
+            else:
+                # For direct response (return_response_only=True), replace entirely
+                algorithm_result = verified_response
+        
+
         # Extract response content and metadata
         if not request.return_response_only and hasattr(algorithm_result, "the_one"):
             # Got a full result object
@@ -749,29 +829,19 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             response_message = algorithm_result
             metadata = None
 
+        # Defensive check: ensure response_message is not None
+        if response_message is None:
+            logger.error("Response message is None after algorithm execution")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Algorithm returned None response message",
+            )
+
         # Add routing info to metadata if available
         if routing_info:
             if metadata is None:
                 metadata = {}
             metadata["routing"] = routing_info
-
-        # Extract usage information from algorithm result
-        if hasattr(algorithm_result, "usage"):
-            usage = algorithm_result.usage if algorithm_result.usage else {}
-        else:
-            if isinstance(algorithm_result, dict) and "usage" in algorithm_result:
-                usage = algorithm_result["usage"]
-            else:
-                usage = {}
-
-        # Extract reward model usage if available
-        if hasattr(algorithm_result, "reward_usage"):
-            extra_usage = algorithm_result.reward_usage if algorithm_result.reward_usage else {}
-        else:
-            if isinstance(algorithm_result, dict) and "reward_usage" in algorithm_result:
-                extra_usage = algorithm_result["reward_usage"]
-            else:
-                extra_usage = {}
 
         response = ChatCompletionResponse(
             id=f"chatcmpl-{uuid.uuid4()}",
@@ -784,10 +854,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
                     finish_reason="stop",
                 )
             ],
-            usage=ChatCompletionUsage(
-                **usage,
-                extra_usage=extra_usage if extra_usage else None,
-            ),
+            usage=ChatCompletionUsage(),
             metadata=metadata,
         )
 
