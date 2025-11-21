@@ -8,20 +8,21 @@
 install:
     uv sync --extra dev
 
-# Setup development environment (install dependencies, initialize submodules, compile protos)
+# Setup development environment (general Python setup)
 setup:
-    just install
-    just submodule-init
-    just proto-compile
+    make setup
+
+# Setup Envoy gateway environment (includes submodules and proto compilation)
+setup-envoy:
+    make setup-envoy
 
 # Initialize and update git submodules
 submodule-init:
-    git submodule update --init --recursive
+    make submodule-init
 
-# Update git submodules to their latest remote versions
-submodule-update:
-    git submodule update --recursive --remote
-
+# Restore proto submodules to pinned commits from .gitmodules
+upgrade-protos:
+    make upgrade-protos
 
 # Run all tests
 test:
@@ -33,25 +34,11 @@ test:
 
 # Compile Envoy external processor proto files to Python
 proto-compile:
-    #!/usr/bin/env bash
-    uv run python -m grpc_tools.protoc \
-      --proto_path=third_party/envoy-data-plane-api \
-      --proto_path=third_party/xds \
-      --proto_path=third_party/protoc-gen-validate \
-      --python_out=its_hub/integration/ext_proc/proto \
-      --grpc_python_out=its_hub/integration/ext_proc/proto \
-      third_party/envoy-data-plane-api/envoy/config/core/v3/*.proto \
-      third_party/envoy-data-plane-api/envoy/type/v3/*.proto \
-      third_party/envoy-data-plane-api/envoy/type/matcher/v3/*.proto \
-      third_party/envoy-data-plane-api/envoy/annotations/*.proto \
-      third_party/envoy-data-plane-api/envoy/extensions/filters/http/ext_proc/v3/*.proto \
-      third_party/envoy-data-plane-api/envoy/service/ext_proc/v3/*.proto \
-      third_party/xds/xds/annotations/v3/*.proto \
-      third_party/xds/xds/core/v3/*.proto \
-      third_party/xds/udpa/annotations/*.proto \
-      third_party/protoc-gen-validate/validate/validate.proto
-    find its_hub/integration/ext_proc/proto -type d -exec touch {}/__init__.py \;
-    echo "✓ Proto files compiled successfully!"
+    make proto-compile
+
+# Clean generated proto files
+proto-clean:
+    make proto-clean
 
 # =============================================================================
 # Service Management
@@ -259,7 +246,7 @@ test-chat:
         -H "X-ITS-Budget: 3" \
         -H "X-ITS-Endpoint: https://api.openai.com/v1" \
         -H "X-ITS-API-Key: $OPENAI_API_KEY" \
-        -d '{"model": "gpt-5", "messages": [{"role": "user", "content": "Choose 1 word to best represent quantum computing and that word will be: "}]}'
+        -d '{"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": "Choose 1 word to best represent quantum computing and that word will be: "}]}'
 
 # Test conversation with empty assistant response
 test-chat-empty:

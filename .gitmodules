@@ -1,9 +1,19 @@
+# Proto definition submodules for Envoy external processor
+# Pinned commits ensure reproducible builds
+# To upgrade: make upgrade-protos
+
 [submodule "third_party/envoy-data-plane-api"]
 	path = third_party/envoy-data-plane-api
 	url = https://github.com/envoyproxy/data-plane-api.git
+	# pinned-commit = ce213de90a3b778ef6bf5aa298f59709e5dd2c43
+
 [submodule "third_party/xds"]
 	path = third_party/xds
 	url = https://github.com/cncf/xds.git
+	# pinned-commit = 5cf4b19495289a9e992ce5e2c3ffb08f2cf387be
+
 [submodule "third_party/protoc-gen-validate"]
 	path = third_party/protoc-gen-validate
 	url = https://github.com/bufbuild/protoc-gen-validate.git
+	# pinned-commit = 7b06248484ceeaa947e93ca2747eccf336a88ecc
+	# pinned-tag = v1.2.1

@@ -4,16 +4,52 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Commands
 
+### Build System
+
+The project uses a **Make-based build system** for proto compilation and dependency management. The `justfile` provides backward-compatible convenience wrappers that delegate to Make.
+
+**Core philosophy:** Make handles build logic; justfile provides user-friendly aliases.
+
 ### Installation and Setup
+
+**For AI/ML Engineers (No Protos Needed):**
 ```bash
-# Development installation with uv (recommended)
-uv sync --extra dev
+# General development setup - installs Python deps, generates requirements.txt
+make setup
+
+# Alternative: using justfile
+just setup
 
 # Alternative: pip installation
 pip install -e ".[dev]"
 
 # Production installation
 pip install its_hub
+```
+
+**For Gateway Developers (Need Protos):**
+```bash
+# Full Envoy setup - initializes submodules + compiles protos
+make setup-envoy
+
+# Alternative: using justfile
+just setup-envoy
+```
+
+**Build System Targets:**
+```bash
+# View all available Make targets
+make help
+
+# Proto compilation commands
+make submodule-init      # Initialize git submodules for proto definitions
+make proto-compile       # Compile Envoy proto files to Python (incremental)
+make proto-clean         # Remove generated proto files
+make upgrade-protos      # Restore proto submodules to pinned commits
+
+# Development setup commands
+make setup               # General Python setup
+make setup-envoy         # Envoy gateway setup (submodules + protos)
 ```
 
 ### Contribution
@@ -83,9 +119,53 @@ curl -X POST http://localhost:8108/configure \
 # For comprehensive IaaS setup (multi-GPU, reward models, etc.), see docs/iaas-service.md
 ```
 
+## Build System Details
+
+### Proto Dependency Management
+
+**Submodule Pinning:**
+- Proto definitions come from git submodules (envoy-data-plane-api, xds, protoc-gen-validate)
+- Pinned commits are documented in `.gitmodules` as comments
+- Example: `# pinned-commit = ce213de90a3b778ef6bf5aa298f59709e5dd2c43`
+
+**Dependency Tracking:**
+- Make uses marker files (`.proto-compiled`, `.submodules-initialized`) for incremental builds
+- Proto recompilation only happens when source `.proto` files change
+- Automatic submodule initialization when needed
+
+**Updating Proto Versions:**
+```bash
+# 1. Edit .gitmodules and update the pinned-commit value
+# 2. Restore to new pinned commits
+make upgrade-protos
+
+# 3. Test proto compilation works
+make proto-compile
+
+# 4. Commit .gitmodules changes
+git add .gitmodules
+git commit -s -m "chore: update proto definitions to version X.Y.Z"
+```
+
+**Troubleshooting:**
+```bash
+# Proto compilation fails with "No such file or directory"
+make submodule-init
+
+# Protos won't recompile after changing .proto files
+make proto-clean && make proto-compile
+
+# Submodules in wrong state
+make upgrade-protos  # Restore to pinned commits
+
+# requirements.txt out of date
+make setup  # Regenerates from pyproject.toml
+```
+
 ## Additional Tips
 - Use `rg` in favor of `grep` whenever it's available
 - Use `uv` for Python environment management: always start with `uv sync --extra dev` to init the env and run stuff with `uv run`
+- Use `make` for build operations (proto compilation, setup); use `just` for service management and testing
 - In case of dependency issues during testing, try commenting out `reward_hub` and `vllm` temporarily in @pyproject.toml and retry.
 
 ## Architecture Overview
@@ -167,8 +247,9 @@ Client → Envoy (port 8108) → ext_proc gRPC (port 50051) → LLM API
 ### Development Commands
 
 ```bash
-# Initial setup (compile protobuf files)
-just setup
+# Initial setup for Envoy development (compile protobuf files)
+make setup-envoy
+# Or: just setup-envoy
 
 # Start Envoy proxy
 just envoy-start
@@ -184,6 +265,11 @@ just envoy-health
 
 # Test with OpenAI API (requires OPENAI_API_KEY)
 just test-chat
+
+# Proto management
+make proto-compile      # Recompile protos if changed
+make proto-clean        # Clean generated files
+make upgrade-protos     # Restore to pinned versions
 ```
 
 ### How It Works
