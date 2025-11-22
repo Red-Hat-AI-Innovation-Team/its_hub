@@ -43,14 +43,52 @@ result = scaling_alg.infer(lm, "Solve x^2 + 5x + 6 = 0", budget=8)
 
 ## Installation
 
-```bash
-# Production
-pip install its_hub
+### Using its_hub as a Python Library
 
-# Development
+**Recommended: Using uv**
+```bash
+# Install uv if you haven't already
+# See: https://astral.sh/uv/install/
+
+# Create virtual environment and install its_hub
+uv venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+uv pip install its_hub
+```
+
+**Alternative: Using pip with venv**
+```bash
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install its_hub
+pip install its_hub
+```
+
+### Contributing to its_hub (Algorithm Development)
+
+```bash
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 cd its_hub
-pip install -e ".[dev]"
+
+# Using Make (recommended)
+make setup
+
+# Or manually with uv
+uv venv
+source .venv/bin/activate
+uv pip install -e ".[dev]"
+```
+
+### Using ITS With Envoy
+
+```bash
+git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
+cd its_hub
+
+# Full setup including submodules and proto compilation
+make setup-envoy
 ```
 
 ## Key Features
@@ -85,23 +123,31 @@ Client → Envoy (port 8108) → ext_proc gRPC (port 50051) → LLM API
 # Clone and install dependencies
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 cd its_hub
-just setup
 
-# setup grpc dependencies
-just submodule-init
-just proto-compile
+# One-command setup (initializes submodules + compiles protos)
+make setup-envoy
 ```
 
-**Step 2: Start Services (in separate terminals)**
+**Step 2: Start Services**
 
 Make sure Envoy is installed, see [Envoy Install](https://www.envoyproxy.io/docs/envoy/latest/start/install).
 
+**Option A: Start Both Services Together (Recommended)**
+```bash
+# Starts Envoy proxy and gRPC service in parallel
+make envoy-stack
+
+# Logs are written to envoy.log and envoy-grpc.log
+# Press Ctrl+C to stop both services
+```
+
+**Option B: Start Services Separately (in different terminals)**
 ```bash
 # Terminal 1: Start Envoy proxy
-just envoy-start
+make envoy-start
 
 # Terminal 2: Start ext_proc gRPC service
-just envoy-grpc-start
+make envoy-grpc
 ```
 
 **Step 3: Test with ITS**
@@ -147,11 +193,14 @@ Control inference-time scaling via HTTP headers:
 ### Testing & Monitoring
 
 ```bash
-# Run test suite
-just envoy-grpc-test
+# Run test suite for ext_proc
+make envoy-test
 
 # Check Envoy cluster health
-just envoy-health
+make envoy-health
+
+# Stop services (if using envoy-stack)
+make envoy-stack-stop
 
 # View Envoy admin interface
 open http://localhost:9901
@@ -159,66 +208,126 @@ open http://localhost:9901
 
 ### Configuration
 
-The Envoy configuration is located at `config/envoy/ext_proc.yaml`. Key settings:
+The Envoy configuration is located at `config/envoy/ext_proc.yaml` with comprehensive inline documentation.
 
-- **Client listener**: Port 8108
-- **ext_proc gRPC**: Port 50051
-- **LLM upstream**: Port 8100 (configurable)
-- **Admin interface**: Port 9901
+**Default Settings:**
+
+- **Client listener**: Port 8108 (where you send requests)
+- **ext_proc gRPC**: Port 50051 (ITS algorithm service)
+- **LLM upstream**: Port 8100 (fallback LLM endpoint)
+- **Admin interface**: Port 9901 (monitoring dashboard)
 - **Timeouts**: 120s for ITS processing, 300s for upstream
 - **Failure mode**: `allow` (fail-safe pass-through)
 
-For detailed configuration options and troubleshooting, see `its_hub/integration/ext_proc/HANDOVER.md`.
+**Common Customizations:**
+
+The config file includes detailed comments with `**CUSTOMIZE**` markers. Common changes:
+
+1. **Change Envoy listening port** (default: 8108)
+   ```yaml
+   listeners[0].address.socket_address.port_value: 8108
+   ```
+
+2. **Point to your LLM endpoint** (examples provided for vLLM, Kubernetes, remote)
+   ```yaml
+   clusters[llm_upstream].load_assignment.endpoints[0].lb_endpoints[0].endpoint.address.socket_address:
+     address: 127.0.0.1  # Your LLM host
+     port_value: 8100    # Your LLM port
+   ```
+
+3. **Adjust ITS processing timeout** (increase for large budgets)
+   ```yaml
+   http_filters[ext_proc].timeout: 120s
+   http_filters[ext_proc].message_timeout: 120s
+   ```
+
+4. **Change failure behavior** (reject requests when ext_proc is down)
+   ```yaml
+   http_filters[ext_proc].failure_mode_allow: false
+   ```
+
+**Configuration File Structure:**
+- Comprehensive header with 6-point customization guide
+- Inline comments on every important setting
+- Examples for local, Kubernetes, and remote deployments
+- **CRITICAL** annotations for required settings
+
+For detailed configuration options and troubleshooting, see `config/envoy/ext_proc.yaml` (inline docs) and `its_hub/integration/ext_proc/HANDOVER.md`.
 
 ## Development
 
 ### Prerequisites
 
-Before setting up the development environment, please ensure you have the following tools installed:
+Before setting up the development environment, ensure you have:
 
 - **git**: For version control and managing submodules. [Installation Guide](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
-- **just**: A command runner used to execute project-specific commands. [Installation Guide](https://github.com/casey/just#installation)
+- **make**: Build automation tool (usually pre-installed on Unix systems)
 - **uv**: An extremely fast Python package installer and resolver. [Installation Guide](https://astral.sh/uv/install/)
+- **just** (optional): Provides backward-compatible command aliases. [Installation Guide](https://github.com/casey/just#installation)
+
+### Build System
+
+This project uses a **Make-based build system** for dependency management and proto compilation:
 
 ```bash
-git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
-cd its_hub
-pip install -e ".[dev]"
-pytest tests
+# View all available Make targets
+make help
+
+# General development setup (algorithm work)
+make setup
+
+# Full setup including Envoy protos (gateway work)
+make setup-envoy
+
+# Run all tests
+make test
 ```
 
-### Submodule and Protobuf Management
-
-This project uses Git submodules to manage third-party protobuf definitions. The generated Python stub files are build artifacts and are not committed to the repository.
-
-**Initial Setup for Developers:**
-
-To set up your development environment, including initializing submodules and compiling protobufs, use the `just setup` command:
+**Common Make Commands:**
 
 ```bash
-just setup
+# Setup
+make setup          # Python deps + requirements.txt
+make setup-envoy    # Full setup with submodules + protos
+
+# Proto Management
+make proto-compile  # Compile proto files (incremental)
+make proto-clean    # Remove generated proto files
+make upgrade-protos # Restore submodules to pinned commits
+
+# Services
+make envoy-stack      # Start Envoy + gRPC together
+make envoy-stack-stop # Stop Envoy stack
+make iaas-start       # Start IaaS service
+make test             # Run all tests
 ```
 
-This command performs the following steps:
-1.  Installs Python dependencies.
-2.  Initializes and updates all Git submodules to the versions recorded in this repository.
-3.  Compiles the `.proto` files from the submodules into Python stub files.
+### Protobuf Management
 
-**Updating Submodules:**
+This project uses Git submodules for proto definitions, pinned to specific commits for reproducible builds.
 
-If you need to update the submodules to their latest upstream versions (e.g., to get new protobuf definitions), use the `just submodule-update` command:
+**Automatic Setup:**
 
 ```bash
-just submodule-update
+# Make handles everything automatically
+make setup-envoy
 ```
 
-After running this command, the submodules will be updated to the latest commit on their tracked branches. You must then record these changes in the main repository:
+**Updating Proto Versions:**
 
 ```bash
-git add third_party/envoy-data-plane-api third_party/xds third_party/protoc-gen-validate
-git commit -m "Update submodules to latest upstream versions"
+# 1. Edit .gitmodules and update pinned-commit comments
+# 2. Restore to new commits
+make upgrade-protos
+
+# 3. Test compilation
+make proto-compile
+
+# 4. Commit changes
+git add .gitmodules third_party/
+git commit -s -m "chore: update proto definitions"
 ```
 
-**Important**: The generated Python protobuf stub files (located in `its_hub/integration/ext_proc/proto/`) are intentionally excluded from version control via `.gitignore`. They should always be generated as part of the build process to ensure consistency with the `.proto` definitions.
+**Important**: Generated proto stubs (`its_hub/integration/ext_proc/proto/`) and logs (`*.log`) are gitignored and regenerated during builds.
 
 For detailed documentation, visit: [https://ai-innovation.team/its_hub](https://ai-innovation.team/its_hub)

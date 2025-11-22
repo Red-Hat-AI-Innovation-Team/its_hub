@@ -26,7 +26,7 @@ upgrade-protos:
 
 # Run all tests
 test:
-    uv run pytest tests/
+    make test
 
 # =============================================================================
 # Proto Compilation
@@ -46,30 +46,27 @@ proto-clean:
 
 # Start IaaS service on localhost:8108
 iaas-start:
-    uv run its-iaas --host 0.0.0.0 --port 8108
+    make iaas-start
 
 # Check service health
 iaas-health:
-    curl -v -s http://localhost:8108/v1/models | jq .
+    make iaas-health
 
 # Start Envoy External Processor gRPC service on port 50051
 envoy-grpc-start:
-    uv run envoy-grpc
+    make envoy-grpc
 
 # Test Envoy External Processor with sample requests
 envoy-grpc-test:
-    uv run python scripts/test_envoy_grpc.py
+    make envoy-test
 
 # Start Envoy proxy with ext_proc configuration
 envoy-start:
-    envoy -c config/envoy/ext_proc.yaml
+    make envoy-start
 
 # Check Envoy cluster health and statistics
 envoy-health:
-    @echo "=== Cluster Status ==="
-    @curl -s http://localhost:9901/clusters | grep -A 10 "ext_proc_cluster" || echo "Envoy not running or admin port not accessible"
-    @echo "\n=== ext_proc Statistics ==="
-    @curl -s http://localhost:9901/stats | grep ext_proc || echo "No ext_proc stats found"
+    make envoy-health
 
 # =============================================================================
 # Algorithm Configuration

@@ -1,7 +1,8 @@
 # ITS Hub Makefile
 # Handles proto compilation for Envoy external processor
 
-.PHONY: help setup setup-envoy upgrade-protos proto-compile proto-clean submodule-init
+.PHONY: help setup setup-envoy upgrade-protos proto-compile proto-clean submodule-init \
+        iaas-start iaas-health envoy-stack envoy-stack-stop envoy-start envoy-grpc envoy-test envoy-health test
 
 # Default target
 help:
@@ -15,6 +16,19 @@ help:
 	@echo "  make submodule-init - Initialize git submodules for proto definitions"
 	@echo "  make proto-compile  - Compile Envoy proto files to Python"
 	@echo "  make proto-clean    - Remove generated proto files"
+	@echo ""
+	@echo "Service Commands:"
+	@echo "  make iaas-start       - Start IaaS service on localhost:8108"
+	@echo "  make iaas-health      - Check IaaS service health"
+	@echo "  make envoy-stack      - Start Envoy proxy + gRPC service together"
+	@echo "  make envoy-stack-stop - Stop Envoy stack"
+	@echo "  make envoy-start      - Start Envoy proxy with ext_proc configuration"
+	@echo "  make envoy-grpc       - Start Envoy external processor gRPC service"
+	@echo "  make envoy-test       - Test Envoy external processor with sample requests"
+	@echo "  make envoy-health     - Check Envoy cluster health and statistics"
+	@echo ""
+	@echo "Testing Commands:"
+	@echo "  make test           - Run all pytest tests"
 	@echo ""
 	@echo "Maintenance Commands:"
 	@echo "  make upgrade-protos - Restore proto submodules to pinned commits from .gitmodules"
@@ -126,3 +140,63 @@ upgrade-protos:
 	@echo "✓ All submodules restored to pinned commits"
 	@echo ""
 	@echo "To update the pinned commits, edit .gitmodules and update the pinned-commit values"
+
+# =============================================================================
+# Service Management
+# =============================================================================
+
+# Start both Envoy proxy and ext_proc gRPC service in parallel
+envoy-stack:
+	@echo "Starting Envoy stack (proxy + gRPC service)..."
+	@echo "Logs will be written to:"
+	@echo "  - envoy.log (Envoy proxy)"
+	@echo "  - envoy-grpc.log (gRPC service)"
+	@echo ""
+	@echo "Press Ctrl+C to stop both services"
+	@trap 'kill 0' INT; \
+	(uv run envoy-grpc 2>&1 | tee envoy-grpc.log) & \
+	(envoy -c config/envoy/ext_proc.yaml 2>&1 | tee envoy.log) & \
+	wait
+
+# Stop Envoy stack
+envoy-stack-stop:
+	@echo "Stopping Envoy stack..."
+	@pkill -f "envoy -c config/envoy/ext_proc.yaml" || echo "Envoy proxy not running"
+	@pkill -f "envoy-grpc" || echo "gRPC service not running"
+	@echo "✓ Envoy stack stopped"
+
+# Start IaaS service on localhost:8108
+iaas-start:
+	uv run its-iaas --host 0.0.0.0 --port 8108
+
+# Check IaaS service health
+iaas-health:
+	curl -v -s http://localhost:8108/v1/models | jq .
+
+# Start Envoy proxy with ext_proc configuration
+envoy-start:
+	envoy -c config/envoy/ext_proc.yaml
+
+# Start Envoy External Processor gRPC service
+envoy-grpc:
+	uv run envoy-grpc
+
+# Test Envoy External Processor with sample requests
+envoy-test:
+	uv run python scripts/test_envoy_grpc.py
+
+# Check Envoy cluster health and statistics
+envoy-health:
+	@echo "=== Cluster Status ==="
+	@curl -s http://localhost:9901/clusters | grep -A 10 "ext_proc_cluster" || echo "Envoy not running or admin port not accessible"
+	@echo ""
+	@echo "=== ext_proc Statistics ==="
+	@curl -s http://localhost:9901/stats | grep ext_proc || echo "No ext_proc stats found"
+
+# =============================================================================
+# Testing
+# =============================================================================
+
+# Run all tests
+test:
+	uv run pytest tests/

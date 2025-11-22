@@ -59,7 +59,9 @@ never say 🤖 Generated with [Claude Code](https://claude.ai/code)" in the comm
 ### Testing
 ```bash
 # Run all tests
-uv run pytest tests/
+make test
+# Or: just test
+# Or: uv run pytest tests/
 
 # Run specific test file
 uv run pytest tests/test_algorithms.py
@@ -103,13 +105,13 @@ python scripts/benchmark.py --help
 ### IaaS Service (Inference-as-a-Service)
 ```bash
 # Start IaaS service
-uv run its-iaas --host 0.0.0.0 --port 8108
-
-# Or using justfile (if available)
-just iaas-start
+make iaas-start
+# Or: just iaas-start
+# Or: uv run its-iaas --host 0.0.0.0 --port 8108
 
 # Check service health
-curl -s http://localhost:8108/v1/models | jq .
+make iaas-health
+# Or: just iaas-health
 
 # Configure the service (example: self-consistency algorithm)
 curl -X POST http://localhost:8108/configure \
@@ -251,17 +253,30 @@ Client → Envoy (port 8108) → ext_proc gRPC (port 50051) → LLM API
 make setup-envoy
 # Or: just setup-envoy
 
-# Start Envoy proxy
-just envoy-start
+# Start both Envoy proxy and gRPC service together (recommended)
+make envoy-stack
+# Logs will be written to envoy.log and envoy-grpc.log
+# Press Ctrl+C to stop both services
 
-# Start ext_proc gRPC service (in separate terminal)
-just envoy-grpc-start
+# Or start services separately in different terminals:
+# Terminal 1: Start Envoy proxy
+make envoy-start
+# Or: just envoy-start
+
+# Terminal 2: Start ext_proc gRPC service
+make envoy-grpc
+# Or: just envoy-grpc-start
+
+# Stop the Envoy stack (if running via envoy-stack)
+make envoy-stack-stop
 
 # Test with sample requests
-just envoy-grpc-test
+make envoy-test
+# Or: just envoy-grpc-test
 
 # Check Envoy health and statistics
-just envoy-health
+make envoy-health
+# Or: just envoy-health
 
 # Test with OpenAI API (requires OPENAI_API_KEY)
 just test-chat

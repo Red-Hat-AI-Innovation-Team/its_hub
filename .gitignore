@@ -192,5 +192,9 @@ requirements.txt
 third_party/.submodules-initialized
 .proto-compiled
 
+# Service logs
+envoy.log
+envoy-grpc.log
+
 # Generated protobuf Python stubs
 its_hub/integration/ext_proc/proto/
