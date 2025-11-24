@@ -9,41 +9,40 @@ This document defines the **interface contracts** for the its-hub library. It sp
 
 ---
 
-## Architecture Overview
+## ITS-Hub Architecture Overview
 
-**its-hub** is a lightweight library providing inference-time scaling algorithms for LLMs. The architecture consists of three layers with two key integration interfaces:
+**its-hub** is a lightweight library providing inference-time scaling (ITS) algorithms for improving LLM response quality. The architecture separates gateway integration from algorithm implementation, enabling algorithms to work with any AI gateway.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  Layer 1: Gateway Layer (External Systems)              │
-│  - Red Hat AI Gateway, vLLM, LangChain, OpenAI API     │
-│  - Provides: Model serving, endpoints, infrastructure   │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-                  │ Gateway must expose certain capabilities
-                  ▼
-┌─────────────────────────────────────────────────────────┐
-│  Layer 2: Integration Layer (Bridge Interface)          │
-│  - LM Interface: AbstractLanguageModel                  │
-│  - Implemented by: Gateway integrators                  │
-│  - Enables: its-hub algorithms to use any LM provider   │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-                  │ Algorithms consume LM Interface
-                  ▼
-┌─────────────────────────────────────────────────────────┐
-│  Layer 3: Algorithm Layer (its-hub Library)             │
-│  - Algorithm Interface: AbstractScalingAlgorithm        │
-│  - Reward Interface: AbstractOutcomeRewardModel         │
-│  - Implementations: SelfConsistency, BestOfN, etc.      │
-└─────────────────────────────────────────────────────────┘
-```
+<img src="assets/images/its-architecture-diagram.png" alt="ITS Architecture" width="600"/>
 
-**Key Design Principles:**
-- **Minimal Dependencies**: Core library only requires `numpy`, `typing-extensions`
-- **Gateway Agnostic**: Works with any LM provider via the LM Interface
-- **Clear Contracts**: Well-defined interfaces enable independent implementation and testing
-- **Algorithm First**: Focus on reasoning algorithms, not infrastructure
+### Architecture Layers → Interface Design Mapping
+
+| Layer | What It Is | Part of its-hub repo? | Where It Lives | Interface Section |
+|-------|-----------|----------------------|----------------|-------------------|
+| **Demo & Use Cases** (Top) | Agent applications (Langflow, LangChain, etc.) | ❌ No | External applications | Out of scope |
+| **Gateway Layer** | AI Gateways (Portkey, LiteLLM, Envoy) | ❌ No | External systems | **Interface 1** |
+| **Integration Layer** | Wraps gateway LM + Reward implementations | ❌ No | Gateway codebase (Direct PR) OR its-hub adapters (Plug-in) | **Interface 2 & 3** |
+| **Algorithm Layer** | ITS algorithms (consume LM + Reward) | ✅ Yes | its-hub core | **Interface 4** |
+
+### What This Repository Contains
+
+**its-hub core library provides**:
+1. **Interface Definitions (Interface 2, 3, 4)**: `AbstractLanguageModel`, `AbstractOutcomeRewardModel`, `AbstractScalingAlgorithm`
+2. **Algorithm Implementations (Interface 4)**: Self-Consistency, Best-of-N
+3. **Default Helper**: `create_llm_judge()` - converts any LM into basic reward model
+4. **(Optional) Adapter Plug-ins**: Pre-built wrappers for specific gateways (e.g., `PortkeyAdapter`, `LiteLLMAdapter`)
+
+**How the interfaces connect**:
+- **Interface 1** (Gateway): Defines what external gateways must do (add before-request hook, check headers)
+- **Interface 2** (LM Integration): Wraps gateway LM to match `AbstractLanguageModel` contract
+- **Interface 3** (Reward Integration): Wraps gateway reward OR uses `create_llm_judge()` helper
+- **Interface 4** (Algorithm): Consumes both LM and Reward interfaces to execute ITS strategies
+
+**Design Principles**:
+- Minimal dependencies (core: `numpy`, `typing-extensions`)
+- Gateway agnostic (works with any gateway via LM Interface)
+- Clear contracts (well-defined interfaces enable independent implementation)
+- Algorithm first (focus on reasoning, not infrastructure)
 
 ---
 
@@ -407,18 +406,288 @@ result = await algorithm.ainfer(lm, "What is 2+2?", budget=5)
 
 ---
 
-## Interface 3: Algorithm Interface (its-hub Core)
+## Interface 3: Reward Interface (Integration Layer)
 
 ### Overview
-**Purpose**: Define how inference-time scaling algorithms are implemented and consumed
 
-**Defined in**: `its_hub/base.py` as `AbstractScalingAlgorithm`
+**Purpose**: The Reward Interface defines how to score responses for quality/correctness selection. **Symmetric to LM Interface** - both are integration concerns.
 
-**Implementers**: its-hub library (SelfConsistency, BestOfN, etc.)
+**What this layer does**:
+- Provides a standard contract for reward model access
+- Decouples its-hub algorithms from reward-specific implementations
+- Enables "write once, run anywhere" for algorithms
 
-**Consumers**: End users, gateway integrators, application developers
+**Key benefit**: Algorithm developers write against one interface; integration provides implementations (gateway native OR its-hub helper).
+
+**Defined in**: `its_hub/base.py` as `AbstractOutcomeRewardModel`
+
+### Two Implementation Sources
+
+**Just like LM Interface**, reward models can come from two sources:
+
+#### Source 1: Gateway Native Implementation (Optional)
+```python
+# Gateway has its own reward/scoring service
+class GatewayRewardService:
+    def evaluate(self, conversation):
+        # Gateway's native implementation
+        # - Toxicity classifier
+        # - Quality scorer
+        # - Safety filter
+        return score
+```
+
+#### Source 2: its-hub Helper (Fallback)
+```python
+# Algorithm Layer provides basic LLM-judge helper
+from its_hub import create_llm_judge
+
+# Wraps any AbstractLanguageModel into reward model
+judge = create_llm_judge(lm, judge_prompt=None, fallback_score=5.0)
+```
+
+**Integration Layer's Role**: Wrap whichever source exists to match `AbstractOutcomeRewardModel` interface.
 
 ### Interface Contract
+
+```python
+from abc import ABC, abstractmethod
+from typing import List, Dict, Any, Union, Optional
+
+class AbstractOutcomeRewardModel(ABC):
+    """
+    Abstract interface for reward models that score complete responses.
+
+    Integration Layer implements this by wrapping gateway reward services
+    OR using its-hub's create_llm_judge() helper.
+    """
+```
+
+#### Method 1: `__init__` (Constructor)
+
+**Purpose**: Initialize reward model with configuration
+
+**Signature**: Implementation-specific.
+
+#### Method 2: `score` (Core Method - REQUIRED)
+
+**Purpose**: Score response(s) or conversation(s)
+
+**Signature**:
+```python
+@abstractmethod
+def score(
+    self,
+    messages: Union[List[Dict], List[List[Dict]]],
+    **kwargs
+) -> Union[float, List[float]]:
+    """
+    Score conversation(s).
+
+    Args:
+        messages: Single conversation or batch
+            Single: [{"role": "user", ...}, {"role": "assistant", ...}]
+            Batch:  [[conv1], [conv2], ...]
+        **kwargs: Model-specific parameters
+
+    Returns:
+        Single: float (score)
+        Batch:  List[float] (one score per conversation)
+
+    Note: Higher score = better response
+    """
+```
+
+**Behavior Requirements**:
+- **Batch detection**: Check if `isinstance(messages[0], list)`
+- **Consistent scoring**: Scores must be comparable across responses
+- **Higher is better**: Convention that higher scores indicate better quality
+
+#### Method 3: `ascore` (Async Scoring - OPTIONAL)
+
+**Purpose**: Asynchronous scoring for models that make async calls (e.g., LLM judges)
+
+**Note**: Default implementation raises `NotImplementedError`. Only implement if scoring requires async operations.
+
+### Type Definitions
+
+```python
+from typing import TypedDict, List, NotRequired
+
+class ChatMessage(TypedDict):
+    role: str                           # "system", "user", "assistant", "tool"
+    content: str                        # Message content
+    name: NotRequired[str]              # Optional: function name for tool messages
+    tool_calls: NotRequired[List[dict]] # Optional: tool calls in assistant message
+    tool_call_id: NotRequired[str]      # Optional: ID for tool response messages
+```
+
+### Two Integration Approaches
+
+Integration Layer has two options for implementing reward model support (parallel to LM Interface):
+
+#### Approach 1: Wrap Gateway Native Reward Service
+
+**How**: Gateway has native scoring/reward service; Integration wraps it
+
+**Implementation**:
+```python
+# In gateway codebase: gateway/its_integration.py
+from its_hub import AbstractOutcomeRewardModel
+
+class GatewayReward(AbstractOutcomeRewardModel):
+    def __init__(self):
+        # Use gateway's existing reward service
+        self.scorer = gateway.get_reward_service()
+
+    def score(self, messages, **kwargs):
+        # Wrap gateway's native API
+        result = self.scorer.evaluate(messages)
+        return self._normalize_score(result)
+```
+
+**Examples of gateway native services**:
+- Toxicity classifiers
+- Quality scorers
+- Safety filters
+- Domain-specific validators
+
+**Pros**:
+- Leverages gateway's optimized infrastructure
+- No dependency on LLM calls for scoring
+- Potentially faster and cheaper
+
+**Best for**: Gateways with existing reward/scoring services
+
+---
+
+#### Approach 2: Use its-hub Helper (LLM-Judge)
+
+**How**: Integration uses `create_llm_judge()` helper from its-hub Algorithm Layer
+
+**Implementation**:
+```python
+# In gateway codebase: gateway/its_integration.py
+from its_hub import create_llm_judge
+
+class ITSIntegration:
+    def __init__(self, lm_wrapper):
+        # No native reward service - use its-hub helper
+        self.reward = create_llm_judge(
+            lm=lm_wrapper,
+            judge_prompt=None,      # Use default prompt
+            fallback_score=5.0
+        )
+```
+
+**its-hub provides**:
+```python
+# its_hub/algorithms/helpers.py (Algorithm Layer)
+def create_llm_judge(
+    lm: AbstractLanguageModel,
+    judge_prompt: Optional[str] = None,
+    fallback_score: float = 5.0
+) -> AbstractOutcomeRewardModel:
+    """
+    Convenience helper: wrap any LM into basic LLM-judge reward model.
+
+    Integration Layer can use this when gateway lacks native reward service.
+    Gateway can also provide optimized LLMJudge implementation.
+    """
+```
+
+**Pros**:
+- Zero implementation effort
+- Works immediately if LM Interface is implemented
+- Good default for getting started
+
+**Cons**:
+- Requires LLM API calls (slower, more expensive)
+- Basic implementation (no batching, caching, optimization)
+
+**Best for**: Quick integration, gateways without native reward services
+
+---
+
+### Comparison
+
+| Aspect | Gateway Native Reward | its-hub Helper (LLM-Judge) |
+|--------|----------------------|---------------------------|
+| **Implementation Effort** | Wrap existing service | Import and use helper |
+| **Requires** | Gateway reward service | LM Interface only |
+| **Performance** | Fast (native service) | Slower (LLM calls) |
+| **Cost** | Lower (no LLM calls) | Higher (LLM inference) |
+| **Optimization** | Gateway controls | Basic (can be overridden) |
+| **Best For** | Gateways with reward services | Quick start, no native service |
+
+### Override Pattern: Optimized LLM-Judge
+
+Gateways can also provide **optimized LLM-judge implementations** to improve on the basic helper:
+
+```python
+# Gateway provides optimized LLMJudge (Integration Layer)
+from its_hub import AbstractOutcomeRewardModel
+
+class OptimizedLLMJudge(AbstractOutcomeRewardModel):
+    def __init__(self, lm, judge_prompt=None, batch_size=32, cache_enabled=True):
+        self.lm = lm
+        self.prompt = judge_prompt
+        self.batch_size = batch_size
+        self.cache = {} if cache_enabled else None
+
+    def score(self, messages, **kwargs):
+        # Optimized implementation with:
+        # - Batching for efficiency
+        # - Caching for repeated queries
+        # - Better error handling
+        # - Custom prompt engineering
+        ...
+```
+
+**Three-level pattern**:
+1. **Basic**: `create_llm_judge(lm)` - works immediately
+2. **Optimized**: Gateway's `OptimizedLLMJudge` - better performance
+3. **Native**: Gateway's domain-specific reward service - best performance
+
+### Usage Example
+
+```python
+from its_hub import AbstractOutcomeRewardModel, BestOfN
+
+# Integration Layer wraps gateway reward (either approach)
+class MyGatewayReward(AbstractOutcomeRewardModel):
+    def __init__(self, gateway_service):
+        self.service = gateway_service  # Native service or LLM-judge
+
+    def score(self, messages, **kwargs):
+        # Adapt to AbstractOutcomeRewardModel interface
+        return self.service.evaluate(messages)
+
+# Use with its-hub algorithms
+reward = MyGatewayReward(gateway.reward_service)
+bon = BestOfN(reward_model=reward)
+result = await bon.ainfer(lm, "Write a sorting function", budget=10)
+```
+
+---
+
+## Interface 4: Algorithm Interface (its-hub Core)
+
+### Overview
+
+**Purpose**: The Algorithm Interface defines how inference-time scaling algorithms are implemented and consumed.
+
+**What this layer does**:
+- Defines the contract for all ITS algorithms (Self-Consistency, Best-of-N, etc.)
+- Specifies algorithm inputs (LM, Reward, prompt, budget) and outputs (selected response)
+- Provides `create_llm_judge()` helper for immediate reward model usability
+- Enables algorithm composability and testing
+
+**Key benefit**: All algorithms follow the same interface → applications can swap algorithms without code changes. Algorithms consume both LM and Reward interfaces.
+
+**Defined in**: `its_hub/base.py` as `AbstractScalingAlgorithm` and `AbstractScalingResult`
+
+### Interface Contract (General Algorithm Interface)
 
 ```python
 from abc import ABC, abstractmethod
@@ -426,53 +695,31 @@ from typing import Union, List, Dict, Any, Optional
 
 class AbstractScalingAlgorithm(ABC):
     """
-    Abstract base class for inference-time scaling algorithms.
+    Abstract interface for inference-time scaling algorithms.
 
-    All algorithms implement this unified interface.
+    All algorithms (Self-Consistency, Best-of-N, etc.) implement this.
+    Algorithms consume both LM Interface (Interface 2) and Reward Interface (Interface 3).
     """
 ```
 
-### Method 1: `__init__` (Constructor)
+#### Method 1: `__init__` (Constructor)
 
 **Purpose**: Initialize algorithm with configuration
 
-**Signature**: Algorithm-specific, but common patterns:
+**Signature**: Algorithm-specific. Each algorithm defines its own configuration parameters.
 
+**Examples**:
 ```python
-# Self-Consistency
-def __init__(
-    self,
-    projection_fn: Optional[Callable] = None,      # Answer extraction function
-    tool_vote: Optional[str] = None,               # Tool voting mode
-    exclude_args: Optional[List[str]] = None       # Args to ignore in tool voting
-) -> None:
-    """Initialize Self-Consistency algorithm."""
+# Self-Consistency (consumes LM only)
+SelfConsistency(projection_fn=None, tool_vote=None, exclude_args=None)
 
-# Best-of-N
-def __init__(
-    self,
-    reward_model: AbstractOutcomeRewardModel       # Reward model for scoring
-) -> None:
-    """Initialize Best-of-N algorithm."""
-
-# Beam Search (experimental)
-def __init__(
-    self,
-    step_generation: StepGeneration,               # Step-wise generation config
-    process_reward_model: AbstractProcessRewardModel,  # Step scoring model
-    beam_width: int                                # Number of beams to maintain
-) -> None:
-    """Initialize Beam Search algorithm."""
+# Best-of-N (consumes LM + Reward)
+BestOfN(reward_model: AbstractOutcomeRewardModel)
 ```
 
-**Requirements**:
-- Store configuration for use in `ainfer`
-- Validate parameters (e.g., beam_width > 0)
-- Initialize dependencies (reward models, etc.)
+#### Method 2: `ainfer` (Core Method - REQUIRED)
 
-### Method 2: `ainfer` (Primary Method - REQUIRED)
-
-**Purpose**: Run inference with the given LM and computational budget
+**Purpose**: Execute the algorithm with given LM and computational budget
 
 **Signature**:
 ```python
@@ -480,541 +727,249 @@ def __init__(
 async def ainfer(
     self,
     lm: AbstractLanguageModel,
-    prompt_or_messages: Union[str, List[ChatMessage], ChatMessages],
+    prompt_or_messages: Union[str, List[ChatMessage]],
     budget: int,
     return_response_only: bool = True,
     tools: Optional[List[Dict]] = None,
     tool_choice: Optional[Union[str, Dict]] = None,
 ) -> Union[Dict[str, Any], AbstractScalingResult]:
     """
-    Run inference asynchronously with computational budget.
+    Run inference-time scaling algorithm.
 
     Args:
-        lm: Language model instance (implements AbstractLanguageModel)
+        lm: Language model (implements AbstractLanguageModel from Interface 2)
         prompt_or_messages: User input
-            - str: Simple prompt, converted to [{"role": "user", "content": prompt}]
-            - List[ChatMessage]: Full conversation history
-        budget: Computational budget (interpretation varies by algorithm)
-            - Self-Consistency/Best-of-N: number of parallel generations
-            - Beam Search: total_generations = budget / beam_width
-            - Particle Filtering: number of particles
-        return_response_only: Output mode
-            - True: return just the selected response dict
-            - False: return full AbstractScalingResult with metadata
-        tools: Optional OpenAI-style tool definitions
-            [{"type": "function", "function": {"name": "...", "parameters": {...}}}]
-        tool_choice: Optional tool choice strategy
-            - "auto": model decides
-            - "none": no tool calling
-            - {"type": "function", "function": {"name": "..."}}: specific tool
+            - str: "What is 2+2?"
+            - List[ChatMessage]: [{"role": "user", "content": "..."}]
+        budget: Computational budget (algorithm-specific interpretation)
+        return_response_only:
+            - True: return selected response dict
+            - False: return full result with metadata
+        tools: OpenAI-style tool definitions (optional)
+        tool_choice: Tool selection strategy (optional)
 
     Returns:
         If return_response_only=True:
-            Dict: {"role": "assistant", "content": "...", "tool_calls": [...]}
-
+            {"role": "assistant", "content": "...", "tool_calls": [...]}
         If return_response_only=False:
-            AbstractScalingResult with:
-                - .the_one: selected best response
-                - .candidates: all generated responses
-                - .scores: scores for each candidate (if applicable)
-                - .metadata: algorithm-specific data
-
-    Raises:
-        ValueError: If budget <= 0 or invalid for algorithm
-        RuntimeError: If algorithm fails to produce result
+            AbstractScalingResult instance
     """
 ```
 
-**Input Normalization**:
+**Budget Interpretation** (algorithm-specific):
+
+| Algorithm | Budget Meaning |
+|-----------|----------------|
+| Self-Consistency | Number of parallel generations |
+| Best-of-N | Number of parallel generations |
+
+**Output Specification**:
 ```python
-# Handle different input types
-if isinstance(prompt_or_messages, str):
-    messages = [{"role": "user", "content": prompt_or_messages}]
-elif isinstance(prompt_or_messages, list):
-    messages = prompt_or_messages
-else:
-    raise ValueError("prompt_or_messages must be str or List[ChatMessage]")
-```
-
-**Budget Interpretation by Algorithm**:
-
-| Algorithm | Budget Meaning | Example |
-|-----------|----------------|---------|
-| Self-Consistency | Number of parallel completions | budget=5 → generate 5 responses, vote |
-| Best-of-N | Number of parallel completions | budget=10 → generate 10, score all, pick best |
-| Beam Search | Total steps = budget / beam_width | budget=12, beam=3 → 4 steps × 3 beams |
-| Particle Filtering | Number of particles | budget=8 → maintain 8 particles during sampling |
-
-**Output Specifications**:
-
-Simple output (return_response_only=True):
-```python
+# Simple output (return_response_only=True)
 {
     "role": "assistant",
-    "content": "The answer is 4.",
-    "tool_calls": []  # Empty if no tools used
+    "content": str,
+    "tool_calls": List[dict] | None
 }
 ```
 
-Full output (return_response_only=False):
-```python
-class SelfConsistencyResult(AbstractScalingResult):
-    def __init__(self, selected, candidates, vote_counts):
-        self._selected = selected
-        self._candidates = candidates
-        self._vote_counts = vote_counts
+#### Method 3: `infer` (Synchronous Wrapper)
 
-    @property
-    def the_one(self) -> Dict[str, Any]:
-        """Return selected best response"""
-        return self._selected
-
-    @property
-    def candidates(self) -> List[Dict[str, Any]]:
-        """Return all generated responses"""
-        return self._candidates
-
-    @property
-    def metadata(self) -> Dict[str, Any]:
-        """Return vote counts and other metadata"""
-        return {"vote_counts": self._vote_counts}
-```
-
-**Implementation Pattern**:
-```python
-async def ainfer(self, lm, prompt_or_messages, budget, return_response_only=True, tools=None, tool_choice=None):
-    # 1. Normalize input
-    messages = self._normalize_input(prompt_or_messages)
-
-    # 2. Validate budget
-    if budget <= 0:
-        raise ValueError(f"budget must be > 0, got {budget}")
-
-    # 3. Generate responses (algorithm-specific)
-    responses = await self._generate_responses(lm, messages, budget, tools, tool_choice)
-
-    # 4. Select best response (algorithm-specific)
-    selected = self._select_best(responses)
-
-    # 5. Return based on mode
-    if return_response_only:
-        return selected
-    else:
-        return self._build_result(selected, responses)
-```
-
-### Method 3: `infer` (Synchronous Wrapper)
-
-**Purpose**: Provide synchronous API
-
-**Signature**:
-```python
-def infer(
-    self,
-    lm: AbstractLanguageModel,
-    prompt_or_messages: Union[str, List[ChatMessage], ChatMessages],
-    budget: int,
-    return_response_only: bool = True,
-    tools: Optional[List[Dict]] = None,
-    tool_choice: Optional[Union[str, Dict]] = None,
-) -> Union[Dict[str, Any], AbstractScalingResult]:
-    """
-    Synchronous wrapper around ainfer().
-
-    Default implementation provided - typically not overridden.
-
-    Args:
-        Same as ainfer()
-
-    Returns:
-        Same as ainfer()
-    """
-    import asyncio
-    return asyncio.run(
-        self.ainfer(lm, prompt_or_messages, budget, return_response_only, tools, tool_choice)
-    )
-```
-
-**Implementation**: Default implementation provided in base class.
+**Note**: Default implementation provided via `asyncio.run(self.ainfer(...))`. Algorithm implementations typically do not override this.
 
 ### Algorithm Result Interface
 
 ```python
 class AbstractScalingResult(ABC):
     """
-    Result object returned by algorithms when return_response_only=False.
+    Result object returned when return_response_only=False.
     """
 
     @property
     @abstractmethod
     def the_one(self) -> Dict[str, Any]:
         """
-        Return the selected best response.
+        The selected best response.
 
         Returns:
-            Dict: {"role": "assistant", "content": "...", "tool_calls": [...]}
+            {"role": "assistant", "content": "...", "tool_calls": [...]}
         """
         pass
 
     @property
     def candidates(self) -> List[Dict[str, Any]]:
-        """
-        All candidate responses generated.
-
-        Returns:
-            List of response dicts
-        """
+        """All generated candidate responses."""
         return []
 
     @property
     def scores(self) -> Optional[List[float]]:
-        """
-        Scores assigned to each candidate (if applicable).
-
-        Returns:
-            List of scores (higher = better) or None if not scored
-        """
+        """Scores for each candidate (if applicable)."""
         return None
 
     @property
     def metadata(self) -> Dict[str, Any]:
-        """
-        Algorithm-specific metadata.
-
-        Returns:
-            Dict with algorithm-specific data:
-                - Self-Consistency: {"vote_counts": {...}}
-                - Best-of-N: {"reward_model": "...", "scores": [...]}
-                - Beam Search: {"beam_paths": [...], "step_scores": [...]}
-        """
+        """Algorithm-specific metadata."""
         return {}
 ```
 
-### Algorithm Specifications
+### Critical Clarification: Orchestration vs Algorithm Logic
 
-#### Self-Consistency
+**IMPORTANT**: The Algorithm Layer (Interface 4) defines WHAT the algorithm does (vote, score, select). The Integration Layer (Interfaces 2 & 3) handles HOW to execute it (parallel calls, concurrency, fan-out).
 
-**Purpose**: Generate N responses and vote on most common answer
+**Algorithm Layer Responsibility** (Interface 4):
+- Define selection logic (e.g., vote on most common, select highest score)
+- Specify budget interpretation
+- Implement result construction
+- Provide `create_llm_judge()` helper for immediate reward model access
 
-**Constructor**:
-```python
-def __init__(
-    self,
-    projection_fn: Optional[Callable[[str], str]] = None,
-    tool_vote: Optional[str] = None,
-    exclude_args: Optional[List[str]] = None
-):
-    """
-    Args:
-        projection_fn: Function to extract answer from response
-            Example: lambda text: re.search(r'\\boxed\{([^}]+)\}', text).group(1)
-        tool_vote: Voting mode for tool calls
-            - None: vote on raw content
-            - "tool_name": vote on tool names only
-            - "tool_args": vote on tool arguments
-            - "tool_hierarchical": vote on full tool call structure
-        exclude_args: Arguments to exclude from tool voting
-            Example: ["timestamp", "id"] to ignore non-semantic args
-    """
-```
-
-**Budget Interpretation**: Number of parallel generations
-
-**Selection Logic**:
-- Extract answers using `projection_fn` (if provided)
-- Count occurrences of each unique answer
-- Return most common answer (majority vote)
-- Tie-breaking: return first response among tied answers
+**Integration Layer Responsibility** (Interfaces 2 & 3):
+- Execute parallel LM calls (fan-out with `asyncio.gather`)
+- Execute reward scoring (batching, caching)
+- Manage concurrency limits (semaphores)
+- Handle retries and error recovery
+- Batch request optimization
 
 **Example**:
 ```python
-# Math problem voting
-from its_hub.algorithms import SelfConsistency, create_regex_projection_function
+# Algorithm Layer (Interface 4) - WHAT to do
+class SelfConsistency:
+    async def ainfer(self, lm, prompt, budget, ...):
+        # Algorithm says: "I need N responses"
+        responses = await self._get_responses(lm, prompt, budget)
+        # Algorithm says: "Vote on most common"
+        return self._vote(responses)
 
-# Extract answer from \boxed{...}
-proj_fn = create_regex_projection_function(r'\\boxed\{([^}]+)\}')
-sc = SelfConsistency(projection_fn=proj_fn)
-
-result = await sc.ainfer(lm, "What is 2+2?", budget=5)
-# Generates 5 responses, extracts answers, votes
+# Integration Layer (Interfaces 2 & 3) - HOW to do it
+class AbstractLanguageModel:
+    async def agenerate(self, messages, ...):
+        # Integration handles parallel execution
+        tasks = [self._generate_single(...) for _ in range(n)]
+        responses = await asyncio.gather(*tasks)  # Fan-out happens here
+        return responses
 ```
 
-#### Best-of-N
+### Helper Function: `create_llm_judge()`
 
-**Purpose**: Generate N responses and select highest-scoring one
+**Purpose**: Convenience helper that wraps any `AbstractLanguageModel` into `AbstractOutcomeRewardModel`
 
-**Constructor**:
+**Location**: Algorithm Layer (its-hub core)
+
+**Signature**:
 ```python
-def __init__(self, reward_model: AbstractOutcomeRewardModel):
+def create_llm_judge(
+    lm: AbstractLanguageModel,
+    judge_prompt: Optional[str] = None,
+    fallback_score: float = 5.0
+) -> AbstractOutcomeRewardModel:
     """
+    Wrap any LM into basic LLM-judge reward model.
+
+    Enables immediate Best-of-N usage when Integration Layer implements LM Interface.
+    Integration Layer can override with optimized implementations.
+
     Args:
-        reward_model: Model to score responses
-            Examples: LLMJudge, MathVerifier, CustomClassifier
+        lm: Any AbstractLanguageModel implementation
+        judge_prompt: Custom judging prompt (uses default if None)
+        fallback_score: Score to use if parsing fails
+
+    Returns:
+        AbstractOutcomeRewardModel that uses LM for scoring
     """
 ```
 
-**Budget Interpretation**: Number of parallel generations
-
-**Selection Logic**:
-- Generate N responses
-- Score all responses using reward model
-- Return response with highest score
-
-**Example**:
+**Usage Pattern**:
 ```python
-from its_hub import BestOfN
-from its_hub.reward_models import LLMJudge
+from its_hub import create_llm_judge, BestOfN
 
-judge = LLMJudge(lm=judge_lm, fallback_score=5.0)
+# Integration provides LM
+lm = MyGatewayLM(...)
+
+# Algorithm Layer helper creates reward model
+judge = create_llm_judge(lm)
+
+# Now Best-of-N works immediately
 bon = BestOfN(reward_model=judge)
-
-result = await bon.ainfer(lm, "Write a sorting function", budget=10)
-# Generates 10 responses, judge scores each, returns best
+result = await bon.ainfer(lm, prompt, budget=5)
 ```
 
----
+### Officially Supported Algorithms
 
-## Interface 4: Reward Interface
+#### 1. Self-Consistency
 
-### Overview
-**Purpose**: Define how reward models score responses for Best-of-N and other algorithms
-
-**Defined in**: `its_hub/base.py` as `AbstractOutcomeRewardModel`
-
-**Implementers**: its-hub library and users creating custom reward models
-
-**Consumers**: Best-of-N algorithm (and future meta-algorithms)
-
-### Interface Contract
-
-```python
-from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Union
-
-class AbstractOutcomeRewardModel(ABC):
-    """
-    Abstract base class for outcome reward models.
-
-    Scores complete responses/conversations for quality, correctness, etc.
-    """
-```
-
-### Method 1: `__init__` (Constructor)
-
-**Purpose**: Initialize reward model with configuration
-
-**Signature**: Implementation-specific, common patterns:
-
-```python
-# LLM Judge
-def __init__(
-    self,
-    lm: AbstractLanguageModel,              # LM to use as judge
-    judge_prompt: Optional[str] = None,     # Custom prompt template
-    fallback_score: float = 5.0,            # Default score on error
-    score_range: tuple = (0, 10)            # Expected (min, max) score
-) -> None:
-    """Initialize LLM judge."""
-
-# Verifier
-def __init__(
-    self,
-    verification_fn: Callable,              # Function to verify correctness
-    correct_score: float = 1.0,             # Score for correct answer
-    incorrect_score: float = 0.0            # Score for incorrect answer
-) -> None:
-    """Initialize verifier."""
-```
-
-### Method 2: `score` (Synchronous Scoring - REQUIRED)
-
-**Purpose**: Score responses synchronously
-
-**Signature**:
-```python
-@abstractmethod
-def score(
-    self,
-    messages: Union[List[Dict[str, Any]], List[List[Dict[str, Any]]]],
-    **kwargs
-) -> Union[float, List[float]]:
-    """
-    Score response(s) or conversation(s).
-
-    Args:
-        messages: Single conversation or batch of conversations
-            Single: [
-                {"role": "user", "content": "Question?"},
-                {"role": "assistant", "content": "Answer."}
-            ]
-            Batch: [
-                [{"role": "user", ...}, {"role": "assistant", ...}],
-                [{"role": "user", ...}, {"role": "assistant", ...}],
-                ...
-            ]
-        **kwargs: Reward-model-specific parameters
-            Common:
-                - max_input_tokens: int (truncate long conversations)
-                - return_reasoning: bool (return explanation with score)
-
-    Returns:
-        Single conversation: float (single score)
-        Batch: List[float] (one score per conversation)
-
-    Notes:
-        - Higher score = better response
-        - Scores should be comparable across different responses
-        - No fixed range required, but 0-10 common for LLM judges
-    """
-```
-
-**Input Type Detection**:
-```python
-def score(self, messages, **kwargs):
-    # Check if batch or single
-    is_batch = isinstance(messages[0], list)
-
-    if is_batch:
-        return [self._score_single(conv, **kwargs) for conv in messages]
-    else:
-        return self._score_single(messages, **kwargs)
-```
-
-**Example Implementation (LLM Judge)**:
-```python
-def score(self, messages, return_reasoning=False, **kwargs):
-    # Format conversation
-    conversation = self._format_conversation(messages)
-
-    # Build judge prompt
-    judge_input = self.judge_prompt.format(conversation=conversation)
-
-    # Get judge's score
-    response = self.lm.generate([{"role": "user", "content": judge_input}])
-
-    # Parse score
-    try:
-        data = json.loads(response["content"])
-        score = float(data["score"])
-
-        if return_reasoning:
-            return score, data.get("reasoning", "")
-        return score
-    except (json.JSONDecodeError, KeyError, ValueError):
-        return self.fallback_score
-```
-
-### Method 3: `ascore` (Async Scoring - OPTIONAL)
-
-**Purpose**: Score responses asynchronously (for LLM judges)
-
-**Signature**:
-```python
-async def ascore(
-    self,
-    messages: Union[List[Dict[str, Any]], List[List[Dict[str, Any]]]],
-    **kwargs
-) -> Union[float, List[float]]:
-    """
-    Async version of score().
-
-    Args:
-        Same as score()
-
-    Returns:
-        Same as score()
-
-    Raises:
-        NotImplementedError: If async scoring not supported
-
-    Notes:
-        - LLM judges should implement this for efficiency
-        - Enables parallel scoring of multiple candidates
-        - Default implementation raises NotImplementedError
-    """
-    raise NotImplementedError(
-        f"{self.__class__.__name__} does not support async scoring."
-    )
-```
-
-**When to implement**:
-- MUST implement if reward model makes async calls (e.g., LLM judge)
-- NOT needed for fast local computation (e.g., regex verifier)
-
-### LLM Judge Specification
+**Purpose**: Generate N responses, vote on most common answer
 
 **Constructor**:
 ```python
-class LLMJudge(AbstractOutcomeRewardModel):
+class SelfConsistency(AbstractScalingAlgorithm):
     def __init__(
         self,
-        lm: AbstractLanguageModel,
-        judge_prompt: Optional[str] = None,
-        fallback_score: float = 5.0,
-        score_range: tuple = (0, 10)
+        projection_fn: Optional[Callable] = None,
+        tool_vote: Optional[str] = None,
+        exclude_args: Optional[List[str]] = None
     ):
         """
         Args:
-            lm: Language model to use as judge
-            judge_prompt: Custom prompt with {conversation} placeholder
-                Must instruct LLM to return JSON: {"score": <number>}
-            fallback_score: Score if parsing fails
-            score_range: Expected (min, max) for validation
+            projection_fn: Extract answer from response (e.g., regex)
+            tool_vote: Voting mode for tool calls
+                - "tool_name": vote on tool names
+                - "tool_args": vote on arguments
+                - "tool_hierarchical": vote on full structure
+            exclude_args: Args to ignore in voting (e.g., ["timestamp", "id"])
         """
 ```
 
-**Default Judge Prompt**:
-```python
-DEFAULT_JUDGE_PROMPT = """Evaluate the following conversation for response quality.
-Consider: accuracy, helpfulness, coherence, and relevance.
+**Consumes**: LM Interface (Interface 2) only
 
-Conversation:
-{conversation}
+**Budget**: Number of parallel generations
 
-Return a JSON object with a score from 0-10.
-Format: {{"score": <number>, "reasoning": "<explanation>"}}"""
-```
-
-**Custom Judge Prompts**:
-```python
-# Math-specific
-MATH_JUDGE_PROMPT = """Evaluate the mathematical solution.
-Consider: correctness, clarity, completeness.
-
-Conversation:
-{conversation}
-
-Return JSON: {{"score": <0-10>, "reasoning": "<why>"}}"""
-
-# Code quality
-CODE_JUDGE_PROMPT = """Evaluate the code quality.
-Consider: correctness, efficiency, readability, best practices.
-
-Conversation:
-{conversation}
-
-Return JSON: {{"score": <0-10>, "reasoning": "<why>"}}"""
-```
+**Selection Logic**: Vote on most common answer (majority wins)
 
 **Usage**:
 ```python
-# Default judge
-judge = LLMJudge(lm=judge_lm)
+from its_hub import SelfConsistency
 
-# Custom judge
-math_judge = LLMJudge(lm=judge_lm, judge_prompt=MATH_JUDGE_PROMPT)
+sc = SelfConsistency()
+result = await sc.ainfer(lm, "What is 2+2?", budget=5)
+# Generates 5 responses, returns most common answer
+```
 
-# Score single response
-score = await judge.ascore([
-    {"role": "user", "content": "What is 2+2?"},
-    {"role": "assistant", "content": "The answer is 4."}
-])
+#### 2. Best-of-N
 
-# Score multiple responses (batch)
-scores = await judge.ascore([
-    [{"role": "user", ...}, {"role": "assistant", ...}],
-    [{"role": "user", ...}, {"role": "assistant", ...}]
-])
+**Purpose**: Generate N responses, select highest-scoring one
+
+**Constructor**:
+```python
+class BestOfN(AbstractScalingAlgorithm):
+    def __init__(self, reward_model: AbstractOutcomeRewardModel):
+        """
+        Args:
+            reward_model: Scores responses (from Interface 3)
+                - Gateway native reward service (wrapped)
+                - create_llm_judge(lm) helper
+                - Custom implementation
+        """
+```
+
+**Consumes**: LM Interface (Interface 2) + Reward Interface (Interface 3)
+
+**Budget**: Number of parallel generations
+
+**Selection Logic**: Score all responses, return highest-scoring
+
+**Usage**:
+```python
+from its_hub import BestOfN, create_llm_judge
+
+# Option 1: Use helper (quick start)
+judge = create_llm_judge(lm)
+bon = BestOfN(reward_model=judge)
+
+# Option 2: Use gateway native reward (optimized)
+reward = MyGatewayReward(gateway.reward_service)
+bon = BestOfN(reward_model=reward)
+
+result = await bon.ainfer(lm, "Write a sorting function", budget=10)
+# Generates 10 responses, scores each, returns best
 ```
 
 ---
@@ -1032,7 +987,7 @@ Integrating its-hub with your gateway:
 - [ ] (Optional) Support batch inference for efficiency
 - [ ] (Optional) Provide tracing/logging hooks
 
-### For LM Interface Implementers (Layer 2)
+### For LM Interface Implementers (Interface 2)
 
 Implementing `AbstractLanguageModel`:
 
@@ -1042,28 +997,12 @@ Implementing `AbstractLanguageModel`:
   - [ ] Handle batch conversation input
   - [ ] Preserve tool_calls in output
   - [ ] Implement retry logic for transient errors
-  - [ ] Respect concurrency limits
+  - [ ] Respect concurrency limits (orchestration responsibility)
 - [ ] Use default `generate` method (sync wrapper)
 - [ ] (Optional) Implement `mock_streaming` for testing
 - [ ] (Optional) Implement tracing methods
 
-### For Algorithm Implementers (Layer 3)
-
-Implementing `AbstractScalingAlgorithm`:
-
-- [ ] Implement `__init__` with algorithm-specific config
-- [ ] Implement `ainfer` method (REQUIRED)
-  - [ ] Normalize input (handle str and List[ChatMessage])
-  - [ ] Validate budget > 0
-  - [ ] Generate responses using LM interface
-  - [ ] Implement selection logic
-  - [ ] Support return_response_only flag
-  - [ ] Handle tools/tool_choice parameters
-- [ ] Use default `infer` method (sync wrapper)
-- [ ] Document budget interpretation in docstring
-- [ ] Implement `AbstractScalingResult` subclass if return_response_only=False
-
-### For Reward Model Implementers (Layer 4)
+### For Reward Interface Implementers (Interface 3)
 
 Implementing `AbstractOutcomeRewardModel`:
 
@@ -1072,8 +1011,26 @@ Implementing `AbstractOutcomeRewardModel`:
   - [ ] Handle single conversation input
   - [ ] Handle batch conversation input
   - [ ] Return consistent scores (higher = better)
-- [ ] Implement `ascore` if model makes async calls (LLM judge)
+  - [ ] Implement batching/caching if optimizing (orchestration responsibility)
+- [ ] Implement `ascore` if model makes async calls (e.g., LLM judge)
 - [ ] Document score range and interpretation
+- [ ] **Quickstart option**: Use `create_llm_judge(lm)` helper instead of implementing
+
+### For Algorithm Implementers (Interface 4)
+
+Implementing `AbstractScalingAlgorithm`:
+
+- [ ] Implement `__init__` with algorithm-specific config
+- [ ] Implement `ainfer` method (REQUIRED)
+  - [ ] Normalize input (handle str and List[ChatMessage])
+  - [ ] Validate budget > 0
+  - [ ] Generate responses using LM interface (let Integration handle fan-out)
+  - [ ] Implement selection logic (vote, score, etc.)
+  - [ ] Support return_response_only flag
+  - [ ] Handle tools/tool_choice parameters
+- [ ] Use default `infer` method (sync wrapper)
+- [ ] Document budget interpretation in docstring
+- [ ] Implement `AbstractScalingResult` subclass if return_response_only=False
 
 ---
 
@@ -1147,11 +1104,12 @@ assert all(isinstance(s, float) for s in scores)
 
 | Interface | Layer | Implementer | Consumer | Status |
 |-----------|-------|-------------|----------|--------|
-| Gateway Requirements | 1 | Gateway developers | LM Interface | Requirements only |
-| `AbstractLanguageModel` | 2 | Gateway integrators | Algorithms | ✅ Defined |
-| `AbstractScalingAlgorithm` | 3 | its-hub library | End users | ✅ Defined |
-| `AbstractOutcomeRewardModel` | 3 | its-hub library, users | Best-of-N | ✅ Defined |
-| `AbstractScalingResult` | 3 | Algorithm impls | End users | ✅ Defined |
+| Gateway Requirements | 1 | Gateway developers | Integration Layer | Requirements only |
+| `AbstractLanguageModel` | 2 | Integration Layer (wraps gateway LM) | Algorithms | ✅ Defined |
+| `AbstractOutcomeRewardModel` | 3 | Integration Layer (wraps gateway reward OR uses helper) | Algorithms (Best-of-N) | ✅ Defined |
+| `AbstractScalingAlgorithm` | 4 | Algorithm Layer (its-hub core) | End users | ✅ Defined |
+| `AbstractScalingResult` | 4 | Algorithm Layer (its-hub core) | End users | ✅ Defined |
+| `create_llm_judge()` | 4 | Algorithm Layer (its-hub core) | Integration Layer (quickstart) | ✅ Defined |
 
 ---
 
