@@ -20,33 +20,40 @@ This document defines the **interface contracts** for the its-hub library. It sp
 | Layer | What It Is | Part of its-hub repo? | Where It Lives | Interface Section |
 |-------|-----------|----------------------|----------------|-------------------|
 | **Demo & Use Cases** (Top) | Agent applications (Langflow, LangChain, etc.) | ❌ No | External applications | Out of scope |
-| **Gateway Layer** | AI Gateways (Portkey, LiteLLM, Envoy) | ❌ No | External systems | **Interface 1** |
-| **Integration Layer** | Wraps gateway LM + Reward implementations | ❌ No | Gateway codebase (Direct PR) OR its-hub adapters (Plug-in) | **Interface 2 & 3** |
-| **Algorithm Layer** | ITS algorithms (consume LM + Reward) | ✅ Yes | its-hub core | **Interface 4** |
+| **Gateway Layer** | AI Gateways (Portkey, LiteLLM, Envoy) | ❌ No | External systems | **Gateway Interface** |
+| **Integration Layer** | Wraps gateway LM + Reward implementations | ❌ No | Gateway codebase (Direct PR) OR its-hub adapters (Plug-in) | **LM & Reward Interfaces** |
+| **Algorithm Layer** | ITS algorithms (consume LM + Reward) | ✅ Yes | its-hub core | **Algorithm Interface** |
 
 ### What This Repository Contains
 
 **its-hub core library provides**:
-1. **Interface Definitions (Interface 2, 3, 4)**: `AbstractLanguageModel`, `AbstractOutcomeRewardModel`, `AbstractScalingAlgorithm`
-2. **Algorithm Implementations (Interface 4)**: Self-Consistency, Best-of-N
+1. **Interface Definitions**: `AbstractLanguageModel`, `AbstractOutcomeRewardModel`, `AbstractScalingAlgorithm`
+2. **Algorithm Implementations**: Self-Consistency, Best-of-N
 3. **Default Helper**: `create_llm_judge()` - converts any LM into basic reward model
 4. **(Optional) Adapter Plug-ins**: Pre-built wrappers for specific gateways (e.g., `PortkeyAdapter`, `LiteLLMAdapter`)
 
-**How the interfaces connect**:
-- **Interface 1** (Gateway): Defines what external gateways must do (add before-request hook, check headers)
-- **Interface 2** (LM Integration): Wraps gateway LM to match `AbstractLanguageModel` contract
-- **Interface 3** (Reward Integration): Wraps gateway reward OR uses `create_llm_judge()` helper
-- **Interface 4** (Algorithm): Consumes both LM and Reward interfaces to execute ITS strategies
+### Interface Definitions (Scope of its-hub)
+
+This document defines **4 key interfaces** for inference-time scaling:
+
+| Interface | Scope | Description |
+|-----------|-------|-------------|
+| **Gateway Interface** | ❌ External (out of scope) | Defines what external gateways must do (add before-request hook, check headers) |
+| **LM Interface** | ✅ its-hub core | Wraps gateway LM to match `AbstractLanguageModel` contract |
+| **Reward Interface** | ✅ its-hub core | Wraps gateway reward OR uses `create_llm_judge()` helper |
+| **Algorithm Interface** | ✅ its-hub core | Consumes both LM and Reward interfaces to execute ITS strategies |
+
+**its-hub Scope**: This library provides **interface contracts (2, 3, 4)** as abstractions in the core library, preparing them for flexible integration with any gateway. Gateway teams implement these interfaces; its-hub provides the algorithm logic that consumes them.
 
 **Design Principles**:
-- Minimal dependencies (core: `numpy`, `typing-extensions`)
-- Gateway agnostic (works with any gateway via LM Interface)
-- Clear contracts (well-defined interfaces enable independent implementation)
-- Algorithm first (focus on reasoning, not infrastructure)
+- **Minimal dependencies** (core: `numpy`, `typing-extensions`)
+- **Gateway agnostic** (works with any gateway via standard interfaces)
+- **Clear contracts** (well-defined interfaces enable independent implementation)
+- **Algorithm first** (focus on reasoning, not infrastructure)
 
 ---
 
-## Interface 1: Gateway Layer Integration
+## Gateway Interface
 
 ### What is an AI Gateway?
 
@@ -150,7 +157,7 @@ curl -X POST https://gateway.example.com/v1/chat/completions \
 
 ---
 
-## Interface 2: LM Interface (Integration Layer)
+## LM Interface (Integration Layer)
 
 ### Overview
 
@@ -406,7 +413,7 @@ result = await algorithm.ainfer(lm, "What is 2+2?", budget=5)
 
 ---
 
-## Interface 3: Reward Interface (Integration Layer)
+## Reward Interface (Integration Layer)
 
 ### Overview
 
@@ -671,7 +678,7 @@ result = await bon.ainfer(lm, "Write a sorting function", budget=10)
 
 ---
 
-## Interface 4: Algorithm Interface (its-hub Core)
+## Algorithm Interface (its-hub Core)
 
 ### Overview
 
@@ -698,7 +705,7 @@ class AbstractScalingAlgorithm(ABC):
     Abstract interface for inference-time scaling algorithms.
 
     All algorithms (Self-Consistency, Best-of-N, etc.) implement this.
-    Algorithms consume both LM Interface (Interface 2) and Reward Interface (Interface 3).
+    Algorithms consume both LM Interface and Reward Interface.
     """
 ```
 
@@ -737,7 +744,7 @@ async def ainfer(
     Run inference-time scaling algorithm.
 
     Args:
-        lm: Language model (implements AbstractLanguageModel from Interface 2)
+        lm: Language model (implements AbstractLanguageModel from LM Interface)
         prompt_or_messages: User input
             - str: "What is 2+2?"
             - List[ChatMessage]: [{"role": "user", "content": "..."}]
@@ -814,15 +821,15 @@ class AbstractScalingResult(ABC):
 
 ### Critical Clarification: Orchestration vs Algorithm Logic
 
-**IMPORTANT**: The Algorithm Layer (Interface 4) defines WHAT the algorithm does (vote, score, select). The Integration Layer (Interfaces 2 & 3) handles HOW to execute it (parallel calls, concurrency, fan-out).
+**IMPORTANT**: The Algorithm Interface defines WHAT the algorithm does (vote, score, select). The Integration Layer (LM & Reward Interfaces) handles HOW to execute it (parallel calls, concurrency, fan-out).
 
-**Algorithm Layer Responsibility** (Interface 4):
+**Algorithm Interface Responsibility**:
 - Define selection logic (e.g., vote on most common, select highest score)
 - Specify budget interpretation
 - Implement result construction
 - Provide `create_llm_judge()` helper for immediate reward model access
 
-**Integration Layer Responsibility** (Interfaces 2 & 3):
+**Integration Layer Responsibility** (LM & Reward Interfaces):
 - Execute parallel LM calls (fan-out with `asyncio.gather`)
 - Execute reward scoring (batching, caching)
 - Manage concurrency limits (semaphores)
@@ -831,7 +838,7 @@ class AbstractScalingResult(ABC):
 
 **Example**:
 ```python
-# Algorithm Layer (Interface 4) - WHAT to do
+# Algorithm Interface - WHAT to do
 class SelfConsistency:
     async def ainfer(self, lm, prompt, budget, ...):
         # Algorithm says: "I need N responses"
@@ -839,7 +846,7 @@ class SelfConsistency:
         # Algorithm says: "Vote on most common"
         return self._vote(responses)
 
-# Integration Layer (Interfaces 2 & 3) - HOW to do it
+# LM Interface (Integration Layer) - HOW to do it
 class AbstractLanguageModel:
     async def agenerate(self, messages, ...):
         # Integration handles parallel execution
@@ -918,7 +925,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
         """
 ```
 
-**Consumes**: LM Interface (Interface 2) only
+**Consumes**: LM Interface only
 
 **Budget**: Number of parallel generations
 
@@ -943,14 +950,14 @@ class BestOfN(AbstractScalingAlgorithm):
     def __init__(self, reward_model: AbstractOutcomeRewardModel):
         """
         Args:
-            reward_model: Scores responses (from Interface 3)
+            reward_model: Scores responses (from Reward Interface)
                 - Gateway native reward service (wrapped)
                 - create_llm_judge(lm) helper
                 - Custom implementation
         """
 ```
 
-**Consumes**: LM Interface (Interface 2) + Reward Interface (Interface 3)
+**Consumes**: LM Interface + Reward Interface
 
 **Budget**: Number of parallel generations
 
@@ -976,7 +983,7 @@ result = await bon.ainfer(lm, "Write a sorting function", budget=10)
 
 ## Implementation Checklist
 
-### For Gateway Developers (Layer 1)
+### For Gateway Developers (Gateway Interface)
 
 Integrating its-hub with your gateway:
 
@@ -987,7 +994,7 @@ Integrating its-hub with your gateway:
 - [ ] (Optional) Support batch inference for efficiency
 - [ ] (Optional) Provide tracing/logging hooks
 
-### For LM Interface Implementers (Interface 2)
+### For LM Interface Implementers
 
 Implementing `AbstractLanguageModel`:
 
@@ -1002,7 +1009,7 @@ Implementing `AbstractLanguageModel`:
 - [ ] (Optional) Implement `mock_streaming` for testing
 - [ ] (Optional) Implement tracing methods
 
-### For Reward Interface Implementers (Interface 3)
+### For Reward Interface Implementers
 
 Implementing `AbstractOutcomeRewardModel`:
 
@@ -1016,7 +1023,7 @@ Implementing `AbstractOutcomeRewardModel`:
 - [ ] Document score range and interpretation
 - [ ] **Quickstart option**: Use `create_llm_judge(lm)` helper instead of implementing
 
-### For Algorithm Implementers (Interface 4)
+### For Algorithm Implementers
 
 Implementing `AbstractScalingAlgorithm`:
 
@@ -1104,12 +1111,12 @@ assert all(isinstance(s, float) for s in scores)
 
 | Interface | Layer | Implementer | Consumer | Status |
 |-----------|-------|-------------|----------|--------|
-| Gateway Requirements | 1 | Gateway developers | Integration Layer | Requirements only |
-| `AbstractLanguageModel` | 2 | Integration Layer (wraps gateway LM) | Algorithms | ✅ Defined |
-| `AbstractOutcomeRewardModel` | 3 | Integration Layer (wraps gateway reward OR uses helper) | Algorithms (Best-of-N) | ✅ Defined |
-| `AbstractScalingAlgorithm` | 4 | Algorithm Layer (its-hub core) | End users | ✅ Defined |
-| `AbstractScalingResult` | 4 | Algorithm Layer (its-hub core) | End users | ✅ Defined |
-| `create_llm_judge()` | 4 | Algorithm Layer (its-hub core) | Integration Layer (quickstart) | ✅ Defined |
+| **Gateway Interface** | Gateway Layer | Gateway developers | Integration Layer | Requirements only |
+| **LM Interface** (`AbstractLanguageModel`) | Integration Layer | Wraps gateway LM | Algorithms | ✅ Defined |
+| **Reward Interface** (`AbstractOutcomeRewardModel`) | Integration Layer | Wraps gateway reward OR uses helper | Algorithms (Best-of-N) | ✅ Defined |
+| **Algorithm Interface** (`AbstractScalingAlgorithm`) | Algorithm Layer | its-hub core | End users | ✅ Defined |
+| **Algorithm Result** (`AbstractScalingResult`) | Algorithm Layer | its-hub core | End users | ✅ Defined |
+| **Helper** (`create_llm_judge()`) | Algorithm Layer | its-hub core | Integration Layer (quickstart) | ✅ Defined |
 
 ---
 
