@@ -30,7 +30,12 @@ This document defines the **interface contracts** for the its-hub library. It sp
 1. **Interface Definitions**: `AbstractLanguageModel`, `AbstractOutcomeRewardModel`, `AbstractScalingAlgorithm`
 2. **Algorithm Implementations**: Self-Consistency, Best-of-N
 3. **Default Helper**: `create_llm_judge()` - converts any LM into basic reward model
-4. **(Optional) Adapter Plug-ins**: Pre-built wrappers for specific gateways (e.g., `PortkeyAdapter`, `LiteLLMAdapter`)
+
+**Adapter Ecosystem** (separate packages):
+- **its-hub-portkey**: Portkey gateway adapter (`pip install its-hub-portkey`)
+- **its-hub-litellm**: LiteLLM gateway adapter (`pip install its-hub-litellm`)
+- **its-hub-openai**: OpenAI-compatible adapter (`pip install its-hub-openai`)
+- Each adapter package depends on: `its-hub` (core) + gateway-specific SDK
 
 ### Interface Definitions (Scope of its-hub)
 
@@ -43,7 +48,7 @@ This document defines **4 key interfaces** for inference-time scaling:
 | **Reward Interface** | ✅ its-hub core | Wraps gateway reward OR uses `create_llm_judge()` helper |
 | **Algorithm Interface** | ✅ its-hub core | Consumes both LM and Reward interfaces to execute ITS strategies |
 
-**its-hub Scope**: This library provides **interface contracts (2, 3, 4)** as abstractions in the core library, preparing them for flexible integration with any gateway. Gateway teams implement these interfaces; its-hub provides the algorithm logic that consumes them.
+**its-hub Scope**: This library provides **interface contracts (LM, Reward, Algorithm)** as abstractions in the core library, preparing them for flexible integration with any gateway. Gateway teams implement these interfaces; its-hub provides the algorithm logic that consumes them.
 
 **Design Principles**:
 - **Minimal dependencies** (core: `numpy`, `typing-extensions`)
@@ -240,18 +245,6 @@ async def agenerate(
     """
 ```
 
-**Input Specification**:
-
-```python
-ChatMessage = TypedDict('ChatMessage', {
-    'role': str,                        # "system" | "user" | "assistant" | "tool"
-    'content': str,                     # Message content
-    'name': NotRequired[str],           # Optional: function name
-    'tool_calls': NotRequired[List[dict]],  # Optional: tool calls
-    'tool_call_id': NotRequired[str]    # Optional: tool response ID
-})
-```
-
 **Output Specification**:
 
 ```python
@@ -324,12 +317,15 @@ class GatewayLM(AbstractLanguageModel):
 
 #### Approach 2: Plug-in Library (Adapter Pattern)
 
-**How**: its-hub provides pre-built adapters; gateway imports and uses them
+**How**: Install separate adapter package; gateway imports and uses it
 
 **Implementation**:
 ```python
+# Installation
+# pip install its-hub-portkey  (depends on: its-hub + portkey-sdk)
+
 # In gateway codebase: gateway/plugins/its_plugin.py
-from its_hub.adapters import PortkeyAdapter  # Pre-built by its-hub team
+from its_hub_portkey import PortkeyAdapter  # From separate package
 
 class ITSPlugin:
     def __init__(self, gateway_config):
@@ -346,27 +342,33 @@ class ITSPlugin:
         return await algorithm.ainfer(self.lm, request.messages, request.budget)
 ```
 
-**its-hub provides**:
+**Adapter packages** (maintained separately):
 ```python
-# its_hub/adapters/portkey.py
+# its-hub-portkey package
 class PortkeyAdapter(AbstractLanguageModel):
     """Pre-built adapter for Portkey gateway"""
-    # Implementation maintained by its-hub team
+    # Depends on: its-hub (core) + portkey-sdk
 
-# its_hub/adapters/litellm.py
+# its-hub-litellm package
 class LiteLLMAdapter(AbstractLanguageModel):
     """Pre-built adapter for LiteLLM gateway"""
-    # Implementation maintained by its-hub team
+    # Depends on: its-hub (core) + litellm
+
+# its-hub-openai package
+class OpenAICompatibleAdapter(AbstractLanguageModel):
+    """Pre-built adapter for OpenAI-compatible APIs"""
+    # Depends on: its-hub (core) + openai
 ```
 
 **Pros**:
 - Zero implementation effort for gateway team
-- Maintained by its-hub team
-- Quick integration (import and use)
-- Easy to upgrade (update its-hub version)
+- Maintained by its-hub team (separate packages)
+- Quick integration (install adapter package)
+- Easy to upgrade (update adapter version)
+- **Keeps core its-hub minimal** (no gateway-specific dependencies)
 
 **Cons**:
-- Extra dependency on its-hub library
+- Extra dependency on adapter package
 - Less customization
 - May not leverage gateway-specific features
 
@@ -382,7 +384,7 @@ class LiteLLMAdapter(AbstractLanguageModel):
 | **Maintenance** | Gateway team | its-hub team |
 | **Customization** | Full control | Limited |
 | **Performance** | Optimal | Good (extra layer) |
-| **Dependencies** | None (its-hub algorithms only) | its-hub library |
+| **Dependencies** | None (its-hub core only) | its-hub core + adapter package |
 | **Integration Time** | Weeks | Days |
 | **Best For** | Deep integration, full control | Fast integration, minimal effort |
 
@@ -427,33 +429,6 @@ result = await algorithm.ainfer(lm, "What is 2+2?", budget=5)
 **Key benefit**: Algorithm developers write against one interface; integration provides implementations (gateway native OR its-hub helper).
 
 **Defined in**: `its_hub/base.py` as `AbstractOutcomeRewardModel`
-
-### Two Implementation Sources
-
-**Just like LM Interface**, reward models can come from two sources:
-
-#### Source 1: Gateway Native Implementation (Optional)
-```python
-# Gateway has its own reward/scoring service
-class GatewayRewardService:
-    def evaluate(self, conversation):
-        # Gateway's native implementation
-        # - Toxicity classifier
-        # - Quality scorer
-        # - Safety filter
-        return score
-```
-
-#### Source 2: its-hub Helper (Fallback)
-```python
-# Algorithm Layer provides basic LLM-judge helper
-from its_hub import create_llm_judge
-
-# Wraps any AbstractLanguageModel into reward model
-judge = create_llm_judge(lm, judge_prompt=None, fallback_score=5.0)
-```
-
-**Integration Layer's Role**: Wrap whichever source exists to match `AbstractOutcomeRewardModel` interface.
 
 ### Interface Contract
 
@@ -515,19 +490,6 @@ def score(
 **Purpose**: Asynchronous scoring for models that make async calls (e.g., LLM judges)
 
 **Note**: Default implementation raises `NotImplementedError`. Only implement if scoring requires async operations.
-
-### Type Definitions
-
-```python
-from typing import TypedDict, List, NotRequired
-
-class ChatMessage(TypedDict):
-    role: str                           # "system", "user", "assistant", "tool"
-    content: str                        # Message content
-    name: NotRequired[str]              # Optional: function name for tool messages
-    tool_calls: NotRequired[List[dict]] # Optional: tool calls in assistant message
-    tool_call_id: NotRequired[str]      # Optional: ID for tool response messages
-```
 
 ### Two Integration Approaches
 
@@ -694,7 +656,7 @@ result = await bon.ainfer(lm, "Write a sorting function", budget=10)
 
 **Defined in**: `its_hub/base.py` as `AbstractScalingAlgorithm` and `AbstractScalingResult`
 
-### Interface Contract (General Algorithm Interface)
+### Interface Contract
 
 ```python
 from abc import ABC, abstractmethod
@@ -1038,72 +1000,6 @@ Implementing `AbstractScalingAlgorithm`:
 - [ ] Use default `infer` method (sync wrapper)
 - [ ] Document budget interpretation in docstring
 - [ ] Implement `AbstractScalingResult` subclass if return_response_only=False
-
----
-
-## Testing Requirements
-
-### LM Interface Testing
-
-```python
-# Test single conversation
-messages = [{"role": "user", "content": "Hello"}]
-response = await lm.agenerate(messages)
-assert response["role"] == "assistant"
-assert "content" in response
-
-# Test batch conversation
-batch = [
-    [{"role": "user", "content": "Hi"}],
-    [{"role": "user", "content": "Bye"}]
-]
-responses = await lm.agenerate(batch)
-assert len(responses) == 2
-assert all(r["role"] == "assistant" for r in responses)
-
-# Test with tools
-tools = [{"type": "function", "function": {"name": "get_weather", ...}}]
-response = await lm.agenerate(messages, tools=tools)
-assert "tool_calls" in response or "content" in response
-```
-
-### Algorithm Interface Testing
-
-```python
-# Test basic inference
-result = await algorithm.ainfer(lm, "What is 2+2?", budget=5)
-assert isinstance(result, dict)
-assert result["role"] == "assistant"
-
-# Test full result
-result = await algorithm.ainfer(lm, "What is 2+2?", budget=5, return_response_only=False)
-assert hasattr(result, "the_one")
-assert hasattr(result, "candidates")
-assert len(result.candidates) == 5  # budget=5
-
-# Test with tools
-tools = [...]
-result = await algorithm.ainfer(lm, "Query", budget=3, tools=tools)
-assert isinstance(result, dict)
-```
-
-### Reward Model Testing
-
-```python
-# Test single scoring
-conversation = [
-    {"role": "user", "content": "What is 2+2?"},
-    {"role": "assistant", "content": "4"}
-]
-score = reward_model.score(conversation)
-assert isinstance(score, float)
-
-# Test batch scoring
-batch = [conversation, conversation]
-scores = reward_model.score(batch)
-assert len(scores) == 2
-assert all(isinstance(s, float) for s in scores)
-```
 
 ---
 
