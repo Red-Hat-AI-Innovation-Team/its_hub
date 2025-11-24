@@ -120,7 +120,7 @@ setup:
 setup-envoy: submodule-init proto-compile
 	@echo ""
 	@echo "✓ Envoy gateway setup complete!"
-	@echo "You can now run: just envoy-grpc-start"
+	@echo "You can now run: make envoy-stack"
 
 # Restore proto submodules to pinned commits from .gitmodules
 upgrade-protos:
