@@ -467,7 +467,7 @@ Integration Layer has two options for implementing reward model support (paralle
 **Purpose**: The Algorithm Interface defines how inference-time scaling algorithms are implemented and consumed.
 
 **What this layer does**:
-- Defines the contract for all ITS algorithms (Self-Consistency, Best-of-N, etc.)
+- Defines the contract for ITS algorithms (currently: Self-Consistency, Best-of-N)
 - Specifies algorithm inputs (LM, Reward, prompt, budget) and outputs (selected response)
 - Provides `create_llm_judge()` helper for immediate reward model usability
 - Enables algorithm composability and testing
@@ -486,7 +486,7 @@ class AbstractScalingAlgorithm(ABC):
     """
     Abstract interface for inference-time scaling algorithms.
 
-    All algorithms (Self-Consistency, Best-of-N, etc.) implement this.
+    Current algorithms: Self-Consistency, Best-of-N.
     Algorithms consume both LM Interface and Reward Interface.
     """
 ```
@@ -565,6 +565,8 @@ async def ainfer(
 #### Method 3: `infer` (Synchronous Wrapper)
 
 **Note**: Default implementation provided via `asyncio.run(self.ainfer(...))`. Algorithm implementations typically do not override this.
+
+**Important**: Async (`ainfer`) is the primary interface and only method required for implementation. The synchronous `infer` wrapper is provided for convenience, but **async is the only feature needed in practice** for production use cases (gateway integration, concurrent operations).
 
 ### Algorithm Result Interface
 
@@ -670,6 +672,8 @@ result = await bon.ainfer(lm, prompt, budget=5)
 
 ### Officially Supported Algorithms
 
+**Current scope**: This specification defines two algorithms - **Self-Consistency** and **Best-of-N**. These are the core algorithms supported by its-hub for inference-time scaling.
+
 #### 1. Self-Consistency
 
 **Purpose**: Generate N responses, vote on most common answer
@@ -746,66 +750,6 @@ bon = BestOfN(reward_model=judge)
 result = await bon.ainfer(lm, "Write a sorting function", budget=10)
 # Generates 10 responses, scores each, returns best
 ```
-
----
-
-## Implementation Checklist
-
-### For Gateway Developers (Gateway Interface)
-
-Integrating its-hub with your gateway:
-
-- [ ] Expose inference endpoint with `n` parameter support (n > 1)
-- [ ] Support concurrent requests (recommend: 10+ parallel)
-- [ ] Return structured errors with retryable/permanent distinction
-- [ ] Support standard parameters: temperature, max_tokens, stop, tools
-- [ ] (Optional) Support batch inference for efficiency
-- [ ] (Optional) Provide tracing/logging hooks
-
-### For LM Interface Implementers
-
-Implementing `AbstractLanguageModel`:
-
-- [ ] Implement `__init__` with standard parameters (endpoint, api_key, model_name)
-- [ ] Implement `agenerate` method (REQUIRED)
-  - [ ] Handle single conversation input
-  - [ ] Handle batch conversation input
-  - [ ] Preserve tool_calls in output
-  - [ ] Implement retry logic for transient errors
-  - [ ] Respect concurrency limits (orchestration responsibility)
-- [ ] Use default `generate` method (sync wrapper)
-- [ ] (Optional) Implement `mock_streaming` for testing
-- [ ] (Optional) Implement tracing methods
-
-### For Reward Interface Implementers
-
-Implementing `AbstractOutcomeRewardModel`:
-
-- [ ] Implement `__init__` with reward model config
-- [ ] Implement `score` method (REQUIRED)
-  - [ ] Handle single conversation input
-  - [ ] Handle batch conversation input
-  - [ ] Return consistent scores (higher = better)
-  - [ ] Implement batching/caching if optimizing (orchestration responsibility)
-- [ ] Implement `ascore` if model makes async calls (e.g., LLM judge)
-- [ ] Document score range and interpretation
-- [ ] **Quickstart option**: Use `create_llm_judge(lm)` helper instead of implementing
-
-### For Algorithm Implementers
-
-Implementing `AbstractScalingAlgorithm`:
-
-- [ ] Implement `__init__` with algorithm-specific config
-- [ ] Implement `ainfer` method (REQUIRED)
-  - [ ] Normalize input (handle str and List[ChatMessage])
-  - [ ] Validate budget > 0
-  - [ ] Generate responses using LM interface (let Integration handle fan-out)
-  - [ ] Implement selection logic (vote, score, etc.)
-  - [ ] Support return_response_only flag
-  - [ ] Handle tools/tool_choice parameters
-- [ ] Use default `infer` method (sync wrapper)
-- [ ] Document budget interpretation in docstring
-- [ ] Implement `AbstractScalingResult` subclass if return_response_only=False
 
 ---
 
