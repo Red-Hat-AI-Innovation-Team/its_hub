@@ -43,7 +43,7 @@ This document defines **4 key interfaces** for inference-time scaling:
 
 | Interface | Scope | Description |
 |-----------|-------|-------------|
-| **Gateway Interface** | ❌ External (out of scope) | Defines what external gateways must do (add before-request hook, check headers) |
+| **Gateway Interface** | ❌ External (out of scope) | Defines ITS request format (HTTP headers, parameters) - protocol contract only |
 | **LM Interface** | ✅ its-hub core | Wraps gateway LM to match `AbstractLanguageModel` contract |
 | **Reward Interface** | ✅ its-hub core | Wraps gateway reward OR uses `create_llm_judge()` helper |
 | **Algorithm Interface** | ✅ its-hub core | Consumes both LM and Reward interfaces to execute ITS strategies |
@@ -89,30 +89,11 @@ An **AI Gateway** is the primary interface through which users access LLMs in pr
 
 **Seamless User Experience**: Users activate inference-time scaling (ITS) algorithms using the same interface they already use for model inference. No new APIs or workflow changes needed.
 
-### Interface Contract
+### Request Protocol Specification
 
-**Design Principle**: Minimal gateway changes. Activate ITS via HTTP headers checked by a before-request hook.
+**Design Principle**: ITS requests are standard OpenAI-compatible requests with additional HTTP headers. No changes to request body format.
 
-#### 1. Before-Request Hook (Required)
-
-**Purpose**: Check for ITS activation headers and route accordingly
-
-**Signature**:
-```python
-def before_request_hook(request: HTTPRequest) -> HTTPResponse:
-    """
-    Intercept requests and check for X-ITS-* headers.
-
-    Returns:
-        ITS response if headers present, else normal pass-through
-    """
-    if has_its_headers(request):
-        return handle_its_request(request)
-    else:
-        return handle_normal_request(request)
-```
-
-#### 2. ITS Activation Headers
+#### 1. ITS Activation Headers
 
 **Header Specification**:
 
@@ -127,7 +108,7 @@ def before_request_hook(request: HTTPRequest) -> HTTPResponse:
 | `X-ITS-Judge-Endpoint` | string | No | Judge model endpoint URL |
 | `X-ITS-Judge-API-Key` | string | No | Judge model API key |
 
-#### 3. Gateway Inference Endpoint (Already Exists)
+#### 2. Base Request Format
 
 **Requirement**: Gateway must have OpenAI-compatible `/v1/chat/completions` endpoint
 
@@ -136,7 +117,28 @@ def before_request_hook(request: HTTPRequest) -> HTTPResponse:
 - Support `temperature` parameter
 - Handle concurrent requests
 
-### Usage Example
+#### 3. Response Format
+
+**Standard OpenAI-compatible response**: Same format with or without ITS headers
+
+```json
+{
+  "id": "chatcmpl-...",
+  "object": "chat.completion",
+  "created": 1234567890,
+  "model": "gpt-4o-mini",
+  "choices": [{
+    "index": 0,
+    "message": {
+      "role": "assistant",
+      "content": "4"
+    },
+    "finish_reason": "stop"
+  }]
+}
+```
+
+### Request/Response Examples
 
 ```bash
 # With ITS (Self-Consistency, budget=3)
@@ -157,8 +159,6 @@ curl -X POST https://gateway.example.com/v1/chat/completions \
     "messages": [{"role": "user", "content": "What is 2+2?"}]
   }'
 ```
-
-**Response format**: Same as standard OpenAI response (with or without ITS)
 
 ---
 
