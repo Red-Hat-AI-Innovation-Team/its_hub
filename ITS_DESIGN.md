@@ -281,29 +281,31 @@ ChatMessages = List[ChatMessage]
 
 Gateway teams have two architectural approaches for implementing this interface:
 
-#### Approach 1: Direct Implementation
+#### Approach 1: Direct Implementation (Code Contribution)
 
-**Concept**: Gateway team implements `AbstractLanguageModel` directly in their codebase, using their existing LM client infrastructure.
+**Concept**: its-hub team contributes `AbstractLanguageModel` implementation to gateway's codebase via pull request. Gateway reviews, merges, and maintains the code.
 
 **Characteristics**:
+- Requires gateway company approval (e.g., LiteLLM, Portkey teams must review PR)
+- Once merged, **gateway team owns maintenance**
 - Native integration with gateway infrastructure
-- Full control over implementation
 - Optimal performance (no extra layer)
-- Gateway team owns maintenance
+- Significant effort to get accepted and merged
 
-**Best for**: Gateways that want deep integration and full control
+**Best for**: Gateways willing to accept and maintain contributions
 
-#### Approach 2: Adapter Package
+#### Approach 2: Adapter Package (Separate Maintenance)
 
-**Concept**: Use separate adapter package (e.g., `its-hub-portkey`, `its-hub-litellm`) that wraps gateway's existing client.
+**Concept**: its-hub team maintains separate adapter packages (e.g., `its-hub-litellm`, `its-hub-portkey`). Gateway installs package and uses it.
 
 **Characteristics**:
-- Maintained by its-hub team as separate packages
-- Quick integration (install adapter package)
+- **its-hub team maintains** adapter code (not gateway)
+- No PR process - gateway just installs package
+- Quick integration for gateway (minimal effort)
 - Keeps core its-hub minimal (no gateway-specific dependencies)
-- Less customization flexibility
+- Less customization by gateway team
 
-**Best for**: Gateways that want fast integration with minimal effort
+**Best for**: Fast integration without requiring gateway code changes or maintenance burden
 
 ### Comparison
 
@@ -398,148 +400,63 @@ def score(
 
 Integration Layer has two options for implementing reward model support (parallel to LM Interface):
 
-#### Approach 1: Wrap Gateway Native Reward Service
+#### Approach 1: Wrap Gateway Native Abstractions
 
-**How**: Gateway has native scoring/reward service; Integration wraps it
+**Concept**: Most gateways already have evaluator/guardrail abstractions as part of their infrastructure. Integration Layer wraps these existing components to match `AbstractOutcomeRewardModel` contract.
 
-**Implementation**:
-```python
-# In gateway codebase: gateway/its_integration.py
-from its_hub import AbstractOutcomeRewardModel
+**Typical gateway abstractions**:
+- **Evaluator abstraction**: Scores model outputs for quality/correctness
+- **Guardrail abstraction**: Validates safety, toxicity, policy compliance
+- **Content moderation services**: Built-in classifiers and filters
+- **Domain-specific validators**: Custom scoring for particular use cases
 
-class GatewayReward(AbstractOutcomeRewardModel):
-    def __init__(self):
-        # Use gateway's existing reward service
-        self.scorer = gateway.get_reward_service()
-
-    def score(self, messages, **kwargs):
-        # Wrap gateway's native API
-        result = self.scorer.evaluate(messages)
-        return self._normalize_score(result)
-```
-
-**Examples of gateway native services**:
-- Toxicity classifiers
-- Quality scorers
-- Safety filters
-- Domain-specific validators
-
-**Pros**:
-- Leverages gateway's optimized infrastructure
+**Characteristics**:
+- Leverages gateway's existing abstractions (no new infrastructure needed)
+- Simple wrapper implementation to match interface
 - No dependency on LLM calls for scoring
-- Potentially faster and cheaper
+- Optimal performance (native service) and cost (no additional inference)
 
-**Best for**: Gateways with existing reward/scoring services
+**Best for**: Gateways with existing evaluator/guardrail abstractions (most production gateways)
 
 ---
 
 #### Approach 2: Use its-hub Helper (LLM-Judge)
 
-**How**: Integration uses `create_llm_judge()` helper from its-hub Algorithm Layer
+**Concept**: Integration uses `create_llm_judge()` helper from its-hub Algorithm Layer. This helper wraps any `AbstractLanguageModel` into a basic LLM-judge reward model.
 
-**Implementation**:
-```python
-# In gateway codebase: gateway/its_integration.py
-from its_hub import create_llm_judge
-
-class ITSIntegration:
-    def __init__(self, lm_wrapper):
-        # No native reward service - use its-hub helper
-        self.reward = create_llm_judge(
-            lm=lm_wrapper,
-            judge_prompt=None,      # Use default prompt
-            fallback_score=5.0
-        )
-```
-
-**its-hub provides**:
-```python
-# its_hub/algorithms/helpers.py (Algorithm Layer)
-def create_llm_judge(
-    lm: AbstractLanguageModel,
-    judge_prompt: Optional[str] = None,
-    fallback_score: float = 5.0
-) -> AbstractOutcomeRewardModel:
-    """
-    Convenience helper: wrap any LM into basic LLM-judge reward model.
-
-    Integration Layer can use this when gateway lacks native reward service.
-    Gateway can also provide optimized LLMJudge implementation.
-    """
-```
+**What its-hub provides**:
+- `create_llm_judge(lm, judge_prompt=None, fallback_score=5.0)` - helper function in Algorithm Layer
+- Converts any LM implementation into reward model (no additional integration work)
+- Default judging prompt (customizable)
+- Fallback score handling for parsing failures
 
 **Pros**:
-- Zero implementation effort
+- LLM-judge supported without any extra implementation in Integration Layer
+- Reuses gateway's LM infrastructure (streaming, async, cost-tracking capabilities)
 - Works immediately if LM Interface is implemented
 - Good default for getting started
 
 **Cons**:
-- Requires LLM API calls (slower, more expensive)
-- Basic implementation (no batching, caching, optimization)
+- Only LLM-judge type of reward is supported (cannot leverage toxicity classifiers, safety filters, or other reward types)
+- Simple implementation in its-hub (basic judging logic)
+- Gateway's evaluator/guardrail may have much more features (batching, caching, custom prompts, advanced scoring)
 
-**Best for**: Quick integration, gateways without native reward services
+**Best for**: Quick integration, gateways without native evaluator/guardrail abstractions
 
 ---
 
 ### Comparison
 
-| Aspect | Gateway Native Reward | its-hub Helper (LLM-Judge) |
-|--------|----------------------|---------------------------|
-| **Implementation Effort** | Wrap existing service | Import and use helper |
-| **Requires** | Gateway reward service | LM Interface only |
+| Aspect | Gateway Native Abstractions | its-hub Helper (LLM-Judge) |
+|--------|----------------------------|---------------------------|
+| **Implementation Effort** | Wrap existing evaluator/guardrail | Call helper function (zero effort) |
+| **Requires** | Gateway evaluator/guardrail abstraction | LM Interface only |
+| **Reward Types Supported** | Multiple (toxicity, safety, quality, domain-specific) | LLM-judge only |
+| **Infrastructure Reuse** | Native evaluator infrastructure | Reuses gateway LM (streaming, async, cost-tracking) |
+| **Feature Richness** | Full-featured (batching, caching, custom prompts) | Simple implementation in its-hub |
 | **Performance** | Fast (native service) | Slower (LLM calls) |
 | **Cost** | Lower (no LLM calls) | Higher (LLM inference) |
-| **Optimization** | Gateway controls | Basic (can be overridden) |
-| **Best For** | Gateways with reward services | Quick start, no native service |
-
-### Override Pattern: Optimized LLM-Judge
-
-Gateways can also provide **optimized LLM-judge implementations** to improve on the basic helper:
-
-```python
-# Gateway provides optimized LLMJudge (Integration Layer)
-from its_hub import AbstractOutcomeRewardModel
-
-class OptimizedLLMJudge(AbstractOutcomeRewardModel):
-    def __init__(self, lm, judge_prompt=None, batch_size=32, cache_enabled=True):
-        self.lm = lm
-        self.prompt = judge_prompt
-        self.batch_size = batch_size
-        self.cache = {} if cache_enabled else None
-
-    def score(self, messages, **kwargs):
-        # Optimized implementation with:
-        # - Batching for efficiency
-        # - Caching for repeated queries
-        # - Better error handling
-        # - Custom prompt engineering
-        ...
-```
-
-**Three-level pattern**:
-1. **Basic**: `create_llm_judge(lm)` - works immediately
-2. **Optimized**: Gateway's `OptimizedLLMJudge` - better performance
-3. **Native**: Gateway's domain-specific reward service - best performance
-
-### Usage Example
-
-```python
-from its_hub import AbstractOutcomeRewardModel, BestOfN
-
-# Integration Layer wraps gateway reward (either approach)
-class MyGatewayReward(AbstractOutcomeRewardModel):
-    def __init__(self, gateway_service):
-        self.service = gateway_service  # Native service or LLM-judge
-
-    def score(self, messages, **kwargs):
-        # Adapt to AbstractOutcomeRewardModel interface
-        return self.service.evaluate(messages)
-
-# Use with its-hub algorithms
-reward = MyGatewayReward(gateway.reward_service)
-bon = BestOfN(reward_model=reward)
-result = await bon.ainfer(lm, "Write a sorting function", budget=10)
-```
+| **Best For** | Gateways with evaluator/guardrail | Quick start, no native abstractions |
 
 ---
 
@@ -695,30 +612,17 @@ class AbstractScalingResult(ABC):
 - Provide `create_llm_judge()` helper for immediate reward model access
 
 **Integration Layer Responsibility** (LM & Reward Interfaces):
-- Execute parallel LM calls (fan-out with `asyncio.gather`)
+- Execute parallel LM calls (fan-out, concurrency management)
 - Execute reward scoring (batching, caching)
-- Manage concurrency limits (semaphores)
+- Manage concurrency limits (rate limiting, semaphores)
 - Handle retries and error recovery
 - Batch request optimization
 
-**Example**:
-```python
-# Algorithm Interface - WHAT to do
-class SelfConsistency:
-    async def ainfer(self, lm, prompt, budget, ...):
-        # Algorithm says: "I need N responses"
-        responses = await self._get_responses(lm, prompt, budget)
-        # Algorithm says: "Vote on most common"
-        return self._vote(responses)
-
-# LM Interface (Integration Layer) - HOW to do it
-class AbstractLanguageModel:
-    async def agenerate(self, messages, ...):
-        # Integration handles parallel execution
-        tasks = [self._generate_single(...) for _ in range(n)]
-        responses = await asyncio.gather(*tasks)  # Fan-out happens here
-        return responses
-```
+**Separation of Concerns**:
+- **Algorithm** says: "I need N responses" → calls `lm.agenerate()` N times
+- **LM Interface** handles: Parallel execution, retries, concurrency limits
+- **Algorithm** says: "Vote on most common" → implements voting logic
+- **Reward Interface** handles: Batching scores, caching, async execution
 
 ### Helper Function: `create_llm_judge()`
 
@@ -734,10 +638,10 @@ def create_llm_judge(
     fallback_score: float = 5.0
 ) -> AbstractOutcomeRewardModel:
     """
-    Wrap any LM into basic LLM-judge reward model.
+    Wrap any LM into LLM-judge reward model.
 
     Enables immediate Best-of-N usage when Integration Layer implements LM Interface.
-    Integration Layer can override with optimized implementations.
+    This is Approach 2 from Reward Interface - reuses gateway's LM infrastructure.
 
     Args:
         lm: Any AbstractLanguageModel implementation
@@ -816,9 +720,8 @@ class BestOfN(AbstractScalingAlgorithm):
         """
         Args:
             reward_model: Scores responses (from Reward Interface)
-                - Gateway native reward service (wrapped)
-                - create_llm_judge(lm) helper
-                - Custom implementation
+                - Approach 1: Gateway native evaluator/guardrail (wrapped)
+                - Approach 2: create_llm_judge(lm) helper
         """
 ```
 
@@ -832,13 +735,13 @@ class BestOfN(AbstractScalingAlgorithm):
 ```python
 from its_hub import BestOfN, create_llm_judge
 
-# Option 1: Use helper (quick start)
+# Approach 1: Wrap gateway native evaluator/guardrail
+reward = MyGatewayReward(gateway.evaluator)
+bon = BestOfN(reward_model=reward)
+
+# Approach 2: Use helper (reuses LM infrastructure)
 judge = create_llm_judge(lm)
 bon = BestOfN(reward_model=judge)
-
-# Option 2: Use gateway native reward (optimized)
-reward = MyGatewayReward(gateway.reward_service)
-bon = BestOfN(reward_model=reward)
 
 result = await bon.ainfer(lm, "Write a sorting function", budget=10)
 # Generates 10 responses, scores each, returns best
