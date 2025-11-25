@@ -277,141 +277,44 @@ class ChatMessage(TypedDict):
 ChatMessages = List[ChatMessage]
 ```
 
-### Two Integration Approaches
+### Integration Approaches
 
-Gateway teams have two options for implementing its-hub support:
+Gateway teams have two architectural approaches for implementing this interface:
 
-#### Approach 1: Direct Implementation (Pull Request to Gateway)
+#### Approach 1: Direct Implementation
 
-**How**: Gateway team implements `AbstractLanguageModel` directly in their codebase
+**Concept**: Gateway team implements `AbstractLanguageModel` directly in their codebase, using their existing LM client infrastructure.
 
-**Implementation**:
-```python
-# In gateway codebase: gateway/its_integration.py
-from its_hub import AbstractLanguageModel
-
-class GatewayLM(AbstractLanguageModel):
-    def __init__(self, model_name, **kwargs):
-        # Use gateway's existing LM client
-        self.client = gateway.get_model_client(model_name)
-
-    async def agenerate(self, messages, stop=None, **kwargs):
-        # Call gateway's native inference method
-        response = await self.client.inference(messages, **kwargs)
-        return self._normalize_response(response)
-```
-
-**Pros**:
+**Characteristics**:
 - Native integration with gateway infrastructure
 - Full control over implementation
 - Optimal performance (no extra layer)
-- Can leverage gateway-specific optimizations
-
-**Cons**:
 - Gateway team owns maintenance
-- Requires gateway code changes
 
 **Best for**: Gateways that want deep integration and full control
 
----
+#### Approach 2: Adapter Package
 
-#### Approach 2: Plug-in Library (Adapter Pattern)
+**Concept**: Use separate adapter package (e.g., `its-hub-portkey`, `its-hub-litellm`) that wraps gateway's existing client.
 
-**How**: Install separate adapter package; gateway imports and uses it
-
-**Implementation**:
-```python
-# Installation
-# pip install its-hub-portkey  (depends on: its-hub + portkey-sdk)
-
-# In gateway codebase: gateway/plugins/its_plugin.py
-from its_hub_portkey import PortkeyAdapter  # From separate package
-
-class ITSPlugin:
-    def __init__(self, gateway_config):
-        # Adapter wraps gateway's existing client
-        self.lm = PortkeyAdapter(
-            client=gateway.client,
-            model_name=gateway_config.default_model
-        )
-
-    async def handle_its_request(self, request):
-        from its_hub import SelfConsistency, BestOfN
-        # Use pre-built adapter with algorithms
-        algorithm = self._get_algorithm(request.headers)
-        return await algorithm.ainfer(self.lm, request.messages, request.budget)
-```
-
-**Adapter packages** (maintained separately):
-```python
-# its-hub-portkey package
-class PortkeyAdapter(AbstractLanguageModel):
-    """Pre-built adapter for Portkey gateway"""
-    # Depends on: its-hub (core) + portkey-sdk
-
-# its-hub-litellm package
-class LiteLLMAdapter(AbstractLanguageModel):
-    """Pre-built adapter for LiteLLM gateway"""
-    # Depends on: its-hub (core) + litellm
-
-# its-hub-openai package
-class OpenAICompatibleAdapter(AbstractLanguageModel):
-    """Pre-built adapter for OpenAI-compatible APIs"""
-    # Depends on: its-hub (core) + openai
-```
-
-**Pros**:
-- Zero implementation effort for gateway team
-- Maintained by its-hub team (separate packages)
+**Characteristics**:
+- Maintained by its-hub team as separate packages
 - Quick integration (install adapter package)
-- Easy to upgrade (update adapter version)
-- **Keeps core its-hub minimal** (no gateway-specific dependencies)
-
-**Cons**:
-- Extra dependency on adapter package
-- Less customization
-- May not leverage gateway-specific features
+- Keeps core its-hub minimal (no gateway-specific dependencies)
+- Less customization flexibility
 
 **Best for**: Gateways that want fast integration with minimal effort
 
----
-
 ### Comparison
 
-| Aspect | Direct Implementation | Plug-in Library |
+| Aspect | Direct Implementation | Adapter Package |
 |--------|----------------------|-----------------|
-| **Implementation Effort** | Gateway team implements | Import pre-built adapter |
+| **Implementation Effort** | Gateway team implements | Install pre-built package |
 | **Maintenance** | Gateway team | its-hub team |
 | **Customization** | Full control | Limited |
 | **Performance** | Optimal | Good (extra layer) |
 | **Dependencies** | None (its-hub core only) | its-hub core + adapter package |
-| **Integration Time** | Weeks | Days |
 | **Best For** | Deep integration, full control | Fast integration, minimal effort |
-
-### Usage Example
-
-```python
-from its_hub import AbstractLanguageModel, SelfConsistency
-
-# Gateway implements the interface (either approach)
-class MyGatewayLM(AbstractLanguageModel):
-    def __init__(self, endpoint, api_key, model_name):
-        self.client = gateway_sdk.Client(endpoint, api_key)
-        self.model = model_name
-
-    async def agenerate(self, messages, stop=None, **kwargs):
-        response = await self.client.chat(
-            model=self.model,
-            messages=messages,
-            **kwargs
-        )
-        return {"role": "assistant", "content": response.text}
-
-# Use with its-hub algorithms
-lm = MyGatewayLM("https://gateway.com", "key", "gpt-4o-mini")
-algorithm = SelfConsistency()
-result = await algorithm.ainfer(lm, "What is 2+2?", budget=5)
-```
 
 ---
 
