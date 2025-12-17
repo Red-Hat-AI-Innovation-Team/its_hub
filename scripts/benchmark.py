@@ -10,6 +10,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from its_hub.algorithms import (
+    BestOfN,
     BeamSearch,
     EntropicParticleFiltering,
     ParticleFiltering,
@@ -25,14 +26,23 @@ from its_hub.lms import OpenAICompatibleLanguageModel
 from its_hub.utils import QWEN_SYSTEM_PROMPT, SAL_STEP_BY_STEP_SYSTEM_PROMPT
 
 
+class ScoringMethod(Enum):
+    REWARD_MODEL = "reward_model"  # reward model scoring
+
+
 class BenchmarkDataset(Enum):
     MATH500 = "math500"
     AIME_2024 = "aime-2024"
+    AIME_2025 = "aime-2025"
+    GSM8K = "gsm8k"
+    OMNIMATH = "omnimath"
 
 
 def load_benchmark_dataset(dataset: BenchmarkDataset):
     if dataset == BenchmarkDataset.MATH500:
         ds = datasets.load_dataset("HuggingFaceH4/MATH-500")["test"]
+    elif dataset == BenchmarkDataset.AIME_2025:
+        ds = datasets.load_dataset("MathArena/aime_2025")["train"]
     elif dataset == BenchmarkDataset.AIME_2024:
         ds = datasets.load_dataset("Maxwell-Jia/AIME_2024")["train"]
         old_column_names = ds.column_names
@@ -43,6 +53,14 @@ def load_benchmark_dataset(dataset: BenchmarkDataset):
         ds = ds.cast_column("answer", datasets.Value("string"))
         # remove old columns
         ds = ds.remove_columns(old_column_names)
+    elif dataset == BenchmarkDataset.GSM8K:
+        ds = datasets.load_dataset("openai/gsm8k", "main")["test"]
+        ds = ds.map(lambda x: {"answer": str(x["answer"].split("\n####")[-1].strip())})
+        ds = ds.rename_column("question", "problem")
+    elif dataset == BenchmarkDataset.OMNIMATH:
+        ds = datasets.load_dataset("KbsdJames/Omni-MATH")["test"]
+
+    ds = ds.cast_column("answer", datasets.Value("string"))
     # add unique_id if it doesn't exist
     if "unique_id" not in ds.column_names:
         ds = ds.map(lambda _, idx: {"unique_id": idx}, with_indices=True)
@@ -51,6 +69,7 @@ def load_benchmark_dataset(dataset: BenchmarkDataset):
 
 class ScalingAlgorithm(Enum):
     SELF_CONSISTENCY = "self-consistency"
+    BEST_OF_N = "best-of-n"
     BEAM_SEARCH = "beam-search"
     PARTICLE_FILTERING = "particle-filtering"
     ENTROPIC_PARTICLE_FILTERING = "entropic-particle-filtering"
@@ -73,6 +92,13 @@ def init_algorithm(
 ):
     if alg == ScalingAlgorithm.SELF_CONSISTENCY:
         return SelfConsistency(_extract_boxed)
+
+    elif alg == ScalingAlgorithm.BEST_OF_N:
+        prm = LocalVllmProcessRewardModel(
+            model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
+        )
+        return BestOfN(prm)
+
     elif alg == ScalingAlgorithm.BEAM_SEARCH:
         if tokens_per_step is not None:
             # Use new tokens_per_step approach for easier usage
@@ -282,6 +308,7 @@ def main(
         alg == ScalingAlgorithm.BEAM_SEARCH
         or alg == ScalingAlgorithm.PARTICLE_FILTERING
         or alg == ScalingAlgorithm.ENTROPIC_PARTICLE_FILTERING
+        or alg == ScalingAlgorithm.BEST_OF_N
     ):
         rm_name_dashed = rm_name.replace("/", "-")
         alg_str = f"{alg.value}-{rm_name_dashed}-{rm_agg_method.value}"
