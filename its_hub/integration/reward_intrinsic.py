@@ -247,7 +247,10 @@ class HFIntrinsicRewardModel(AbstractProcessRewardModel):
             return self._aggregate_token_likelihoods(token_scores)
 
         except Exception as e:
-            print(f"Warning: Failed to compute score for prompt-response pair: {e}")
+            logger.warning(
+                f"Failed to compute score for prompt-response pair: {e}",
+                exc_info=True,
+            )
             return 0.0
 
     async def ascore(
