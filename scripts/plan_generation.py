@@ -148,6 +148,7 @@ def main():
         judge_type="pointwise",
         api_key=api_key,
         base_url=args.endpoint if args.local else None,
+        model_name=args.model,
         temperature=0.0,
     )
 
