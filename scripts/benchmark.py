@@ -22,13 +22,16 @@ from its_hub.integration.reward_hub import (
     AggregationMethod,
     LocalVllmProcessRewardModel,
 )
+from its_hub.integration.reward_intrinsic import HFIntrinsicRewardModel
 from its_hub.lms import OpenAICompatibleLanguageModel
 from its_hub.utils import QWEN_SYSTEM_PROMPT, SAL_STEP_BY_STEP_SYSTEM_PROMPT
 
 
 class ScoringMethod(Enum):
     REWARD_MODEL = "reward_model"  # reward model scoring
-
+    REWARD_LIKELIHOOD = "reward_likelihood"  # intrinsic reward model scoring
+    REWARD_ENTROPY = "reward_entropy"  # intrinsic reward model scoring
+    
 
 class BenchmarkDataset(Enum):
     MATH500 = "math500"

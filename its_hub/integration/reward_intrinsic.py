@@ -13,19 +13,30 @@ from its_hub.types import ChatMessage, ChatMessages
 
 logger = logging.getLogger(__name__)
 
+
 class HFIntrinsicRewardModel(AbstractProcessRewardModel):
     """
-    A reward model that directly uses Hugging Face transformers to compute conditional likelihood.
+    Intrinsic reward model using Hugging Face transformers for conditional likelihood scoring.
 
-    This implementation loads models directly using transformers library and computes
-    token-level likelihoods without going through the AbstractLanguageModel interface.
+    This implementation loads models directly using the transformers library and computes
+    token-level likelihoods to score responses. It supports multiple scoring and aggregation
+    methods for flexible reward computation.
+
+    Scoring Methods:
+        - likelihood: Token log probabilities (higher = more likely)
+        - entropy: Negative normalized entropy (higher = more confident)
+
+    Aggregation Methods:
+        - mean_log_prob: Mean of log probabilities
+        - sum_log_prob: Sum of log probabilities
+        - perplexity: Negative log perplexity
+        - normalized_prob: Geometric mean of probabilities
     """
 
     def __init__(
         self,
         model_name: str = "Qwen/Qwen2.5-1.5B-Instruct",
         device: str = "auto",
-        torch_dtype: Optional[torch.dtype] = None,
         aggregation_method: str = "mean_log_prob",
         scoring_method: str = "likelihood",
         temperature: float = 1.0,
@@ -38,15 +49,17 @@ class HFIntrinsicRewardModel(AbstractProcessRewardModel):
         Args:
             model_name: Name or path of the HuggingFace model (default: Qwen/Qwen2.5-1.5B-Instruct)
             device: Device to load model on ("auto", "cuda", "cpu", etc.)
-            torch_dtype: PyTorch dtype for model weights (e.g., torch.float16)
-            aggregation_method: How to aggregate token-level scores
-                - "mean_log_prob": Mean of log probabilities (default)
-                - "sum_log_prob": Sum of log probabilities
-                - "perplexity": Negative log perplexity
-                - "normalized_prob": Geometric mean of probabilities
-            scoring_method: What to score
-                - "likelihood": Token log probabilities (default)
-                - "entropy": Conditional entropy (model uncertainty)
+
+            aggregation_method: How to aggregate token-level scores (default: mean_log_prob)
+                - mean_log_prob Mean of log probabilities
+                - sum_log_prob Sum of log probabilities
+                - perplexity Negative log perplexity
+                - normalized_prob Geometric mean of probabilities
+
+            scoring_method: What to score (default: likelihood)
+                - likelihood Token log probabilities
+                - entropy Conditional entropy (model uncertainty)
+
             temperature: Temperature for probability scaling
             max_length: Maximum sequence length for tokenization
             trust_remote_code: Whether to trust remote code when loading model
@@ -69,43 +82,33 @@ class HFIntrinsicRewardModel(AbstractProcessRewardModel):
 
         # Load model
         model_kwargs = {"trust_remote_code": trust_remote_code}
-        if torch_dtype is not None:
-            model_kwargs["torch_dtype"] = torch_dtype
 
         self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
 
-        # Move model to device
+        # Resolve device (auto -> cuda if available, else cpu)
         if device == "auto":
-            if torch.cuda.is_available():
-                self.model = self.model.cuda()
-                self.device = "cuda"
-            else:
-                self.device = "cpu"
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
-            self.model = self.model.to(device)
             self.device = device
 
+        # Move model to device and set to eval mode
+        self.model = self.model.to(self.device)
         self.model.eval()
 
     def _tokenize_prompt_response(self, prompt: str, response: str):
         """Tokenize prompt and response, returning input_ids and response start index."""
-        # Tokenize prompt and response separately to identify response tokens
         prompt_tokens = self.tokenizer.encode(prompt, add_special_tokens=True)
         response_tokens = self.tokenizer.encode(response, add_special_tokens=False)
-
-        # Combine prompt + response
         combined_tokens = prompt_tokens + response_tokens
 
         # Truncate if too long
         if len(combined_tokens) > self.max_length:
-            # Keep the prompt and truncate response
             if len(prompt_tokens) < self.max_length:
                 response_tokens = response_tokens[
                     : self.max_length - len(prompt_tokens)
                 ]
                 combined_tokens = prompt_tokens + response_tokens
             else:
-                # If prompt itself is too long, truncate from beginning
                 combined_tokens = combined_tokens[-self.max_length :]
                 prompt_tokens = combined_tokens[
                     : len(combined_tokens) - len(response_tokens)
@@ -113,7 +116,6 @@ class HFIntrinsicRewardModel(AbstractProcessRewardModel):
 
         return {
             "input_ids": combined_tokens,
-            "prompt_length": len(prompt_tokens),
             "response_start": len(prompt_tokens),
             "response_length": len(response_tokens),
         }
@@ -155,7 +157,7 @@ class HFIntrinsicRewardModel(AbstractProcessRewardModel):
             # Convert losses to log probabilities (CE loss = -log P(target))
             token_log_probs = (-token_losses).tolist()
 
-        return token_log_probs
+        return sum(token_log_probs) / len(token_log_probs)
 
     def _compute_tokens_entropy(
         self, input_ids: list[int], response_start: int, response_length: int
@@ -200,27 +202,6 @@ class HFIntrinsicRewardModel(AbstractProcessRewardModel):
 
         return token_neg_entropies
 
-    def _aggregate_token_likelihoods(self, token_log_probs: list[float]) -> float:
-        """Aggregate token-level log probabilities into a single score."""
-        if not token_log_probs:
-            return 0.0
-
-        if self.aggregation_method == "mean_log_prob":
-            score = sum(token_log_probs) / len(token_log_probs)
-        elif self.aggregation_method == "sum_log_prob":
-            score = sum(token_log_probs)
-        elif self.aggregation_method == "perplexity":
-            avg_log_prob = sum(token_log_probs) / len(token_log_probs)
-            score = -avg_log_prob
-        elif self.aggregation_method == "normalized_prob":
-            # Geometric mean of probabilities
-            avg_log_prob = sum(token_log_probs) / len(token_log_probs)
-            score = math.exp(avg_log_prob)
-        else:
-            raise ValueError(f"Unknown aggregation method: {self.aggregation_method}")
-
-        return score
-
     def _score_single(self, prompt: str, response: str) -> float:
         """Score a single prompt-response pair using the configured scoring method."""
         try:
@@ -244,7 +225,7 @@ class HFIntrinsicRewardModel(AbstractProcessRewardModel):
                 raise ValueError(f"Unknown scoring method: {self.scoring_method}")
 
             # Aggregate into single score
-            return self._aggregate_token_likelihoods(token_scores)
+            return token_scores
 
         except Exception as e:
             logger.warning(
@@ -256,17 +237,18 @@ class HFIntrinsicRewardModel(AbstractProcessRewardModel):
     async def ascore(
         self,
         prompt_or_messages: str | list[ChatMessage] | ChatMessages,
-        steps: list[str],
-    ) -> list[float]:
+        response_or_responses: str | list[str],
+    ) -> float | list[float]:
         """
-        Score steps asynchronously using conditional likelihood.
+        Score response(s) asynchronously using conditional likelihood.
 
         Args:
             prompt_or_messages: The prompt or conversation context
-            steps: List of response steps to evaluate
+            response_or_responses: The response(s) to evaluate (single string or list of strings)
 
         Returns:
-            List of scores (one per step)
+            - For single response: float score
+            - For multiple responses: list[float] scores
         """
         import asyncio
 
@@ -276,31 +258,37 @@ class HFIntrinsicRewardModel(AbstractProcessRewardModel):
         # Build prompt string from messages
         prompt = self._build_prompt_from_messages(chat_messages)
 
-        # Score each step in parallel
+        # Handle both single response and batch of responses
+        is_single_response = isinstance(response_or_responses, str)
+        responses = [response_or_responses] if is_single_response else response_or_responses
+
+        # Score each response in parallel
         scores = await asyncio.gather(
-            *[asyncio.to_thread(self._score_single, prompt, step) for step in steps]
+            *[asyncio.to_thread(self._score_single, prompt, response) for response in responses]
         )
 
-        return list(scores)
+        # Return single score or list based on input type
+        return scores[0] if is_single_response else list(scores)
 
     def score(
         self,
         prompt_or_messages: str | list[ChatMessage] | ChatMessages,
-        steps: list[str],
-    ) -> list[float]:
+        response_or_responses: str | list[str],
+    ) -> float | list[float]:
         """
-        Score steps synchronously using conditional likelihood.
+        Score response(s) synchronously using conditional likelihood.
 
         Args:
             prompt_or_messages: The prompt or conversation context
-            steps: List of response steps to evaluate
+            response_or_responses: The response(s) to evaluate (single string or list of strings)
 
         Returns:
-            List of scores (one per step)
+            - For single response: float score
+            - For multiple responses: list[float] scores
         """
         import asyncio
 
-        return asyncio.run(self.ascore(prompt_or_messages, steps))
+        return asyncio.run(self.ascore(prompt_or_messages, response_or_responses))
 
     def _build_prompt_from_messages(self, chat_messages: ChatMessages) -> str:
         """Build a prompt string from ChatMessages."""
