@@ -85,8 +85,8 @@ def main():
     # Model arguments
     parser.add_argument("--model", type=str, default="gpt-4o-mini",
                         help="Model name for plan generation")
-    parser.add_argument("--judge-model", type=str, default="gpt-4o-mini",
-                        help="Model name for plan evaluation")
+    parser.add_argument("--judge-model", type=str, default=None,
+                        help="Model name for plan evaluation (default: same as --model)")
     parser.add_argument("--endpoint", type=str, default="https://api.openai.com/v1",
                         help="API endpoint URL")
     parser.add_argument("--local", action="store_true",
@@ -125,9 +125,12 @@ def main():
     if not api_key and not args.local:
         raise ValueError("API key required. Set OPENAI_API_KEY or use --api-key or --local")
 
+    # Default judge model to same as generation model
+    judge_model = args.judge_model or args.model
+
     print(f"Endpoint: {args.endpoint}")
     print(f"Model: {args.model}")
-    print(f"Judge model: {args.judge_model}")
+    print(f"Judge model: {judge_model}")
     print(f"Local mode: {args.local}")
 
     # Set up LM for plan generation
@@ -141,14 +144,13 @@ def main():
         max_concurrency=args.max_concurrency,
     )
 
-    # Set up LLM judge as plan critic
+    # Set up LLM judge as plan critic (uses same model/endpoint as plan generation)
     plan_critic = LLMJudgeRewardModel(
-        model=args.judge_model,
+        model=judge_model,
         criterion="overall_quality",
         judge_type="pointwise",
         api_key=api_key,
         base_url=args.endpoint if args.local else None,
-        model_name=args.model,
         temperature=0.0,
     )
 
