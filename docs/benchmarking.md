@@ -38,6 +38,14 @@ American Invitational Mathematics Examination problems from 2024.
 python scripts/benchmark.py --benchmark aime-2024 --model_name Qwen/Qwen2.5-Math-1.5B-Instruct
 ```
 
+
+### AIME-2025
+American Invitational Mathematics Examination problems from 2025.
+
+```bash
+python scripts/benchmark.py --benchmark aime-2025 --model_name Qwen/Qwen2.5-Math-1.5B-Instruct
+```
+
 ## Algorithm Comparison
 
 ### Benchmarking Multiple Algorithms
