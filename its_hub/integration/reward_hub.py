@@ -98,18 +98,35 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
 
         Args:
             model: LiteLLM model name (e.g., "gpt-4o-mini", "claude-3-sonnet-20240229")
+                   For local vLLM endpoints, the model name will be automatically
+                   prefixed with "hosted_vllm/" if base_url is provided.
             criterion: Evaluation criterion from CriterionRegistry (default: "overall_quality")
                       Built-in options: overall_quality, writing_quality, technical_quality,
                       relevance_quality, tool-judge
             judge_type: Type of judge - "pointwise" or "groupwise" (default: "groupwise")
             api_key: API key for the model provider
-            base_url: Base URL for custom endpoints
+            base_url: Base URL for custom endpoints (e.g., "http://localhost:8001/v1")
             temperature: Temperature for judge generation (0.0 for deterministic)
             max_tokens: Maximum tokens for judge response
             enable_judge_logging: If True, log judge scores and reasoning (default: True)
             top_n: For groupwise judges, number of top responses to select (default: 1)
             **litellm_kwargs: Additional arguments passed to LiteLLM
         """
+        # For local vLLM endpoints, prefix model with "hosted_vllm/"
+        # so LiteLLM knows to use the vLLM-compatible API with the custom base_url
+        if base_url is not None and not model.startswith(("hosted_vllm/", "openai/")):
+            model = f"hosted_vllm/{model}"
+            # Add guided JSON generation for vLLM to ensure valid JSON output
+            if "guided_json" not in litellm_kwargs:
+                litellm_kwargs["guided_json"] = {
+                    "type": "object",
+                    "properties": {
+                        "score": {"type": "number", "minimum": 0, "maximum": 10},
+                        "reasoning": {"type": "string", "minLength": 1}
+                    },
+                    "required": ["score", "reasoning"],
+                    "additionalProperties": False
+                }
 
         if judge_type == "pointwise":
             self.judge = create_pointwise_judge(
@@ -122,6 +139,23 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
                 **litellm_kwargs,
             )
         elif judge_type == "groupwise":
+            # For groupwise judges, we need a different JSON schema
+            if base_url is not None and "guided_json" in litellm_kwargs:
+                # Override with groupwise-specific schema
+                litellm_kwargs["guided_json"] = {
+                    "type": "object",
+                    "properties": {
+                        "ranking": {
+                            "type": "array",
+                            "items": {"type": "integer", "minimum": 1},
+                            "minItems": 1
+                        },
+                        "reasoning": {"type": "string", "minLength": 1}
+                    },
+                    "required": ["ranking", "reasoning"],
+                    "additionalProperties": False
+                }
+
             self.judge = create_groupwise_judge(
                 model=model,
                 criterion=criterion,
