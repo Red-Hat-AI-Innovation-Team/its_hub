@@ -1,9 +1,9 @@
 import copy
 import random
+from dataclasses import dataclass
 from enum import Enum
 
 import numpy as np
-from pydantic.dataclasses import dataclass
 
 from its_hub.base import (
     AbstractLanguageModel,

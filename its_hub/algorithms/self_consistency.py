@@ -4,8 +4,7 @@ import random
 import re
 from collections import Counter
 from collections.abc import Callable
-
-from pydantic.dataclasses import dataclass
+from dataclasses import dataclass
 
 from its_hub.base import (
     AbstractLanguageModel,

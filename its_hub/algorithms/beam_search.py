@@ -1,7 +1,7 @@
 import copy
+from dataclasses import dataclass
 
 import numpy as np
-from pydantic.dataclasses import dataclass
 
 from its_hub.base import (
     AbstractLanguageModel,
