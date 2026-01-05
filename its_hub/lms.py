@@ -382,9 +382,6 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             len(messages_lst) if self.max_concurrency == -1 else self.max_concurrency
         )
 
-        # create SSL context with certifi certificates (same as requests library)
-        ssl_context = ssl.create_default_context(cafile=certifi.where())
-
         # create a single session for all requests in this call
         # Use the same SSL behavior as requests library
         connector = aiohttp.TCPConnector(ssl=self.ssl_context)

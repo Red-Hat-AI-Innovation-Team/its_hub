@@ -7,20 +7,20 @@ from importlib.metadata import version
 __version__ = version("its_hub")
 
 # Core abstractions - always available
-from .base import (
-    AbstractLanguageModel,
-    AbstractScalingAlgorithm,
-    AbstractOutcomeRewardModel,
-    AbstractProcessRewardModel,
-    AbstractScalingResult,
-)
+from .algorithms.bon import BestOfN
 
 # Core algorithms - always available
 from .algorithms.self_consistency import SelfConsistency
-from .algorithms.bon import BestOfN
+from .base import (
+    AbstractLanguageModel,
+    AbstractOutcomeRewardModel,
+    AbstractProcessRewardModel,
+    AbstractScalingAlgorithm,
+    AbstractScalingResult,
+)
 
 # Start with core exports
-__all__ = [
+__all__ = [  # noqa: RUF022
     # Version
     "__version__",
     # Abstractions
@@ -38,7 +38,7 @@ __all__ = [
 try:
     from .lms import OpenAICompatibleLanguageModel, StepGeneration
     from .reward_models import LLMJudge
-    __all__.extend(["OpenAICompatibleLanguageModel", "StepGeneration", "LLMJudge"])
+    __all__.extend(["LLMJudge", "OpenAICompatibleLanguageModel", "StepGeneration"])
 except ImportError:
     # LM implementations not available - install with: pip install its_hub[lm]
     pass
