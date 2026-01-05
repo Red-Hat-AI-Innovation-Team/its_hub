@@ -94,31 +94,54 @@ class ProcessToOutcomeRewardModel(AbstractOutcomeRewardModel):
     def __init__(self, process_rm: AbstractProcessRewardModel):
         self.process_rm = process_rm
 
-    async def ascore(self, prompt: str, responses: str | list[str]) -> float | list[float]:
-        return self.score(prompt, responses)
+    async def ascore(self, messages: list[list[dict]] | list[dict], **kwargs) -> float | list[float]:
+        return self.score(messages, **kwargs)
 
-    def score(self, prompt: str, responses: str | list[str]) -> float | list[float]:
-        """Convert process reward to outcome reward by aggregating scores."""
-        if isinstance(responses, list):
+    def score(self, messages: list[list[dict]] | list[dict], **kwargs) -> float | list[float]:
+        """Convert process reward to outcome reward by aggregating scores.
+
+        Args:
+            messages: Single conversation or batch of conversations
+                Single: list[dict] (one conversation)
+                Batch: list[list[dict]] (multiple conversations)
+        """
+        # Detect batch vs single
+        is_batch = messages and isinstance(messages[0], list)
+
+        if is_batch:
+            # Batch scoring - messages is list[list[dict]]
             scores = []
-            for response in responses:
+            for conversation in messages:
                 try:
-                    process_scores = self.process_rm.score(prompt, response)
-                    if isinstance(process_scores, list) and len(process_scores) > 0:
-                        final_score = process_scores[-1]
+                    # Extract response content from last message
+                    if conversation:
+                        last_msg = conversation[-1]
+                        response_text = last_msg.get("content", "")
+                        # Use dummy prompt for process reward model
+                        process_scores = self.process_rm.score("", response_text)
+                        if isinstance(process_scores, list) and len(process_scores) > 0:
+                            final_score = process_scores[-1]
+                        else:
+                            final_score = process_scores if process_scores else 0.0
+                        scores.append(final_score)
                     else:
-                        final_score = process_scores if process_scores else 0.0
-                    scores.append(final_score)
+                        scores.append(0.0)
                 except Exception:
                     scores.append(0.0)
             return scores
         else:
+            # Single scoring - messages is list[dict]
             try:
-                process_scores = self.process_rm.score(prompt, responses)
-                if isinstance(process_scores, list) and len(process_scores) > 0:
-                    return process_scores[-1]
+                if messages:
+                    last_msg = messages[-1]
+                    response_text = last_msg.get("content", "")
+                    process_scores = self.process_rm.score("", response_text)
+                    if isinstance(process_scores, list) and len(process_scores) > 0:
+                        return process_scores[-1]
+                    else:
+                        return process_scores if process_scores else 0.0
                 else:
-                    return process_scores if process_scores else 0.0
+                    return 0.0
             except Exception:
                 return 0.0
 
@@ -366,13 +389,27 @@ class TestPlanningWrapper:
         """Test ProcessToOutcomeRewardModel conversion."""
         outcome_rm = ProcessToOutcomeRewardModel(mock_process_reward_model)
 
-        # Test single response
-        single_score = outcome_rm.score("test prompt", "test response")
+        # Test single conversation (list[dict])
+        single_conversation = [
+            {"role": "user", "content": "test prompt"},
+            {"role": "assistant", "content": "test response"},
+        ]
+        single_score = outcome_rm.score(single_conversation)
         assert isinstance(single_score, float)
         assert 0.0 <= single_score <= 1.0
 
-        # Test multiple responses
-        multiple_scores = outcome_rm.score("test prompt", ["response1", "response2"])
+        # Test multiple conversations (list[list[dict]])
+        multiple_conversations = [
+            [
+                {"role": "user", "content": "test prompt"},
+                {"role": "assistant", "content": "response1"},
+            ],
+            [
+                {"role": "user", "content": "test prompt"},
+                {"role": "assistant", "content": "response2"},
+            ],
+        ]
+        multiple_scores = outcome_rm.score(multiple_conversations)
         assert isinstance(multiple_scores, list)
         assert len(multiple_scores) == 2
         assert all(isinstance(score, float) for score in multiple_scores)

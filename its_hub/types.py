@@ -60,6 +60,33 @@ class ChatMessages:
         chat_messages = self.to_chat_messages()
         return [chat_messages for _ in range(size)]
 
+    def to_prompt(self) -> str:
+        """Convert to prompt string representation.
+
+        This method is used by experimental algorithms (BeamSearch, ParticleGibbs, PlanningWrapper)
+        for backward compatibility. It converts chat messages to a simple string format.
+        """
+        if self._is_string:
+            return self._str_or_messages
+
+        # Convert list of ChatMessage to string
+        parts = []
+        for msg in self._str_or_messages:
+            role = msg.role
+            content = msg.content
+            if content is None:
+                content = ""
+            elif isinstance(content, list):
+                # Extract text from multi-modal content
+                text_parts = [
+                    item.get("text", "")
+                    for item in content
+                    if isinstance(item, dict) and item.get("type") == "text"
+                ]
+                content = " ".join(text_parts)
+            parts.append(f"{role}: {content}")
+        return "\n".join(parts)
+
     @property
     def is_string(self) -> bool:
         """Check if the original input was a string."""

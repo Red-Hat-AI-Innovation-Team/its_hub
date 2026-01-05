@@ -14,19 +14,25 @@ class MockOutcomeRewardModel(AbstractOutcomeRewardModel):
         self.call_count = 0  # tracks total number of individual scores returned
         self.score_call_count = 0  # tracks number of times score() is called
 
-    async def ascore(self, prompt: str, response: str | list[str]) -> float | list[float]:
-        return self.score(prompt, response)
+    async def ascore(self, messages: list[list[dict]] | list[dict], **kwargs) -> float | list[float]:
+        return self.score(messages, **kwargs)
 
-    def score(self, prompt: str, response: str | list[str]) -> float | list[float]:
+    def score(self, messages: list[list[dict]] | list[dict], **kwargs) -> float | list[float]:
         self.score_call_count += 1
-        if isinstance(response, list):
+
+        # Detect batch vs single
+        is_batch = messages and isinstance(messages[0], list)
+
+        if is_batch:
+            # Batch scoring - messages is list[list[dict]]
             scores = []
-            for i in range(len(response)):
+            for i in range(len(messages)):
                 score_idx = (self.call_count + i) % len(self.scores)
                 scores.append(self.scores[score_idx])
-            self.call_count += len(response)
+            self.call_count += len(messages)
             return scores
         else:
+            # Single scoring - messages is list[dict]
             score = self.scores[self.call_count % len(self.scores)]
             self.call_count += 1
             return score

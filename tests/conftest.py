@@ -7,10 +7,8 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
-from fastapi.testclient import TestClient
 
 from its_hub.base import AbstractLanguageModel, AbstractOutcomeRewardModel
-from its_hub.integration.iaas import app
 
 
 def find_free_port() -> int:
@@ -323,18 +321,6 @@ def openai_server():
 
     server.shutdown()
     server_thread.join()
-
-
-@pytest.fixture
-def iaas_client():
-    """Create a test client for the IaaS API."""
-    # Reset global state before each test
-    import its_hub.integration.iaas as iaas_module
-
-    iaas_module.LM_DICT.clear()
-    iaas_module.SCALING_ALG = None
-
-    return TestClient(app)
 
 
 @pytest.fixture
