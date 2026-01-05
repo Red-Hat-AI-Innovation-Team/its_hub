@@ -127,7 +127,11 @@ Format: {{"score": <number>}}"""
         from .types import ChatMessage
 
         judge_prompts = [
-            [ChatMessage(role="user", content=self._build_judge_prompt(conv)[0]["content"])]
+            [
+                ChatMessage(
+                    role="user", content=self._build_judge_prompt(conv)[0]["content"]
+                )
+            ]
             for conv in conversations
         ]
 

@@ -54,7 +54,9 @@ def _response_to_hashable_key(response: dict) -> str:
     return f"{content_str}||{tool_calls_str}"
 
 
-def _dedupe_responses_with_inverse(responses: list[dict]) -> tuple[list[dict], list[int]]:
+def _dedupe_responses_with_inverse(
+    responses: list[dict],
+) -> tuple[list[dict], list[int]]:
     """
     Deduplicate response dicts while preserving order and tracking original indices.
 
