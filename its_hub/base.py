@@ -4,43 +4,61 @@ from .types import ChatMessage, ChatMessages
 
 
 class AbstractLanguageModel(ABC):
-    """abstract base class for (autoregressive) language models"""
+    """
+    Abstract base class for language models.
+
+    Gateway integrators should implement this interface to use its_hub algorithms
+    with their existing LM infrastructure. Only async implementation is required.
+    """
 
     @abstractmethod
     async def agenerate(
         self,
         messages: list[ChatMessage] | list[list[ChatMessage]],
         stop: str | None = None,
-    ) -> str | list[str]:
-        """generate a response from the model asynchronously"""
-        pass
+        **kwargs,
+    ) -> dict | list[dict]:
+        """
+        Generate response(s) asynchronously.
 
-    @abstractmethod
-    def generate(
-        self,
-        messages: list[ChatMessage] | list[list[ChatMessage]],
-        stop: str | None = None,
-    ) -> str | list[str]:
-        """generate a response from the model synchronously"""
-        pass
+        Args:
+            messages: Single conversation or batch of conversations
+            stop: Optional stop sequence for generation
+            **kwargs: Additional model-specific parameters (tools, tool_choice, etc.)
 
-    def evaluate(self, prompt: str, generation: str) -> list[float]:
-        """evaluate the likelihoods of the generation synchronously"""
-        raise NotImplementedError("evaluate method not implemented")
+        Returns:
+            Single response dict or list of response dicts (for batched input)
+            Response dict format: {"role": "assistant", "content": "...", "tool_calls": [...]}
+        """
+        pass
 
 
 class AbstractScalingResult(ABC):
-    """abstract base class for scaling result"""
+    """
+    Abstract base class for algorithm results.
+
+    Algorithms return instances of this class when return_response_only=False.
+    """
 
     @property
     @abstractmethod
-    def the_one(self) -> str:
-        """the selected response"""
+    def the_one(self) -> dict:
+        """
+        Return the selected best response.
+
+        Returns:
+            The response message dict selected by the algorithm
+            Response dict format: {"role": "assistant", "content": "...", "tool_calls": [...]}
+        """
         pass
 
 
 class AbstractScalingAlgorithm(ABC):
-    """abstract base class for inference-time scaling algorithms"""
+    """
+    Abstract base class for inference-time scaling algorithms.
+
+    All algorithms (Self-Consistency, Best-of-N, etc.) implement this interface.
+    """
 
     @abstractmethod
     async def ainfer(
@@ -51,11 +69,23 @@ class AbstractScalingAlgorithm(ABC):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
-    ) -> str | AbstractScalingResult:
+    ) -> dict | AbstractScalingResult:
         """
         Run inference asynchronously with the given language model and prompt.
 
-        This is the primary method that subclasses must implement.
+        Args:
+            lm: Language model instance implementing AbstractLanguageModel
+            prompt_or_messages: User prompt (string or structured messages)
+            budget: Computational budget (interpretation varies by algorithm)
+            return_response_only: If True, return just the selected response;
+                                   if False, return full result object
+            tools: Optional OpenAI-style tool definitions
+            tool_choice: Optional tool choice strategy ("auto", "none", or specific tool)
+
+        Returns:
+            Selected response dict (if return_response_only=True) or
+            AbstractScalingResult instance with full details
+            Response dict format: {"role": "assistant", "content": "...", "tool_calls": [...]}
         """
         pass
 
@@ -67,7 +97,7 @@ class AbstractScalingAlgorithm(ABC):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
-    ) -> str | AbstractScalingResult:
+    ) -> dict | AbstractScalingResult:
         """
         Run inference synchronously with the given language model and prompt.
 
@@ -83,24 +113,51 @@ class AbstractScalingAlgorithm(ABC):
 
 
 class AbstractOutcomeRewardModel(ABC):
-    """abstract base class for outcome reward models"""
+    """
+    Abstract base class for outcome reward models and judge models.
 
-    @abstractmethod
-    async def ascore(
-        self, prompt_or_messages: str | list[ChatMessage] | ChatMessages, response: str
-    ) -> float:
-        """score a response asynchronously"""
-        pass
+    This class supports both traditional reward models and LLM-based judge models
+    that evaluate conversation outcomes and quality.
+    """
 
     @abstractmethod
     def score(
-        self, prompt_or_messages: str | list[ChatMessage] | ChatMessages, response: str
-    ) -> float:
-        """score a response synchronously"""
+        self,
+        messages: list[list[dict]] | list[dict],
+        **kwargs,
+    ) -> list[float] | float:
+        """
+        Score conversations synchronously.
+
+        Args:
+            messages: Single conversation or batch of conversations
+                Single: list[dict] (one conversation)
+                Batch: list[list[dict]] (multiple conversations)
+            **kwargs: Additional model-specific parameters
+
+        Returns:
+            Single score (float) or list of scores (list[float])
+            Higher score = better response
+        """
         pass
 
+    async def ascore(
+        self,
+        messages: list[list[dict]] | list[dict],
+        **kwargs,
+    ) -> list[float] | float:
+        """
+        Score conversations asynchronously.
 
-# TODO(GX) deal with aggregation of PRM scores somehow in a common place, e.g. here
+        Default implementation raises NotImplementedError.
+        Override this for async-compatible reward models (e.g., LLM judges).
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement async scoring. "
+            "Override ascore() to support async scoring."
+        )
+
+
 class AbstractProcessRewardModel(ABC):
     """abstract base class for process reward models"""
 
