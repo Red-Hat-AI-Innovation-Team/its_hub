@@ -1,13 +1,66 @@
 import json
 import logging
 
+import litellm
 from reward_hub.base import AggregationMethod
 from reward_hub.llm_judge import create_groupwise_judge, create_pointwise_judge
+import reward_hub.llm_judge.utils as reward_hub_utils
+import reward_hub.llm_judge.pointwise as reward_hub_pointwise
+import reward_hub.llm_judge.groupwise as reward_hub_groupwise
 
 from its_hub.base import AbstractOutcomeRewardModel, AbstractProcessRewardModel
 from its_hub.types import ChatMessage, ChatMessages
 
 logger = logging.getLogger(__name__)
+
+
+def _patched_validate_api_configuration(model: str, **litellm_kwargs):
+    """
+    Patched validation that uses max_completion_tokens for GPT models.
+    """
+    try:
+        test_messages = [
+            {"role": "system", "content": "You are a test assistant."},
+            {"role": "user", "content": "Say 'test' and nothing else."}
+        ]
+
+        # Remove parameters that might conflict or be unsupported
+        filtered_kwargs = {
+            k: v for k, v in litellm_kwargs.items()
+            if k not in ("max_tokens", "max_completion_tokens", "temperature")
+        }
+
+        # Use max_completion_tokens for GPT models, and don't set temperature
+        # (some models like gpt-5-mini only support default temperature)
+        if "gpt" in model.lower():
+            token_kwargs = {"max_completion_tokens": 5}
+        else:
+            token_kwargs = {"max_tokens": 5, "temperature": 0.0}
+
+        response = litellm.completion(
+            model=model,
+            messages=test_messages,
+            **token_kwargs,
+            **filtered_kwargs
+        )
+
+        if not response or not response.choices:
+            raise ValueError(f"Invalid response from {model}")
+
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "authentication" in error_msg or "api key" in error_msg:
+            raise ValueError(f"API key authentication failed for '{model}': {e}") from e
+        elif "not found" in error_msg or "model" in error_msg:
+            raise ValueError(f"Model '{model}' not found: {e}") from e
+        else:
+            raise ValueError(f"Failed to initialize judge with '{model}': {e}") from e
+
+
+# Monkey-patch the validation function in all places where it's imported
+reward_hub_utils.validate_api_configuration = _patched_validate_api_configuration
+reward_hub_pointwise.validate_api_configuration = _patched_validate_api_configuration
+reward_hub_groupwise.validate_api_configuration = _patched_validate_api_configuration
 
 
 class LocalVllmProcessRewardModel(AbstractProcessRewardModel):
@@ -128,6 +181,13 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
                     "additionalProperties": False
                 }
 
+        # Use max_completion_tokens for GPT models (required for newer OpenAI models)
+        # Pass max_tokens=None to override the function's default when using max_completion_tokens
+        if "gpt" in model.lower():
+            token_limit_kwargs = {"max_tokens": None, "max_completion_tokens": max_tokens}
+        else:
+            token_limit_kwargs = {"max_tokens": max_tokens}
+
         if judge_type == "pointwise":
             self.judge = create_pointwise_judge(
                 model=model,
@@ -135,7 +195,7 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
                 api_key=api_key,
                 base_url=base_url,
                 temperature=temperature,
-                max_tokens=max_tokens,
+                **token_limit_kwargs,
                 **litellm_kwargs,
             )
         elif judge_type == "groupwise":
@@ -162,7 +222,7 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
                 api_key=api_key,
                 base_url=base_url,
                 temperature=temperature,
-                max_tokens=max_tokens,
+                **token_limit_kwargs,
                 **litellm_kwargs,
             )
         else:

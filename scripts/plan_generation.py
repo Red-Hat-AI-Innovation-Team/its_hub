@@ -28,6 +28,11 @@ from its_hub.integration.reward_hub import LLMJudgeRewardModel
 from its_hub.lms import OpenAICompatibleLanguageModel
 from its_hub.utils import extract_content_from_lm_response
 
+import litellm
+
+litellm.drop_params = True
+
+
 # Plan generation prompt - no calculations, just strategy
 PLAN_GENERATION_SYSTEM_PROMPT = """You are a mathematical problem planning strategist.
 
@@ -83,32 +88,63 @@ def main():
     )
 
     # Model arguments
-    parser.add_argument("--model", type=str, default="gpt-4o-mini",
-                        help="Model name for plan generation")
-    parser.add_argument("--judge-model", type=str, default=None,
-                        help="Model name for plan evaluation (default: same as --model)")
-    parser.add_argument("--endpoint", type=str, default="https://api.openai.com/v1",
-                        help="API endpoint URL")
-    parser.add_argument("--local", action="store_true",
-                        help="Use local endpoint (sets api_key to NO_API_KEY)")
-    parser.add_argument("--api-key", type=str, default=None,
-                        help="API key (default: from OPENAI_API_KEY env var)")
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="gpt-4o-mini",
+        help="Model name for plan generation",
+    )
+    parser.add_argument(
+        "--judge-model",
+        type=str,
+        default=None,
+        help="Model name for plan evaluation (default: same as --model)",
+    )
+    parser.add_argument(
+        "--endpoint",
+        type=str,
+        default="https://api.openai.com/v1",
+        help="API endpoint URL",
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Use local endpoint (sets api_key to NO_API_KEY)",
+    )
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        default=None,
+        help="API key (default: from OPENAI_API_KEY env var)",
+    )
 
     # Generation arguments
-    parser.add_argument("--n-plans", type=int, default=64,
-                        help="Number of plans to generate per problem")
-    parser.add_argument("--temperature", type=float, default=0.8,
-                        help="Temperature for plan generation")
-    parser.add_argument("--max-tokens", type=int, default=4096,
-                        help="Max tokens per generation")
-    parser.add_argument("--max-concurrency", type=int, default=32,
-                        help="Max concurrent API requests")
+    parser.add_argument(
+        "--n-plans",
+        type=int,
+        default=64,
+        help="Number of plans to generate per problem",
+    )
+    parser.add_argument(
+        "--temperature", type=float, default=0.8, help="Temperature for plan generation"
+    )
+    parser.add_argument(
+        "--max-tokens", type=int, default=4096, help="Max tokens per generation"
+    )
+    parser.add_argument(
+        "--max-concurrency", type=int, default=32, help="Max concurrent API requests"
+    )
 
     # Dataset arguments
-    parser.add_argument("--max-problems", type=int, default=None,
-                        help="Limit number of problems to process")
-    parser.add_argument("--output", type=str, default="results/plans.jsonl",
-                        help="Output file path")
+    parser.add_argument(
+        "--max-problems",
+        type=int,
+        default=None,
+        help="Limit number of problems to process",
+    )
+    parser.add_argument(
+        "--output", type=str, default="results/plans.jsonl", help="Output file path"
+    )
 
     args = parser.parse_args()
 
@@ -123,7 +159,9 @@ def main():
         api_key = os.getenv("OPENAI_API_KEY")
 
     if not api_key and not args.local:
-        raise ValueError("API key required. Set OPENAI_API_KEY or use --api-key or --local")
+        raise ValueError(
+            "API key required. Set OPENAI_API_KEY or use --api-key or --local"
+        )
 
     # Default judge model to same as generation model
     judge_model = args.judge_model or args.model

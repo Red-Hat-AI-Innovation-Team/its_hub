@@ -349,20 +349,28 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                     "include_stop_str_in_output parameter is not supported with OpenAI endpoints and will be ignored"
                 )
 
+        # Determine which token limit parameter to use
+        # GPT models require max_completion_tokens instead of max_tokens
+        # and don't support custom temperature values
+        is_gpt_model = "gpt" in self.model_name.lower()
+        token_limit_key = "max_completion_tokens" if is_gpt_model else "max_tokens"
+
         # set default runtime parameters
         if self.stop is not None:
             request_data["stop"] = self.stop
         if self.max_tokens is not None:
-            request_data["max_tokens"] = self.max_tokens
-        if self.temperature is not None:
+            request_data[token_limit_key] = self.max_tokens
+        # Skip temperature for GPT models (only supports default value of 1.0)
+        if self.temperature is not None and not is_gpt_model:
             request_data["temperature"] = self.temperature
 
         # override runtime parameters
         if stop is not None:
             request_data["stop"] = stop
         if max_tokens is not None:
-            request_data["max_tokens"] = max_tokens
-        if temperature is not None:
+            request_data[token_limit_key] = max_tokens
+        # Skip temperature for GPT models
+        if temperature is not None and not is_gpt_model:
             request_data["temperature"] = temperature
 
         # add tools and tool_choice if provided

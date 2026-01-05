@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from its_hub.algorithms import (
     BeamSearch,
+    BestOfN,
     EntropicParticleFiltering,
     ParticleFiltering,
     SelfConsistency,
@@ -19,10 +20,15 @@ from its_hub.algorithms import (
 from its_hub.algorithms.particle_gibbs import _softmax
 from its_hub.integration.reward_hub import (
     AggregationMethod,
+    LLMJudgeRewardModel,
     LocalVllmProcessRewardModel,
 )
 from its_hub.lms import OpenAICompatibleLanguageModel
-from its_hub.utils import QWEN_SYSTEM_PROMPT, SAL_STEP_BY_STEP_SYSTEM_PROMPT
+from its_hub.utils import (
+    QWEN_SYSTEM_PROMPT,
+    SAL_STEP_BY_STEP_SYSTEM_PROMPT,
+    extract_content_from_lm_response,
+)
 
 
 class BenchmarkDataset(Enum):
@@ -51,6 +57,7 @@ def load_benchmark_dataset(dataset: BenchmarkDataset):
 
 class ScalingAlgorithm(Enum):
     SELF_CONSISTENCY = "self-consistency"
+    BEST_OF_N = "best-of-n"
     BEAM_SEARCH = "beam-search"
     PARTICLE_FILTERING = "particle-filtering"
     ENTROPIC_PARTICLE_FILTERING = "entropic-particle-filtering"
@@ -70,9 +77,35 @@ def init_algorithm(
     rm_device: str,
     rm_agg_method: AggregationMethod,
     tokens_per_step: int = None,
+    use_llm_judge: bool = False,
+    judge_model: str = None,
+    judge_endpoint: str = None,
+    judge_criterion: str = "overall_quality",
 ):
     if alg == ScalingAlgorithm.SELF_CONSISTENCY:
         return SelfConsistency(_extract_boxed)
+    elif alg == ScalingAlgorithm.BEST_OF_N:
+        if use_llm_judge:
+            # Use LLM Judge as the outcome reward model
+            # Using pointwise judge for better compatibility and reliability
+            orm = LLMJudgeRewardModel(
+                model=judge_model,
+                criterion=judge_criterion,
+                judge_type="pointwise",
+                base_url=judge_endpoint,
+                api_key="NO_API_KEY",
+                temperature=0.7,
+                max_tokens=4096,
+                enable_judge_logging=True,
+            )
+        else:
+            # Use LocalVllmProcessRewardModel as outcome reward model
+            orm = LocalVllmProcessRewardModel(
+                model_name=rm_name,
+                device=rm_device,
+                aggregation_method=rm_agg_method,
+            )
+        return BestOfN(orm)
     elif alg == ScalingAlgorithm.BEAM_SEARCH:
         if tokens_per_step is not None:
             # Use new tokens_per_step approach for easier usage
@@ -241,6 +274,30 @@ def display_results(df: pd.DataFrame):
     default=None,
     help="use tokens_per_step instead of step_token for StepGeneration (easier for PF/BS algorithms)",
 )
+@click.option(
+    "--use_llm_judge",
+    is_flag=True,
+    default=False,
+    help="use LLM judge as reward model instead of PRM (for best-of-n)",
+)
+@click.option(
+    "--judge_model",
+    type=str,
+    default=None,
+    help="model name for LLM judge (e.g., Qwen/Qwen3-4B-Instruct-2507)",
+)
+@click.option(
+    "--judge_endpoint",
+    type=str,
+    default="http://localhost:8000/v1",
+    help="endpoint for LLM judge model",
+)
+@click.option(
+    "--judge_criterion",
+    type=str,
+    default="overall_quality",
+    help="evaluation criterion for LLM judge (e.g., overall_quality, technical_quality)",
+)
 def main(
     benchmark: BenchmarkDataset,
     model_name: str,
@@ -263,6 +320,10 @@ def main(
     eval_expected_pass_at_one: bool,
     display_only: bool,
     tokens_per_step: int,
+    use_llm_judge: bool,
+    judge_model: str,
+    judge_endpoint: str,
+    judge_criterion: str,
 ):
     # print all arguments using click context
     ctx = click.get_current_context()
@@ -288,6 +349,13 @@ def main(
         # Add tokens_per_step to filename if specified
         if tokens_per_step is not None:
             alg_str += f"-tokens{tokens_per_step}"
+    elif alg == ScalingAlgorithm.BEST_OF_N:
+        if use_llm_judge:
+            judge_model_dashed = judge_model.replace("/", "-")
+            alg_str = f"{alg.value}-judge-{judge_model_dashed}-{judge_criterion}"
+        else:
+            rm_name_dashed = rm_name.replace("/", "-")
+            alg_str = f"{alg.value}-{rm_name_dashed}-{rm_agg_method.value}"
     else:
         alg_str = alg.value
     output_file = os.path.join(
@@ -354,6 +422,10 @@ def main(
         rm_device,
         rm_agg_method,
         tokens_per_step,
+        use_llm_judge,
+        judge_model,
+        judge_endpoint,
+        judge_criterion,
     )
 
     # ensure output directory exists
@@ -431,9 +503,15 @@ def main(
                         p = _softmax(row["log_probs"])
                         row["correct"] = np.dot(p, c)
                     else:
+                        # Extract content from response dict if needed (e.g., for Best-of-N)
+                        response_text = (
+                            extract_content_from_lm_response(row["response"])
+                            if isinstance(row["response"], dict)
+                            else row["response"]
+                        )
                         row["correct"] = math_verify.verify(
                             math_verify.parse(x["answer"]),
-                            math_verify.parse(row["response"]),
+                            math_verify.parse(response_text),
                         )
                 rows.append(row)
     except KeyboardInterrupt:
