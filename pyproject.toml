@@ -22,24 +22,12 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-    "openai>=1.68.2",
-    "tqdm>=4.65.0",
-    "typing-extensions>=4.12.2",
-    "reward-hub>=0.1.8",
-    "transformers>=4.53.2",
-    "backoff>=2.2.0",
-    "click>=8.1.0",
-    "fastapi>=0.115.5",
-    "pydantic>=2.7.2",
     "numpy",
-    "uvicorn",
-    "requests",
-    "aiohttp>=3.9.0",
-    "litellm>=1.70.0,<1.75.0"
+    "typing-extensions>=4.12.2",
 ]
 
 [project.scripts]
-its-iaas = "its_hub.integration.iaas:main"
+# its-iaas removed for MVP - will be added back in [iaas] extra if needed
 
 [tool.setuptools_scm]
 version_file = "its_hub/_version.py"
@@ -51,32 +39,43 @@ Homepage = "https://ai-innovation.team/its_hub"
 
 [project.optional-dependencies]
 
-vllm = [
-    "reward-hub[vllm]>=0.1.8",
+lm = [
+    "openai>=1.68.2",
+    "aiohttp>=3.9.0",
+    "backoff>=2.2.0",
+    "requests",
+]
+
+iaas = [
+    "its_hub[lm]",
+    "fastapi>=0.115.5",
+    "uvicorn",
+    "pydantic>=2.7.2",
+    "click>=8.1.0",
 ]
 
 dev = [
+    "its_hub[lm,iaas]",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
     "ruff>=0.10.0",
+    "python-dotenv>=1.0.0",
     "jupytext>=1.15.0",
     "jupyter>=1.0.0",
-    "reward-hub[vllm]>=0.1.8",
 ]
 
-prm = [
-    "reward-hub[prm]>=0.1.8"
+# Experimental - not officially supported in MVP
+experimental = [
+    "its_hub[lm]",
+    "transformers>=4.53.2",
+    "reward-hub>=0.1.8",
 ]
 
 research = [
     "math-verify>=0.1.0",  # For mathematical reasoning evaluation in benchmark scripts
     "datasets>=2.0.0",     # For loading benchmark datasets (MATH500, AIME)
     "matplotlib>=3.5.0",   # For visualization scripts
-]
-cloud = [
-    "boto3>=1.28.0",  # For AWS Bedrock support
-    "google-cloud-aiplatform>=1.38.0",  # For Vertex AI support
 ]
 
 [tool.setuptools]
@@ -87,6 +86,5 @@ where = ["."]
 include = [
     "its_hub",
     "its_hub.algorithms",
-    "its_hub.integration",
+    # NOTE: "its_hub.integration" REMOVED
 ]
-
