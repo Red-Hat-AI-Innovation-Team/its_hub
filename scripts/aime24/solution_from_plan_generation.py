@@ -45,15 +45,79 @@ from its_hub.lms import OpenAICompatibleLanguageModel
 from its_hub.types import ChatMessage
 from its_hub.utils import extract_content_from_lm_response
 
+from reward_hub.llm_judge.prompts import Criterion, CriterionRegistry
+
 import litellm
 
 litellm.drop_params = True
+
+PLAN_CONDITIONED_SOLUTION_CRITIC_SYSTEM_PROMPT = """You are a strict mathematical solution critic for plan-conditioned contest solutions.
+
+You will be given:
+1. A math contest problem.
+2. A plan.
+3. A candidate solution generated using that plan.
+
+Your task is to rigorously judge the mathematical correctness of the candidate solution.
+The plan is provided only to help you detect missing steps, incorrect pivots, or misuse of the intended method.
+Presentation quality does NOT matter unless it prevents verifying correctness.
+
+You MUST NOT provide a corrected solution.
+You MUST NOT reveal the correct final answer unless it is already present in the candidate solution.
+You MAY do lightweight checking (spot-check algebra, verify key claims), but do not do full-length solving from scratch.
+
+## Evaluation Criteria (primarily correctness)
+
+1. Correctness of result (0-4 points):
+- 4: Final answer is correct and consistent with the problem.
+- 3: Final answer is likely correct but not fully justified; minor uncertainty remains.
+- 2: Final answer might be correct but there are serious errors/unsupported leaps.
+- 1: Final answer is likely incorrect.
+- 0: No valid final result or clearly wrong.
+
+2. Validity of reasoning (0-4 points):
+- 4: All key steps are logically valid; no mathematical errors.
+- 3: Mostly valid with one minor gap/unproven claim that likely does not change the result.
+- 2: Multiple gaps or at least one substantial error that could change the result.
+- 1: Reasoning is largely flawed or relies on unjustified assumptions.
+- 0: Reasoning is irrelevant or nonsensical.
+
+3. Constraint/case handling (0-2 points):
+- 2: Handles all necessary cases/constraints (domain, edge cases, extraneous roots, counting over/under, etc.).
+- 1: Some constraints/cases not explicitly checked but plausibly covered.
+- 0: Missing critical constraints/cases.
+
+## Plan-conditioned check (use only as evidence, not as a separate score)
+If the solution skips a key step promised by the plan or misapplies the plan’s method, treat that as evidence of weaker validity/completeness.
+
+## Scoring Rules
+- Total score is 0 to 10.
+- You MUST identify at least one weakness unless the solution is truly flawless.
+- A score of 9+ is exceptional and rare; it must be competition-ready with no meaningful improvements needed.
+
+## Required Output Format (JSON only)
+{
+  "reasoning": "<1-2 sentences summarizing the biggest mathematical flaw or uncertainty in correctness>",
+  "score": <integer from 0 to 10>
+}
+
+Do not include any text outside the JSON.
+
+"""
+
 
 
 # System prompt that instructs model to use the plan
 PLAN_BASED_SYSTEM_PROMPT = """You are given a mathematical problem and a plan for solving it.
 
 Follow the plan step-by-step to solve the problem. Put your final answer within \\boxed{}."""
+
+# Register the criterion
+CriterionRegistry.register(Criterion(
+    name="plan_conditioned_solution_quality",
+    content=PLAN_CONDITIONED_SOLUTION_CRITIC_SYSTEM_PROMPT,
+    description="Evaluates mathematical solutions",
+))
 
 
 def extract_answer(response: str) -> str:
@@ -203,11 +267,12 @@ def main():
     if use_bon:
         solution_critic = LLMJudgeRewardModel(
             model=judge_model,
-            criterion="overall_quality",
+            criterion="plan_conditioned_solution_quality",
             judge_type="pointwise",
             api_key=api_key,
             base_url=args.endpoint if args.local else None,
             temperature=0.0,
+            max_tokens=4096,
         )
         bon = BestOfN(orm=solution_critic)
 

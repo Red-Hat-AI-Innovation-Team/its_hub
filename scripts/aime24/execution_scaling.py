@@ -30,10 +30,66 @@ from its_hub.integration.reward_hub import LLMJudgeRewardModel
 from its_hub.lms import OpenAICompatibleLanguageModel
 from its_hub.utils import extract_content_from_lm_response
 
+from reward_hub.llm_judge.prompts import Criterion, CriterionRegistry
+
 import litellm
 
 litellm.drop_params = True
 
+EXECUTION_SOLUTION_CRITIC_SYSTEM_PROMPT = """You are a strict mathematical solution critic for contest problems.
+
+You will be given:
+1. A math contest problem.
+2. A candidate solution.
+
+Your task is to rigorously judge the mathematical correctness of the solution.
+Presentation quality does NOT matter unless it prevents verifying correctness.
+
+You MUST NOT provide a corrected solution.
+You MUST NOT reveal the correct final answer unless it is already present in the candidate solution.
+You MAY do lightweight checking (spot-check algebra, verify key steps), but do not do full-length solving from scratch.
+
+## Evaluation Criteria
+
+1. Correctness of result (0-4 points):
+- 4: Final answer is correct and consistent with the problem.
+- 3: Final answer is likely correct but not fully justified; minor uncertainty remains.
+- 2: Final answer might be correct but there are serious errors/unsupported leaps.
+- 1: Final answer is likely incorrect.
+- 0: No valid final result or clearly wrong.
+
+2. Validity of reasoning (0-4 points):
+- 4: All key steps are logically valid; no mathematical errors (algebra, counting, case handling, geometry claims).
+- 3: Mostly valid with one minor gap or unproven claim that does not undermine the result.
+- 2: Multiple gaps or at least one substantial error that could change the result.
+- 1: Reasoning is largely flawed or relies on unjustified assumptions.
+- 0: Reasoning is irrelevant or nonsensical.
+
+3. Completeness / coverage of cases (0-2 points):
+- 2: All necessary cases/constraints are handled (domain, edge cases, extraneous roots, counting over/under, etc.).
+- 1: Some constraints/cases are not explicitly checked but the approach plausibly covers them.
+- 0: Missing critical casework/constraints; likely invalidates the answer.
+
+## Scoring Rules
+- Total score is 0 to 10.
+- You MUST identify at least one weakness unless the solution is truly flawless.
+- A score of 9+ is exceptional and rare; it must be competition-ready with no meaningful improvements needed.
+
+## Required Output Format (JSON only)
+{
+  "reasoning": "<1-2 sentences summarizing the biggest flaw or uncertainty in correctness>",
+  "score": <integer from 0 to 10>
+}
+
+Do not include any text outside the JSON.
+"""
+
+# Register the criterion
+CriterionRegistry.register(Criterion(
+    name="math_solution_quality",
+    content=EXECUTION_SOLUTION_CRITIC_SYSTEM_PROMPT,
+    description="Evaluates mathematical solutions",
+))
 
 # Direct solution prompt - step-by-step reasoning with final answer
 QWEN_SYSTEM_PROMPT = (
@@ -130,7 +186,7 @@ def main():
         "--temperature", type=float, default=0.8, help="Temperature for solution generation"
     )
     parser.add_argument(
-        "--max-concurrency", type=int, default=16, help="Max concurrent API requests"
+        "--max-concurrency", type=int, default=64, help="Max concurrent API requests"
     )
 
     # Dataset arguments
@@ -202,11 +258,12 @@ def main():
     # Set up LLM judge as solution critic (uses same model/endpoint as solution generation)
     solution_critic = LLMJudgeRewardModel(
         model=judge_model,
-        criterion="overall_quality",
+        criterion="math_solution_quality",
         judge_type="pointwise",
         api_key=api_key,
         base_url=args.endpoint if args.local else None,
         temperature=0.0,
+        max_tokens=4096,
     )
 
     bon = BestOfN(orm=solution_critic)
