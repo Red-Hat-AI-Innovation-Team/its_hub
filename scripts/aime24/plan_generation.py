@@ -177,6 +177,52 @@ def weighted_best_of_n(
     return best_response, weighted
 
 
+def softmax(scores: list[float], temperature: float = 1.0) -> list[float]:
+    """
+    Convert scores to probability distribution using softmax.
+
+    Args:
+        scores: List of scores
+        temperature: Temperature parameter (lower = more deterministic, higher = more uniform)
+
+    Returns:
+        List of probabilities that sum to 1
+    """
+    import math
+
+    # Scale by temperature
+    scaled = [s / temperature for s in scores]
+
+    # Subtract max for numerical stability
+    max_score = max(scaled)
+    exp_scores = [math.exp(s - max_score) for s in scaled]
+
+    # Normalize
+    total = sum(exp_scores)
+    return [e / total for e in exp_scores]
+
+
+def softmax_sample(
+    responses: list[str], scores: list[float], temperature: float = 1.0
+) -> tuple[str, int, list[float]]:
+    """
+    Sample a response using softmax probabilities.
+
+    Args:
+        responses: List of response strings
+        scores: List of scores corresponding to each response
+        temperature: Temperature for softmax (lower = more greedy)
+
+    Returns:
+        selected_response: The sampled response
+        selected_index: Index of the selected response
+        probabilities: The probability distribution used
+    """
+    probs = softmax(scores, temperature)
+    selected_idx = random.choices(range(len(responses)), weights=probs, k=1)[0]
+    return responses[selected_idx], selected_idx, probs
+
+
 def load_benchmark_dataset(dataset: BenchmarkDataset):
     """Load and normalize a benchmark dataset."""
     if dataset == BenchmarkDataset.MATH500:
@@ -275,6 +321,17 @@ def main():
         action="store_true",
         help="Use weighted Best-of-N: aggregate scores for identical plans",
     )
+    parser.add_argument(
+        "--softmax-sample",
+        action="store_true",
+        help="Sample plan using softmax probabilities instead of argmax",
+    )
+    parser.add_argument(
+        "--sample-temperature",
+        type=float,
+        default=1.0,
+        help="Temperature for softmax sampling (lower=greedy, higher=uniform)",
+    )
 
     args = parser.parse_args()
 
@@ -326,6 +383,7 @@ def main():
         api_key=api_key,
         base_url=args.endpoint if args.local else None,
         temperature=0.0,
+        max_tokens=4096,  # Ensure enough tokens for judge response
     )
 
     bon = BestOfN(orm=plan_critic)
@@ -344,17 +402,24 @@ def main():
     random.seed(args.seed)
 
     results = []
+    failed_problems = []
     for idx, dataset_row in enumerate(tqdm(problem_dataset, desc="Problems")):
         problem = dataset_row["problem"]
 
-        # Generate all N plans and score them in one call
-        result = bon.infer(
-            plan_lm, problem, budget=args.n_plans, return_response_only=False
-        )
+        try:
+            # Generate all N plans and score them in one call
+            result = bon.infer(
+                plan_lm, problem, budget=args.n_plans, return_response_only=False
+            )
 
-        plans = [extract_content_from_lm_response(r) for r in result.responses]
-        scores = result.scores
-        token_counts = [len(tokenizer.encode(plan)) for plan in plans]
+            plans = [extract_content_from_lm_response(r) for r in result.responses]
+            scores = result.scores
+            token_counts = [len(tokenizer.encode(plan)) for plan in plans]
+        except Exception as e:
+            # Log error and skip this problem
+            print(f"\nError on problem {idx}: {type(e).__name__}: {e}")
+            failed_problems.append(idx)
+            continue
 
         result_row = {
             "problem_idx": idx,
@@ -383,6 +448,14 @@ def main():
                 result_row[f"bo{budget}_plan"] = best_plan
                 result_row[f"bo{budget}_plan_score"] = weighted_dict[best_plan]
                 result_row[f"bo{budget}_unique_plans"] = len(weighted_dict)
+            elif args.softmax_sample:
+                # Softmax sampling: sample proportionally to scores
+                selected_plan, selected_idx, probs = softmax_sample(
+                    sampled_plans, sampled_scores, temperature=args.sample_temperature
+                )
+                result_row[f"bo{budget}_plan"] = selected_plan
+                result_row[f"bo{budget}_plan_score"] = sampled_scores[selected_idx]
+                result_row[f"bo{budget}_max_prob"] = max(probs)
             else:
                 # Standard BoN: argmax
                 best_sampled_idx = max(sampled_indices, key=lambda i: scores[i])
@@ -404,6 +477,10 @@ def main():
     print("\n" + "=" * 60)
     print("PLAN GENERATION SUMMARY")
     print("=" * 60)
+    print(f"Processed: {len(results)}/{len(problem_dataset)} problems")
+    if failed_problems:
+        print(f"Failed: {len(failed_problems)} problems (indices: {failed_problems})")
+
     for budget in budgets:
         tokens_col = f"bo{budget}_tokens"
         if results:

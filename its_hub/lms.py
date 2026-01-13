@@ -241,6 +241,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         # SSL configuration
         verify_ssl: bool = True,
         ssl_context: ssl.SSLContext | None = None,
+        # Timeout configuration
+        timeout: float = 600.0,  # 10 minutes default timeout
     ):
         assert max_concurrency == -1 or max_concurrency > 0, (
             "max_concurrency must be -1 (unlimited concurrency) or a positive integer"
@@ -267,6 +269,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         self.max_tries = max_tries
         self.max_concurrency = max_concurrency
         self.replace_error_with_message = replace_error_with_message
+        self.timeout = timeout
 
         # runtime parameters
         self.stop = stop
@@ -402,7 +405,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         # create a single session for all requests in this call
         # Use the same SSL behavior as requests library
         connector = aiohttp.TCPConnector(ssl=self.ssl_context)
-        async with aiohttp.ClientSession(connector=connector) as session:
+        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
 
             @backoff.on_exception(
                 backoff.expo,
