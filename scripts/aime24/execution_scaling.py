@@ -130,7 +130,7 @@ def main():
         "--temperature", type=float, default=0.8, help="Temperature for solution generation"
     )
     parser.add_argument(
-        "--max-concurrency", type=int, default=32, help="Max concurrent API requests"
+        "--max-concurrency", type=int, default=16, help="Max concurrent API requests"
     )
 
     # Dataset arguments
@@ -195,6 +195,7 @@ def main():
         model_name=args.model,
         system_prompt=QWEN_SYSTEM_PROMPT,
         temperature=args.temperature,
+        max_tokens=16384,  # Limit generation to avoid timeout with long thinking
         max_concurrency=args.max_concurrency,
     )
 

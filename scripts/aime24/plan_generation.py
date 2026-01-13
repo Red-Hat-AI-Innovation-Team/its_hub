@@ -16,8 +16,14 @@ Usage:
 
 import argparse
 import os
+import random
 from enum import Enum
 from pathlib import Path
+
+
+class BenchmarkDataset(Enum):
+    MATH500 = "math500"
+    AIME_2024 = "aime_2024"
 
 import datasets
 from dotenv import load_dotenv
@@ -29,40 +35,146 @@ from its_hub.integration.reward_hub import LLMJudgeRewardModel
 from its_hub.lms import OpenAICompatibleLanguageModel
 from its_hub.utils import extract_content_from_lm_response
 
+from reward_hub.llm_judge.prompts import Criterion, CriterionRegistry
+
 import litellm
 
 litellm.drop_params = True
 
 
 # Plan generation prompt - no calculations, just strategy
-PLAN_GENERATION_SYSTEM_PROMPT = """You are a mathematical problem planning strategist.
+# PLAN_GENERATION_SYSTEM_PROMPT = """You are a mathematical problem planning strategist.
 
-When given a problem, provide ONLY a high-level strategy or plan.
-Do NOT perform any calculations or provide the final answer.
+# When given a problem, provide ONLY a high-level strategy or plan.
+# Do NOT perform any calculations or provide the final answer.
 
-Your plan should include:
-1. Key mathematical concepts/theorems to apply
-2. The sequence of logical steps to take
-3. What to solve for at each step
+# Your plan should include:
+# 1. Key mathematical concepts/theorems to apply
+# 2. The sequence of logical steps to take
+# 3. What to solve for at each step
 
-Keep the plan concise. Focus on the "what" and "why", not the "how" of calculations."""
+# Keep the plan concise. Focus on the "what" and "why", not the "how" of calculations."""
 
+PLAN_GENERATION_SYSTEM_PROMPT = """You are a mathematical problem planning strategist who outputs recipe-style solution plans. 
 
-class BenchmarkDataset(Enum):
-    """Supported benchmark datasets."""
+You will be given a math contest problem.
+Your task is to output ONLY a plan: a short numbered recipe describing how to solve the problem, without actually solving it.
 
-    MATH500 = "math500"
-    AIME_2024 = "aime-2024"
+Strict rules:
+- Do NOT solve the problem.
+- Do NOT compute any values.
+- Do NOT include specific numbers except those already given in the problem.
+- Do NOT give the final answer or intermediate results.
+
+Formatting rules:
+- Start with exactly:
+  Plan:
+- Include 5 to 10 numbered steps.
+- Each step must:
+  - Be a single sentence.
+  - Start with a strong action verb (Model, Interpret, Count, Apply, Use, Subtract, Verify, etc.).
+  - Mention the relevant mathematical toolkit (e.g., combinations, symmetry, graph interpretation, invariants, casework, algebraic manipulation).
+- At least one step must be a sanity-check / pitfall step (e.g., overcounting, ordered vs unordered, extraneous roots, missing cases, domain issues).
+
+Style guidelines:
+- Write as if giving instructions to a solver.
+- Prefer precise mathematical language over vague phrasing.
+- Explicitly describe how the problem is modeled 
+- Emphasize structure, not results.
+
+Output format must be EXACTLY:
+
+Plan:
+1. ...
+2. ...
+3. ...
+...
+"""
+
+PLAN_CRITIC_SYSTEM_PROMPT = """You are a strict mathematical problem planning critic who evaluates solution plans.
+
+You will be given:
+1. A math contest problem.
+2. A plan that describes how to solve it (without solving it).
+
+Your task is to rigorously judge the mathematical quality of the plan as a problem-solving strategy.
+
+## Evaluation Criteria
+
+1. Correctness of approach (0-3 points):
+- 3: The method will definitively solve the problem with no mathematical errors. The approach is the standard or optimal method for this problem type.
+- 2: The method is sound but has minor gaps, could fail in edge cases, or uses a suboptimal technique.
+- 1: The approach has significant flaws, may not lead to a solution, or misidentifies the problem type.
+- 0: The approach is fundamentally wrong, irrelevant, or would never work.
+
+2. Completeness of reasoning (0-3 points):
+- 3: Every critical step is present with clear logical flow. A skilled solver could execute this plan directly.
+- 2: Most steps are present but one step is implicit, vague, or missing minor details.
+- 1: Multiple steps are missing, the plan is too vague to execute, or key transitions are unexplained.
+- 0: The plan is severely incomplete or just restates the problem.
+
+3. Appropriateness of mathematical tools (0-2 points):
+- 2: Tools are perfectly matched to the problem structure and represent the best approach.
+- 1: Tools are reasonable but not optimal, slightly misapplied, or overly generic.
+- 0: Tools are inappropriate, misidentified, or would not help solve the problem.
+
+4. Risk awareness and error prevention (0-2 points):
+- 2: Identifies the most likely pitfalls SPECIFIC to THIS problem (e.g., "check if k=0 case is included" not just "check edge cases").
+- 1: Generic sanity checks that could apply to any problem (e.g., "verify no overcounting" without specifying what might be overcounted).
+- 0: No meaningful error prevention, irrelevant checks, or checks that don't match the problem.
+
+## Required Output Format:
+{
+  "reasoning": "<1-2 sentences: give a brief summary of the flaws in the plan>"
+  "score": <integer from 0 to 10>,
+}
+
+Rules:
+- You MUST identify at least one weakness unless the plan is truly flawless.
+- A score of 9+ is exceptional and rare - the plan must be competition-ready with no improvements needed.
+- Do not include any text outside the JSON.
+"""
+
+# Register the criterion
+CriterionRegistry.register(Criterion(
+    name="math_plan_quality",
+    content=PLAN_CRITIC_SYSTEM_PROMPT,
+    description="Evaluates mathematical problem-solving plans",
+))
 
 
 def get_power_of_2_budgets(n: int) -> list[int]:
-    """Get all powers of 2 from 2 up to n."""
+    """Get all powers of 2 from 0 up to n."""
     budgets = []
-    power = 1
+    power = 0
     while 2**power <= n:
         budgets.append(2**power)
         power += 1
     return budgets
+
+
+def weighted_best_of_n(
+    responses: list[str], scores: list[float]
+) -> tuple[str, dict[str, float]]:
+    """
+    Weighted Best-of-N: group identical responses, sum scores, pick best.
+
+    Args:
+        responses: List of response strings
+        scores: List of scores corresponding to each response
+
+    Returns:
+        best_response: The response with highest aggregated score
+        weighted_scores: Dict mapping each unique response to its summed score
+    """
+    assert len(responses) == len(scores)
+
+    weighted: dict[str, float] = {}
+    for r, s in zip(responses, scores):
+        weighted[r] = weighted.get(r, 0.0) + s
+
+    best_response = max(weighted.items(), key=lambda x: x[1])[0]
+    return best_response, weighted
 
 
 def load_benchmark_dataset(dataset: BenchmarkDataset):
@@ -92,7 +204,7 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="gpt-4o-mini",
+        default="Qwen/Qwen3-4B-Instruct-2507",
         help="Model name for plan generation",
     )
     parser.add_argument(
@@ -152,6 +264,17 @@ def main():
         default=None,
         help="Tokenizer model name for token counting (default: same as --model)",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducible budget sampling (default: 42)",
+    )
+    parser.add_argument(
+        "--weighted-bon",
+        action="store_true",
+        help="Use weighted Best-of-N: aggregate scores for identical plans",
+    )
 
     args = parser.parse_args()
 
@@ -198,7 +321,7 @@ def main():
     # Set up LLM judge as plan critic (uses same model/endpoint as plan generation)
     plan_critic = LLMJudgeRewardModel(
         model=judge_model,
-        criterion="overall_quality",
+        criterion="math_plan_quality",
         judge_type="pointwise",
         api_key=api_key,
         base_url=args.endpoint if args.local else None,
@@ -215,6 +338,10 @@ def main():
     budgets = get_power_of_2_budgets(args.n_plans)
     print(f"Processing {len(problem_dataset)} problems, {args.n_plans} plans each")
     print(f"Budget levels: {budgets}")
+    print(f"Random seed: {args.seed}")
+
+    # Set random seed for reproducible budget sampling
+    random.seed(args.seed)
 
     results = []
     for idx, dataset_row in enumerate(tqdm(problem_dataset, desc="Problems")):
@@ -237,17 +364,33 @@ def main():
             "scores": scores,
         }
 
-        # Simulate each budget level from the same N plans
+        # Simulate each budget level by randomly sampling from all N plans
         for budget in budgets:
-            subset_scores = scores[:budget]
-            best_idx = max(range(len(subset_scores)), key=lambda i: subset_scores[i])
+            # Randomly sample 'budget' indices from all available plans
+            all_indices = list(range(len(plans)))
+            sampled_indices = random.sample(all_indices, min(budget, len(plans)))
 
-            # Cumulative tokens for first N plans
-            cumulative_tokens = sum(token_counts[:budget])
+            # Get sampled plans and scores
+            sampled_plans = [plans[i] for i in sampled_indices]
+            sampled_scores = [scores[i] for i in sampled_indices]
 
-            result_row[f"bo{budget}_plan"] = plans[best_idx]
-            result_row[f"bo{budget}_plan_score"] = scores[best_idx]
-            result_row[f"bo{budget}_tokens"] = cumulative_tokens
+            # Sum tokens for the sampled plans
+            sampled_tokens = sum(token_counts[i] for i in sampled_indices)
+
+            if args.weighted_bon:
+                # Weighted BoN: aggregate scores for identical plans
+                best_plan, weighted_dict = weighted_best_of_n(sampled_plans, sampled_scores)
+                result_row[f"bo{budget}_plan"] = best_plan
+                result_row[f"bo{budget}_plan_score"] = weighted_dict[best_plan]
+                result_row[f"bo{budget}_unique_plans"] = len(weighted_dict)
+            else:
+                # Standard BoN: argmax
+                best_sampled_idx = max(sampled_indices, key=lambda i: scores[i])
+                result_row[f"bo{budget}_plan"] = plans[best_sampled_idx]
+                result_row[f"bo{budget}_plan_score"] = scores[best_sampled_idx]
+
+            result_row[f"bo{budget}_tokens"] = sampled_tokens
+            result_row[f"bo{budget}_sampled_indices"] = sampled_indices
 
         results.append(result_row)
 
