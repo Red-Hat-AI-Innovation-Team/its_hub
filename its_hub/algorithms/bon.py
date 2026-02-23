@@ -60,13 +60,22 @@ class BestOfN(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict | BestOfNResult:
         """run inference asynchronously with best-of-n"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
+        generation_kwargs: dict = {
+            "tools": tools,
+            "tool_choice": tool_choice,
+        }
+        if response_format is not None:
+            generation_kwargs["response_format"] = response_format
+
         # generate responses
         responses = await lm.agenerate(
-            chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
+            chat_messages.to_batch(budget),
+            **generation_kwargs,
         )
 
         # extract content from message dict responses

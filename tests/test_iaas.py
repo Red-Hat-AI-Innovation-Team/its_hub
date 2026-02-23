@@ -209,7 +209,7 @@ class TestSelfConsistencyToolVote:
             "alg": "self-consistency",
             "regex_patterns": [r"\\boxed{([^}]+)}"],
             "tool_vote": "tool_args",
-            "exclude_tool_args": ["timestamp", "request_id"]
+            "exclude_tool_args": ["timestamp", "request_id"],
         }
 
         response = iaas_client.post("/configure", json=config_data)
@@ -227,7 +227,7 @@ class TestSelfConsistencyToolVote:
             "alg": "self-consistency",
             "regex_patterns": [r"\\boxed{([^}]+)}"],
             "tool_vote": "tool_hierarchical",
-            "exclude_tool_args": ["timestamp", "id", "session_id"]
+            "exclude_tool_args": ["timestamp", "id", "session_id"],
         }
 
         response = iaas_client.post("/configure", json=config_data)
@@ -262,7 +262,7 @@ class TestSelfConsistencyToolVote:
                 "alg": "self-consistency",
                 "regex_patterns": [r"\\boxed{([^}]+)}"],
                 "tool_vote": "tool_hierarchical",
-                "exclude_tool_args": ["timestamp", "id"]
+                "exclude_tool_args": ["timestamp", "id"],
             }
 
             response = iaas_client.post("/configure", json=config_data)
@@ -295,7 +295,9 @@ class TestSelfConsistencyToolVote:
         import its_hub.integration.iaas as iaas_module
 
         mock_scaling_alg = MagicMock()
-        mock_scaling_alg.ainfer = AsyncMock(return_value={"role": "assistant", "content": "Tool voting response"})
+        mock_scaling_alg.ainfer = AsyncMock(
+            return_value={"role": "assistant", "content": "Tool voting response"}
+        )
         iaas_module.SCALING_ALG = mock_scaling_alg
 
         # Make chat completion request
@@ -312,12 +314,20 @@ class TestSelfConsistencyToolVote:
         # Verify the scaling algorithm was called
         mock_scaling_alg.ainfer.assert_called_once()
 
-    @pytest.mark.parametrize("tool_vote_config", [
-        {"tool_vote": "tool_name"},
-        {"tool_vote": "tool_args", "exclude_tool_args": ["id"]},
-        {"tool_vote": "tool_hierarchical", "exclude_tool_args": ["timestamp", "session_id"]},
-    ])
-    def test_various_tool_vote_configurations(self, iaas_client, vllm_server, tool_vote_config):
+    @pytest.mark.parametrize(
+        "tool_vote_config",
+        [
+            {"tool_vote": "tool_name"},
+            {"tool_vote": "tool_args", "exclude_tool_args": ["id"]},
+            {
+                "tool_vote": "tool_hierarchical",
+                "exclude_tool_args": ["timestamp", "session_id"],
+            },
+        ],
+    )
+    def test_various_tool_vote_configurations(
+        self, iaas_client, vllm_server, tool_vote_config
+    ):
         """Test various valid tool-vote configurations."""
         config_data = {
             "endpoint": vllm_server,
@@ -382,7 +392,9 @@ class TestChatCompletions:
         import its_hub.integration.iaas as iaas_module
 
         mock_scaling_alg = MagicMock()
-        mock_scaling_alg.ainfer = AsyncMock(return_value={"role": "assistant", "content": "Mocked scaling response"})
+        mock_scaling_alg.ainfer = AsyncMock(
+            return_value={"role": "assistant", "content": "Mocked scaling response"}
+        )
         iaas_module.SCALING_ALG = mock_scaling_alg
 
         request_data = TestDataFactory.create_chat_completion_request(
@@ -425,7 +437,9 @@ class TestChatCompletions:
         import its_hub.integration.iaas as iaas_module
 
         mock_scaling_alg = MagicMock()
-        mock_scaling_alg.ainfer = AsyncMock(return_value={"role": "assistant", "content": "Response with system prompt"})
+        mock_scaling_alg.ainfer = AsyncMock(
+            return_value={"role": "assistant", "content": "Response with system prompt"}
+        )
         iaas_module.SCALING_ALG = mock_scaling_alg
 
         request_data = TestDataFactory.create_chat_completion_request(
@@ -441,6 +455,52 @@ class TestChatCompletions:
 
         # Verify the scaling algorithm was called
         mock_scaling_alg.ainfer.assert_called_once()
+
+    def test_chat_completions_forwards_response_format(self, iaas_client, vllm_server):
+        """Test response_format passthrough to scaling algorithm."""
+        self._configure_service(iaas_client, vllm_server)
+
+        import its_hub.integration.iaas as iaas_module
+
+        mock_scaling_alg = MagicMock()
+        mock_scaling_alg.ainfer = AsyncMock(
+            return_value={"role": "assistant", "content": '{"decision":"lgtm"}'}
+        )
+        iaas_module.SCALING_ALG = mock_scaling_alg
+
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "adapter_patch_response",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "decision": {
+                            "type": "string",
+                            "enum": ["lgtm", "patch"],
+                        }
+                    },
+                    "required": ["decision"],
+                },
+            },
+        }
+
+        request_data = TestDataFactory.create_chat_completion_request(
+            user_content="Polish this response",
+            budget=4,
+        )
+        request_data["response_format"] = response_format
+
+        response = iaas_client.post("/v1/chat/completions", json=request_data)
+        assert response.status_code == 200
+
+        mock_scaling_alg.ainfer.assert_called_once()
+        assert (
+            mock_scaling_alg.ainfer.call_args.kwargs["response_format"]
+            == response_format
+        )
 
     def test_chat_completions_algorithm_error(self, iaas_client, vllm_server):
         """Test chat completion when scaling algorithm raises an error."""
@@ -555,7 +615,7 @@ class TestPydanticModels:
             alg="self-consistency",
             regex_patterns=[r"\\boxed{([^}]+)}"],
             tool_vote="tool_hierarchical",
-            exclude_tool_args=["timestamp", "id"]
+            exclude_tool_args=["timestamp", "id"],
         )
 
         assert config.tool_vote == "tool_hierarchical"
@@ -585,6 +645,30 @@ class TestPydanticModels:
         )
 
         assert request.return_response_only is False
+
+    def test_chat_completion_request_with_response_format(self):
+        """Test ChatCompletionRequest supports response_format field."""
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "test_schema",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {"x": {"type": "integer"}},
+                    "required": ["x"],
+                },
+            },
+        }
+        request = ChatCompletionRequest(
+            model=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            messages=[ChatMessage(role="user", content="Test")],
+            budget=4,
+            response_format=response_format,
+        )
+
+        assert request.response_format == response_format
 
     def test_chat_completion_request_defaults(self):
         """Test ChatCompletionRequest default values."""
