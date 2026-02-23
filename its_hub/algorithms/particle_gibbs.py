@@ -602,6 +602,7 @@ class EntropicParticleFiltering(ParticleGibbs):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict | ParticleFilteringResult:
         result = super().infer(
             lm,
@@ -610,6 +611,7 @@ class EntropicParticleFiltering(ParticleGibbs):
             return_response_only=False,
             tools=tools,
             tool_choice=tool_choice,
+            response_format=response_format,
         )
 
         # Flatten the single-iteration result

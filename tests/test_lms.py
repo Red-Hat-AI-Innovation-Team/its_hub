@@ -139,7 +139,7 @@ class TestOpenAICompatibleLanguageModel:
         assert request_data["response_format"] == response_format
 
     def test_response_format_fallback_when_unsupported(self):
-        """Test fallback to plain generation when response_format is unsupported."""
+        """Test fallback and caching when response_format is unsupported."""
 
         class MockResponse:
             def __init__(
@@ -196,7 +196,7 @@ class TestOpenAICompatibleLanguageModel:
         model = OpenAICompatibleLanguageModel(
             endpoint="http://mock-server",
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
-            model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            model_name="response-format-cache-model",
             max_tries=1,
         )
         response_format = {
@@ -219,10 +219,14 @@ class TestOpenAICompatibleLanguageModel:
         mock_session = MockClientSession()
         with patch("aiohttp.ClientSession", return_value=mock_session):
             response = model.generate(messages, response_format=response_format)
+            second_response = model.generate(messages, response_format=response_format)
 
         assert response["content"] == "fallback response"
+        assert second_response["content"] == "fallback response"
         assert mock_session.requests[0]["response_format"] == response_format
         assert "response_format" not in mock_session.requests[1]
+        assert "response_format" not in mock_session.requests[2]
+        assert len(mock_session.requests) == 3
 
     def test_async_generation(self, openai_server):
         """Test async generation functionality."""

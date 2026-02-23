@@ -51,6 +51,7 @@ class AbstractScalingAlgorithm(ABC):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> str | AbstractScalingResult:
         """
         Run inference asynchronously with the given language model and prompt.
@@ -67,6 +68,7 @@ class AbstractScalingAlgorithm(ABC):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> str | AbstractScalingResult:
         """
         Run inference synchronously with the given language model and prompt.
@@ -77,7 +79,13 @@ class AbstractScalingAlgorithm(ABC):
 
         return asyncio.run(
             self.ainfer(
-                lm, prompt_or_messages, budget, return_response_only, tools, tool_choice
+                lm,
+                prompt_or_messages,
+                budget,
+                return_response_only,
+                tools,
+                tool_choice,
+                response_format,
             )
         )
 

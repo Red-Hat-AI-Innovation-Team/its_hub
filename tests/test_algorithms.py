@@ -454,6 +454,42 @@ class TestSelfConsistency:
         # Content should be preserved as list
         assert result["content"] == [{"type": "text", "text": "Answer: 42"}]
 
+    def test_infer_forwards_response_format(self):
+        """Test SelfConsistency.infer forwards response_format to the language model."""
+
+        class CapturingLanguageModel:
+            def __init__(self):
+                self.last_kwargs = None
+
+            async def agenerate(self, messages_or_messages_lst, **kwargs):
+                self.last_kwargs = kwargs
+                if isinstance(messages_or_messages_lst[0], list):
+                    return [
+                        {"role": "assistant", "content": f"answer-{i}"}
+                        for i, _ in enumerate(messages_or_messages_lst)
+                    ]
+                return {"role": "assistant", "content": "answer"}
+
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "sc_schema_sync",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {"answer": {"type": "string"}},
+                    "required": ["answer"],
+                    "additionalProperties": False,
+                },
+            },
+        }
+
+        lm = CapturingLanguageModel()
+        sc = SelfConsistency()
+        sc.infer(lm, "test prompt", budget=2, response_format=response_format)
+
+        assert lm.last_kwargs["response_format"] == response_format
+
     @pytest.mark.asyncio
     async def test_ainfer_forwards_response_format(self):
         """Test SelfConsistency forwards response_format to the language model."""
@@ -895,6 +931,41 @@ class TestBestOfN:
         assert mock_orm.score_call_count == 1
         assert mock_orm.call_count == 4
 
+    def test_infer_forwards_response_format(self):
+        """Test BestOfN.infer forwards response_format to the language model."""
+
+        class CapturingLanguageModel:
+            def __init__(self):
+                self.last_kwargs = None
+
+            async def agenerate(self, messages_or_messages_lst, **kwargs):
+                self.last_kwargs = kwargs
+                return [
+                    {"role": "assistant", "content": f"candidate-{i}"}
+                    for i, _ in enumerate(messages_or_messages_lst)
+                ]
+
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "bon_schema_sync",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {"answer": {"type": "string"}},
+                    "required": ["answer"],
+                    "additionalProperties": False,
+                },
+            },
+        }
+
+        lm = CapturingLanguageModel()
+        orm = MockOutcomeRewardModel([0.9, 0.1])
+        bon = BestOfN(orm)
+        bon.infer(lm, "test prompt", budget=2, response_format=response_format)
+
+        assert lm.last_kwargs["response_format"] == response_format
+
     @pytest.mark.asyncio
     async def test_ainfer_forwards_response_format(self):
         """Test BestOfN forwards response_format to the language model."""
@@ -972,6 +1043,27 @@ class TestBeamSearch:
         )
 
         assert isinstance(result, dict)
+
+    def test_infer_logs_warning_and_ignores_response_format(self, caplog):
+        """Test BeamSearch warns and ignores response_format."""
+        mock_lm = StepMockLanguageModel(["step1"])
+        mock_prm = MockProcessRewardModel([0.7])
+
+        sg = StepGeneration(step_token="\n", max_steps=1)
+        beam_search = BeamSearch(sg, mock_prm, beam_width=1)
+
+        with caplog.at_level("WARNING"):
+            result = beam_search.infer(
+                mock_lm,
+                "Solve this problem:",
+                budget=1,
+                return_response_only=True,
+                response_format={"type": "json_schema"},
+            )
+
+        assert isinstance(result, dict)
+        assert "response_format" in caplog.text
+        assert "ignored" in caplog.text
 
     def test_budget_validation(self):
         """Test budget validation constraints."""

@@ -136,6 +136,7 @@ class PlanningWrapper(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict | PlanningWrappedResult:
         """run planning-enhanced inference asynchronously"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
@@ -201,6 +202,7 @@ class PlanningWrapper(AbstractScalingAlgorithm):
                 return_response_only=False,
                 tools=tools,
                 tool_choice=tool_choice,
+                response_format=response_format,
             )
 
             # Store approach-specific result

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import ssl
+from collections import OrderedDict
 
 import aiohttp
 import backoff
@@ -38,6 +39,68 @@ def _is_response_format_unsupported_error(error: Exception | str) -> bool:
         "extra inputs are not permitted",
     )
     return any(marker in message for marker in unsupported_markers)
+
+
+_RESPONSE_FORMAT_SUPPORT_CACHE_MAX_SIZE = 256
+_RESPONSE_FORMAT_SUPPORT_CACHE: OrderedDict[tuple[str, ...], bool] = OrderedDict()
+
+
+def _remove_response_format(request_data: dict) -> dict:
+    return {
+        key: value for key, value in request_data.items() if key != "response_format"
+    }
+
+
+def _get_cached_response_format_support(cache_key: tuple[str, ...]) -> bool | None:
+    support = _RESPONSE_FORMAT_SUPPORT_CACHE.get(cache_key)
+    if support is None:
+        return None
+
+    _RESPONSE_FORMAT_SUPPORT_CACHE.move_to_end(cache_key)
+    return support
+
+
+def _set_cached_response_format_support(
+    cache_key: tuple[str, ...], is_supported: bool
+) -> None:
+    _RESPONSE_FORMAT_SUPPORT_CACHE[cache_key] = is_supported
+    _RESPONSE_FORMAT_SUPPORT_CACHE.move_to_end(cache_key)
+
+    while len(_RESPONSE_FORMAT_SUPPORT_CACHE) > _RESPONSE_FORMAT_SUPPORT_CACHE_MAX_SIZE:
+        _RESPONSE_FORMAT_SUPPORT_CACHE.popitem(last=False)
+
+
+def _prepare_request_data_for_response_format_support(
+    request_data: dict,
+    cache_key: tuple[str, ...],
+) -> tuple[dict, bool]:
+    if request_data.get("response_format") is None:
+        return request_data, False
+
+    if _get_cached_response_format_support(cache_key) is False:
+        return _remove_response_format(request_data), False
+
+    return request_data, True
+
+
+def _build_response_format_fallback_request(
+    request_data: dict,
+    error: Exception | str,
+    cache_key: tuple[str, ...],
+    provider_name: str,
+) -> dict | None:
+    if request_data.get("response_format") is None:
+        return None
+
+    if not _is_response_format_unsupported_error(error):
+        return None
+
+    _set_cached_response_format_support(cache_key, False)
+    logging.warning(
+        "%s does not support response_format; retrying without response_format",
+        provider_name,
+    )
+    return _remove_response_format(request_data)
 
 
 def rstrip_iff_entire(s: str, subs: str) -> str:
@@ -315,6 +378,10 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     def _chat_completion_endpoint(self) -> str:
         return self.endpoint.rstrip("/") + "/chat/completions"
 
+    @property
+    def _response_format_cache_key(self) -> tuple[str, ...]:
+        return ("openai-compatible", self.endpoint.rstrip("/"), self.model_name)
+
     def _prepare_request_data(
         self,
         messages: list[ChatMessage],
@@ -426,6 +493,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 messages: list[ChatMessage], _temperature: float | None
             ) -> dict:
                 async with semaphore:
+                    cache_key = self._response_format_cache_key
                     request_data = self._prepare_request_data(
                         messages,
                         stop,
@@ -435,6 +503,12 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         tools,
                         tool_choice,
                         response_format,
+                    )
+                    request_data, attempted_response_format = (
+                        _prepare_request_data_for_response_format_support(
+                            request_data,
+                            cache_key,
+                        )
                     )
 
                     async with session.post(
@@ -446,19 +520,15 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                             error_text = await response.text()
                             api_error = parse_api_error(response.status, error_text)
 
-                            if request_data.get(
-                                "response_format"
-                            ) is not None and _is_response_format_unsupported_error(
-                                api_error
-                            ):
-                                logging.warning(
-                                    "Upstream model does not support response_format; retrying without response_format"
+                            fallback_request_data = (
+                                _build_response_format_fallback_request(
+                                    request_data,
+                                    api_error,
+                                    cache_key,
+                                    "Upstream model",
                                 )
-                                fallback_request_data = {
-                                    key: value
-                                    for key, value in request_data.items()
-                                    if key != "response_format"
-                                }
+                            )
+                            if fallback_request_data is not None:
                                 async with session.post(
                                     self._chat_completion_endpoint,
                                     headers=self.headers,
@@ -490,6 +560,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                                 logging.error(format_non_retryable_error(api_error))
                             raise api_error
                         response_json = await response.json()
+                        if attempted_response_format:
+                            _set_cached_response_format_support(cache_key, True)
                         # Return the full message object to preserve tool calls
                         return response_json["choices"][0]["message"]
 
@@ -648,6 +720,15 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
         self.custom_llm_provider = custom_llm_provider
         self.extra_kwargs = kwargs
 
+    @property
+    def _response_format_cache_key(self) -> tuple[str, ...]:
+        return (
+            "litellm",
+            self.model_name,
+            self.api_base or "",
+            self.custom_llm_provider or "",
+        )
+
     def _prepare_request_data(
         self,
         messages: list[ChatMessage],
@@ -753,6 +834,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
             messages: list[ChatMessage], _temperature: float | None
         ) -> dict:
             async with semaphore:
+                cache_key = self._response_format_cache_key
                 request_data = self._prepare_request_data(
                     messages,
                     stop,
@@ -763,24 +845,31 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
                     tool_choice,
                     response_format,
                 )
+                request_data, attempted_response_format = (
+                    _prepare_request_data_for_response_format_support(
+                        request_data,
+                        cache_key,
+                    )
+                )
+                used_fallback = False
 
                 try:
                     response = await litellm.acompletion(**request_data)
                 except Exception as e:
-                    if request_data.get(
-                        "response_format"
-                    ) is None or not _is_response_format_unsupported_error(e):
+                    fallback_request_data = _build_response_format_fallback_request(
+                        request_data,
+                        e,
+                        cache_key,
+                        "LiteLLM provider",
+                    )
+                    if fallback_request_data is None:
                         raise
 
-                    logging.warning(
-                        "LiteLLM provider does not support response_format; retrying without response_format"
-                    )
-                    fallback_request_data = {
-                        key: value
-                        for key, value in request_data.items()
-                        if key != "response_format"
-                    }
                     response = await litellm.acompletion(**fallback_request_data)
+                    used_fallback = True
+
+                if attempted_response_format and not used_fallback:
+                    _set_cached_response_format_support(cache_key, True)
                 # Return the full message object to preserve tool calls
                 return response.choices[0].message.dict()
 
@@ -876,6 +965,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
             def fetch_single_response(
                 messages: list[ChatMessage], _temperature: float | None
             ) -> dict:
+                cache_key = self._response_format_cache_key
                 request_data = self._prepare_request_data(
                     messages,
                     stop,
@@ -886,24 +976,31 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
                     tool_choice,
                     response_format,
                 )
+                request_data, attempted_response_format = (
+                    _prepare_request_data_for_response_format_support(
+                        request_data,
+                        cache_key,
+                    )
+                )
+                used_fallback = False
 
                 try:
                     response = litellm.completion(**request_data)
                 except Exception as e:
-                    if request_data.get(
-                        "response_format"
-                    ) is None or not _is_response_format_unsupported_error(e):
+                    fallback_request_data = _build_response_format_fallback_request(
+                        request_data,
+                        e,
+                        cache_key,
+                        "LiteLLM provider",
+                    )
+                    if fallback_request_data is None:
                         raise
 
-                    logging.warning(
-                        "LiteLLM provider does not support response_format; retrying without response_format"
-                    )
-                    fallback_request_data = {
-                        key: value
-                        for key, value in request_data.items()
-                        if key != "response_format"
-                    }
                     response = litellm.completion(**fallback_request_data)
+                    used_fallback = True
+
+                if attempted_response_format and not used_fallback:
+                    _set_cached_response_format_support(cache_key, True)
                 # Return the full message object to preserve tool calls
                 return response.choices[0].message.dict()
 
