@@ -1,6 +1,6 @@
 """Mock language models for testing."""
 
-from its_hub.base import AbstractLanguageModel
+from its_hub import AbstractLanguageModel
 
 
 class SimpleMockLanguageModel:

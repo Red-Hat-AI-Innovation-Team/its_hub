@@ -4,19 +4,20 @@ import re
 
 import pytest
 
-from its_hub.algorithms import BestOfN, ParticleFiltering, SelfConsistency
-from its_hub.algorithms.planning_wrapper import (
+from its_hub import BestOfN, SelfConsistency
+from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
+from its_hub.core.algorithms.planning_wrapper import (
     PlanningWrapper,
     create_planning_best_of_n,
     create_planning_particle_filtering,
     create_planning_self_consistency,
 )
-from its_hub.base import (
+from its_hub import (
     AbstractLanguageModel,
     AbstractOutcomeRewardModel,
     AbstractProcessRewardModel,
+    StepGeneration,
 )
-from its_hub.lms import StepGeneration
 
 
 def extract_boxed(s: str) -> str:

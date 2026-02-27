@@ -5,9 +5,9 @@ from copy import deepcopy
 
 import pytest
 
-from its_hub.algorithms.beam_search import BeamSearch, BeamSearchResult, Path
-from its_hub.algorithms.bon import BestOfN, BestOfNResult
-from its_hub.algorithms.particle_gibbs import (
+from its_hub.core.algorithms.beam_search import BeamSearch, BeamSearchResult, Path
+from its_hub.core.algorithms.bon import BestOfN, BestOfNResult
+from its_hub.core.algorithms.particle_gibbs import (
     EntropicParticleFiltering,
     Particle,
     ParticleFiltering,
@@ -18,15 +18,15 @@ from its_hub.algorithms.particle_gibbs import (
     SelectionMethod,
     TemperatureMethod,
 )
-from its_hub.algorithms.self_consistency import (
+from its_hub.core.algorithms.self_consistency import (
     SelfConsistency,
     SelfConsistencyResult,
     _select_hierarchical_most_common_or_random,
     _select_most_common_or_random,
     create_regex_projection_function,
 )
-from its_hub.lms import StepGeneration
-from its_hub.types import ChatMessage, ChatMessages
+from its_hub import StepGeneration
+from its_hub.api import ChatMessage, ChatMessages
 
 # Import from our new shared utilities
 from tests.mocks.language_models import StepMockLanguageModel
@@ -306,7 +306,7 @@ class TestSelfConsistency:
 
     def test_default_projection_function(self):
         """Test the default projection function behavior."""
-        from its_hub.algorithms.self_consistency import _default_projection_func
+        from its_hub.core.algorithms.self_consistency import _default_projection_func
 
         # Test basic stripping
         assert _default_projection_func("  hello world  ") == "hello world"
