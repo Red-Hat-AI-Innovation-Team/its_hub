@@ -1,13 +1,14 @@
 import json
 from dataclasses import dataclass
 
-from its_hub.base import (
+from its_hub.api import (
     AbstractLanguageModel,
     AbstractOutcomeRewardModel,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
+    ChatMessage,
+    ChatMessages,
 )
-from its_hub.types import ChatMessage, ChatMessages
 
 
 def _response_to_hashable_key(response: dict) -> str:

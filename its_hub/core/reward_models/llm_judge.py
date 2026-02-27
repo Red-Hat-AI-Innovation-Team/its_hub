@@ -3,7 +3,7 @@
 import json
 import logging
 
-from .base import AbstractLanguageModel, AbstractOutcomeRewardModel
+from its_hub.api import AbstractLanguageModel, AbstractOutcomeRewardModel
 
 
 class LLMJudge(AbstractOutcomeRewardModel):

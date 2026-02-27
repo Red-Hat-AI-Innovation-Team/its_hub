@@ -6,13 +6,14 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from its_hub.base import (
+from its_hub.api import (
     AbstractLanguageModel,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
+    ChatMessage,
+    ChatMessages,
 )
-from its_hub.types import ChatMessage, ChatMessages
-from its_hub.utils import extract_content_from_lm_response
+from its_hub.core.utils import extract_content_from_lm_response
 
 
 def _default_projection_func(response: str) -> str:
