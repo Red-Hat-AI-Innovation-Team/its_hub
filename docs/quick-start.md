@@ -9,9 +9,8 @@ This guide shows examples of inference-time scaling. **Tool calling is the prima
 This example shows how to use Self-Consistency for reliable tool calling in agent applications.
 
 ```python
-from its_hub.lms import OpenAICompatibleLanguageModel
-from its_hub.algorithms import SelfConsistency
-from its_hub.types import ChatMessage, ChatMessages
+from its_hub import OpenAICompatibleLanguageModel, SelfConsistency
+from its_hub.api import ChatMessage, ChatMessages
 
 # Initialize language model
 lm = OpenAICompatibleLanguageModel(
@@ -80,9 +79,8 @@ print(result)
 This example uses Best-of-N algorithm with an LLM judge for response selection. Works with any OpenAI-compatible API and requires no GPU.
 
 ```python
-from its_hub.lms import OpenAICompatibleLanguageModel
-from its_hub.algorithms import BestOfN
-from its_hub.integration.reward_hub import LLMJudgeRewardModel
+from its_hub import BestOfN, OpenAICompatibleLanguageModel
+from its_hub.core.reward_models.llm_judge import LLMJudge
 
 # Initialize language model
 lm = OpenAICompatibleLanguageModel(
@@ -92,12 +90,7 @@ lm = OpenAICompatibleLanguageModel(
 )
 
 # Set up LLM judge for scoring
-judge = LLMJudgeRewardModel(
-    model="gpt-4o-mini",
-    criterion="overall_quality",
-    judge_type="groupwise",
-    api_key="your-api-key",
-)
+judge = LLMJudge(lm=lm)
 scaling_alg = BestOfN(judge)
 
 # Generate multiple responses and select the best
@@ -118,7 +111,7 @@ print(result)
 
 ## Example 3: Particle Filtering with Process Reward Model
 
-**Installation required:** `pip install its_hub[prm]`
+**Installation required:** `pip install its_hub[experimental]`
 
 This example uses Particle Filtering for step-by-step mathematical reasoning with a local process reward model. Requires GPU.
 
@@ -142,10 +135,13 @@ CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen2.5-Math-1.5B-Instruct \
 ### Step 2: Run Particle Filtering
 
 ```python
-from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
-from its_hub.lms import OpenAICompatibleLanguageModel, StepGeneration
-from its_hub.algorithms import ParticleFiltering
-from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
+from its_hub import OpenAICompatibleLanguageModel, StepGeneration
+from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
+from its_hub.core.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
+
+# Note: This example requires the local_vllm_prm module from the examples directory
+# For a complete working example, see examples/test_math_example.py
+from local_vllm_prm import LocalVllmProcessRewardModel
 
 # Initialize language model (points to vLLM server)
 lm = OpenAICompatibleLanguageModel(
