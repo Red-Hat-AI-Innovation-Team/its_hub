@@ -4,8 +4,6 @@ A Python library for inference-time scaling LLMs
 
 from importlib.metadata import version
 
-__version__ = version("its_hub")
-
 # Core - Algorithm implementations (always available)
 from its_hub.api import (
     AbstractLanguageModel,
@@ -16,6 +14,8 @@ from its_hub.api import (
 )
 from its_hub.core.algorithms.bon import BestOfN
 from its_hub.core.algorithms.self_consistency import SelfConsistency
+
+__version__ = version("its_hub")
 
 # Start with core exports
 __all__ = [  # noqa: RUF022
