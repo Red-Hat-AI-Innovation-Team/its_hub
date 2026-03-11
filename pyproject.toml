@@ -85,6 +85,7 @@ package-dir = {"" = "."}
 where = ["."]
 include = [
     "its_hub",
+    "its_hub.algorithms",
     "its_hub.api",
     "its_hub.api.*",
     "its_hub.core",

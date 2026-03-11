@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 
+from its_hub.api.types import ChatMessage, ChatMessages
+
 
 class AbstractOutcomeRewardModel(ABC):
     """
@@ -12,7 +14,7 @@ class AbstractOutcomeRewardModel(ABC):
     @abstractmethod
     def score(
         self,
-        messages: list[list[dict]] | list[dict],
+        messages: list[ChatMessage] | ChatMessages,
         **kwargs,
     ) -> list[float] | float:
         """
@@ -32,7 +34,7 @@ class AbstractOutcomeRewardModel(ABC):
 
     async def ascore(
         self,
-        messages: list[list[dict]] | list[dict],
+        messages: list[ChatMessage] | ChatMessages,
         **kwargs,
     ) -> list[float] | float:
         """

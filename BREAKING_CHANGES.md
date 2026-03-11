@@ -10,7 +10,7 @@ The its_hub library has been restructured to separate public API from core imple
 
 ### 1. Import Paths Changed
 
-All import paths have changed due to the api/core separation. Old imports will raise `ImportError`.
+All import paths have changed due to the api/core separation. Old imports for core algorithms will work but will be removed in a future release. Rest of the imports will raise `ImportError`.
 
 ### 2. Reward-Hub Integration Removed from Core
 
