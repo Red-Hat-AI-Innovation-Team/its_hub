@@ -1,7 +1,10 @@
 import warnings
 
 from its_hub.core.algorithms.bon import BestOfN, BestOfNResult
-from its_hub.core.algorithms.self_consistency import SelfConsistency, SelfConsistencyResult
+from its_hub.core.algorithms.self_consistency import (
+    SelfConsistency,
+    SelfConsistencyResult,
+)
 
 warnings.warn(
     "The algorithms module is deprecated and will be removed in a future version. "

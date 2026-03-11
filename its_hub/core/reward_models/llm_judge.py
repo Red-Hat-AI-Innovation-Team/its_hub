@@ -3,7 +3,12 @@
 import json
 import logging
 
-from its_hub.api import AbstractLanguageModel, AbstractOutcomeRewardModel
+from its_hub.api import (
+    AbstractLanguageModel,
+    AbstractOutcomeRewardModel,
+    ChatMessage,
+    ChatMessages,
+)
 
 
 class LLMJudge(AbstractOutcomeRewardModel):
@@ -89,7 +94,7 @@ Format: {{"score": <number>}}"""
 
     def score(
         self,
-        messages: list[list[dict]] | list[dict],
+        messages: list[ChatMessage] | ChatMessages,
         **kwargs,
     ) -> list[float] | float:
         """
@@ -104,7 +109,7 @@ Format: {{"score": <number>}}"""
 
     async def ascore(
         self,
-        messages: list[list[dict]] | list[dict],
+        messages: list[ChatMessage] | ChatMessages,
         **kwargs,
     ) -> list[float] | float:
         """
