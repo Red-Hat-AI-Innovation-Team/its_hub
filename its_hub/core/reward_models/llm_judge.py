@@ -129,8 +129,6 @@ Format: {{"score": <number>}}"""
         conversations = messages if is_batch else [messages]
 
         # Build judge prompts for all conversations
-        from .types import ChatMessage
-
         judge_prompts = [
             [
                 ChatMessage(
