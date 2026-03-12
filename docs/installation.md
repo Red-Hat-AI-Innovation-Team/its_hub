@@ -76,10 +76,7 @@ pip install its_hub[experimental]
 # Verify installation
 from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
 from its_hub.core.algorithms.beam_search import BeamSearch
-
-# Note: This example requires the local_vllm_prm module from the examples directory
-# For a complete working example, see examples/test_math_example.py
-from local_vllm_prm import LocalVllmProcessRewardModel
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 # Check GPU
 import torch

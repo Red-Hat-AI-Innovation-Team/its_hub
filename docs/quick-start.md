@@ -137,11 +137,8 @@ CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen2.5-Math-1.5B-Instruct \
 ```python
 from its_hub import OpenAICompatibleLanguageModel, StepGeneration
 from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 from its_hub.core.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
-
-# Note: This example requires the local_vllm_prm module from the examples directory
-# For a complete working example, see examples/test_math_example.py
-from local_vllm_prm import LocalVllmProcessRewardModel
 
 # Initialize language model (points to vLLM server)
 lm = OpenAICompatibleLanguageModel(

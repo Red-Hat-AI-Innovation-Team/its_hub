@@ -1,19 +1,13 @@
 """
-Reward-Hub integration utilities for benchmarks and examples.
-
-This module provides integration with the reward-hub library for examples and scripts that use
-process reward models. This is experimental and requires installing reward-hub:
+Process reward model implementation for experimental algorithms. This requires installing reward-hub:
     pip install its_hub[experimental]
-
-Usage in examples:
-    from local_vllm_prm import LocalVllmProcessRewardModel
 """
 import asyncio
 
-from its_hub.api import AbstractProcessRewardModel, ChatMessage, ChatMessages
-
 from reward_hub.base import AggregationMethod
 from reward_hub.vllm.reward import VllmProcessRewardModel
+
+from its_hub.api import AbstractProcessRewardModel, ChatMessage, ChatMessages
 
 
 class LocalVllmProcessRewardModel(AbstractProcessRewardModel):
@@ -22,15 +16,6 @@ class LocalVllmProcessRewardModel(AbstractProcessRewardModel):
 
     This provides step-by-step scoring for algorithms like BeamSearch and ParticleFiltering.
     Requires installing: pip install its_hub[experimental]
-
-    Example:
-        from reward_hub_integration import LocalVllmProcessRewardModel
-
-        prm = LocalVllmProcessRewardModel(
-            model_name="Qwen/Qwen2.5-Math-PRM-7B",
-            device="cuda:0",
-            aggregation_method="prod",
-        )
     """
 
     def __init__(

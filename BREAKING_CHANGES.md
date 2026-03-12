@@ -14,7 +14,7 @@ All import paths have changed due to the api/core separation. Old imports for co
 
 ### 2. Reward-Hub Integration Removed from Core
 
-`its_hub.integration` directory has been removed. LocalVllmProcessRewardModel is now in `examples/local_vllm_prm.py` as sample code.
+`its_hub.integration` directory has been removed. `LocalVllmProcessRewardModel` is provided as part of the experimental add-on.
 
 ### 3. LLMJudgeRewardModel Renamed
 
@@ -34,7 +34,7 @@ The `LLMJudgeRewardModel` class has been renamed to `LLMJudge` and simplified to
 | `from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT` | `from its_hub.core.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT` | In core.utils |
 | `from its_hub.algorithms import ParticleFiltering` | `from its_hub.core.algorithms.particle_gibbs import ParticleFiltering` | Not in top-level |
 | `from its_hub.algorithms import BeamSearch` | `from its_hub.core.algorithms.beam_search import BeamSearch` | Not in top-level |
-| `from its_hub.integration.reward_hub import LocalVllmProcessRewardModel` | `from local_vllm_prm import LocalVllmProcessRewardModel` | Now in examples/ |
+| `from its_hub.integration.reward_hub import LocalVllmProcessRewardModel` | `from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel` | Not in top-level |
 | `from its_hub.integration.reward_hub import LLMJudgeRewardModel` | `from its_hub import LLMJudge` | Renamed and simplified |
 
 ## Code Examples
@@ -114,10 +114,8 @@ result = pf.infer(lm, "Your prompt", budget=8)
 ```python
 from its_hub import OpenAICompatibleLanguageModel, StepGeneration
 from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 from its_hub.core.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
-
-# NOTE: sample prm implementation is located in examples/local_vllm_prm.py
-from local_vllm_prm import LocalVllmProcessRewardModel
 
 lm = OpenAICompatibleLanguageModel(...)
 sg = StepGeneration(step_token="\n\n", max_steps=32)
@@ -149,8 +147,7 @@ bs = BeamSearch(sg, prm, beam_width=4)
 ```python
 from its_hub import StepGeneration
 from its_hub.core.algorithms.beam_search import BeamSearch
-
-from local_vllm_prm import LocalVllmProcessRewardModel
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 sg = StepGeneration(step_token="\n\n", max_steps=50)
 prm = LocalVllmProcessRewardModel(
@@ -210,9 +207,7 @@ Features in `its_hub.core.algorithms` that require reward-hub integration:
    pip install its_hub[experimental]
    ```
 
-2. Copy `examples/local_vllm_prm.py` to your project or add examples directory to Python path.
-
-3. Import experimental algorithms from core:
+2. Import experimental algorithms from core:
    ```python
    from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
    ```
@@ -236,18 +231,10 @@ Features in `its_hub.core.algorithms` that require reward-hub integration:
 **Problem**: Class was renamed to `LLMJudge`.
 **Solution**: Use `from its_hub import LLMJudge`.
 
-### Import Error: No module named 'local_vllm_prm'
-
-**Problem**: local_vllm_prm.py is not in Python path.
-**Solution**: Either:
-1. Copy `examples/local_vllm_prm.py` to your project directory
-2. Add examples directory to Python path
-3. Run your script from the examples directory
-
 ### Import Error: No module named 'its_hub.integration'
 
 **Problem**: The integration directory was removed.
-**Solution**: Refer to or use `local_vllm_prm` module from examples directory as a reference.
+**Solution**: Refer to experimental features.
 
 ## Support
 

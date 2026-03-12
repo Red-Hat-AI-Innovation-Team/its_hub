@@ -139,7 +139,7 @@ result = bon.infer(
 ### With Local Process Reward Model
 
 ```python
-from local_vllm_prm import LocalVllmProcessRewardModel  # See examples/local_vllm_prm.py
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 # Initialize reward model (requires GPU)
 prm = LocalVllmProcessRewardModel(
@@ -165,7 +165,7 @@ Performs step-by-step generation with beam width control, using process reward m
 ```python
 from its_hub import StepGeneration
 from its_hub.core.algorithms.beam_search import BeamSearch
-from local_vllm_prm import LocalVllmProcessRewardModel  # See examples/local_vllm_prm.py
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 # Initialize components
 sg = StepGeneration("\n\n", max_steps=32, stop_pattern=r"\boxed")
@@ -194,7 +194,7 @@ Uses probabilistic resampling to maintain diverse reasoning paths while focusing
 ```python
 from its_hub import StepGeneration
 from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
-from local_vllm_prm import LocalVllmProcessRewardModel  # See examples/local_vllm_prm.py
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 # Initialize components
 sg = StepGeneration("\n\n", max_steps=32, stop_pattern=r"\boxed")
@@ -223,7 +223,7 @@ By leveraging Entropic Annealing (EA) to control the variance of the resampling 
 ```python
 from its_hub import StepGeneration
 from its_hub.core.algorithms.particle_gibbs import EntropicParticleFiltering
-from local_vllm_prm import LocalVllmProcessRewardModel  # See examples/local_vllm_prm.py
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 # Initialize components
 sg = StepGeneration("\n\n", max_steps=32, stop_pattern=r"\boxed")
@@ -273,7 +273,7 @@ sg = StepGeneration(
 Evaluate reasoning steps incrementally:
 
 ```python
-from local_vllm_prm import LocalVllmProcessRewardModel  # See examples/local_vllm_prm.py
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 prm = LocalVllmProcessRewardModel(
     model_name="Qwen/Qwen2.5-Math-PRM-7B",

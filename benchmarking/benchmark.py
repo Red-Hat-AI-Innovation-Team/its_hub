@@ -10,8 +10,6 @@ import pandas as pd
 from tqdm import tqdm
 
 from reward_hub.base import AggregationMethod
-# using example prm implementation located under examples dir
-from local_vllm_prm import LocalVllmProcessRewardModel
 
 from its_hub import OpenAICompatibleLanguageModel, SelfConsistency, StepGeneration
 from its_hub.core.algorithms.beam_search import BeamSearch
@@ -20,6 +18,7 @@ from its_hub.core.algorithms.particle_gibbs import (
     ParticleFiltering,
     _softmax,
 )
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 from its_hub.core.utils import QWEN_SYSTEM_PROMPT, SAL_STEP_BY_STEP_SYSTEM_PROMPT
 
 
