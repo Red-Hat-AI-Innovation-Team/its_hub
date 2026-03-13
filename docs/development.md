@@ -57,7 +57,7 @@ ruff format its_hub/
 
 ### Key Base Classes
 
-Located in `its_hub/base.py`:
+Located in `its_hub/api`:
 
 ```python
 # Language model interface
@@ -86,17 +86,29 @@ class AbstractProcessRewardModel:
 
 ```
 its_hub/
-├── base.py              # Abstract interfaces
-├── lms.py              # Language model implementations
-├── algorithms/         # Scaling algorithms
-│   ├── self_consistency.py
-│   ├── bon.py
-│   ├── beam_search.py
-│   └── particle_gibbs.py
-├── integration/        # External integrations
-│   ├── reward_hub.py   # Reward model integration
-│   └── iaas.py        # API server
-└── utils.py           # Utilities and prompts
+├── algorithms/__init__.py  # For backward compatibility
+├── api/                    # Abstract interfaces
+│   ├── reward_models
+│   │   ├── orm.py
+│   │   └── prm.py
+│   ├── algorithm.py
+│   ├── errors.py
+│   ├── lm.py
+│   └── types.py
+├── core/
+│   ├── algorithms/         # Scaling algorithms
+│   │   ├── beam_search.py
+│   │   ├── bon.py
+│   │   ├── particle_gibbs.py
+│   │   └── planning_wrapper.py
+│   │   └── self_consistency.py
+│   ├── lms/                # Language model implementations
+│   │   ├── openai_lm.py
+│   │   └── step_generation.py
+│   ├── reward_models/      # Reward models
+│   │   ├── llm_judge.py
+│   │   └── local_vllm_prm.py
+└──-└──utils.py             # Utilities and prompts
 ```
 
 ## Adding New Algorithms
@@ -104,7 +116,7 @@ its_hub/
 ### 1. Implement Abstract Interface
 
 ```python
-from its_hub.base import AbstractScalingAlgorithm, AbstractScalingResult
+from its_hub import AbstractScalingAlgorithm, AbstractScalingResult
 
 class MyAlgorithmResult(AbstractScalingResult):
     def __init__(self, responses: list[str], scores: list[float]):
@@ -155,7 +167,7 @@ __all__ = ['SelfConsistency', 'BestOfN', 'BeamSearch', 'ParticleFiltering', 'MyA
 # tests/test_my_algorithm.py
 import pytest
 from its_hub.algorithms import MyAlgorithm
-from its_hub.lms import OpenAICompatibleLanguageModel
+from its_hub import OpenAICompatibleLanguageModel
 
 def test_my_algorithm():
     # Mock language model for testing
@@ -176,7 +188,7 @@ def test_my_algorithm():
 ### 1. Implement Abstract Interface
 
 ```python
-from its_hub.base import AbstractLanguageModel
+from its_hub import AbstractLanguageModel
 
 class MyLanguageModel(AbstractLanguageModel):
     def __init__(self, model_path: str):
@@ -218,7 +230,7 @@ class MyAsyncLanguageModel(AbstractLanguageModel):
 ### Process Reward Model
 
 ```python
-from its_hub.base import AbstractProcessRewardModel
+from its_hub import AbstractProcessRewardModel
 
 class MyProcessRewardModel(AbstractProcessRewardModel):
     def __init__(self, model_path: str):
@@ -245,7 +257,7 @@ class MyProcessRewardModel(AbstractProcessRewardModel):
 ### Outcome Reward Model
 
 ```python
-from its_hub.base import AbstractOutcomeRewardModel
+from its_hub import AbstractOutcomeRewardModel
 
 class MyOutcomeRewardModel(AbstractOutcomeRewardModel):
     def score(self, prompt: str, response: str) -> float:

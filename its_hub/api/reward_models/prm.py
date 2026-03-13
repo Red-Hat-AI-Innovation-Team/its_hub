@@ -4,7 +4,6 @@ from its_hub.api.types import ChatMessage, ChatMessages
 
 
 class AbstractProcessRewardModel(ABC):
-    """abstract base class for process reward models"""
     """
     Abstract base class for process reward models.
 
