@@ -3,14 +3,19 @@
 Example script demonstrating the use of its_hub for math problem solving.
 This script tests the Qwen math model with various mathematical problems
 using particle filtering for improved solution quality.
+
+Requirements:
+    pip install its_hub[experimental]
+
+This example uses reward-hub integration for process reward models.
 """
 
 import os
 
-from its_hub.algorithms import ParticleFiltering
-from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
-from its_hub.lms import OpenAICompatibleLanguageModel, StepGeneration
-from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
+from its_hub import OpenAICompatibleLanguageModel, StepGeneration
+from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
+from its_hub.core.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
 
 
 def main():

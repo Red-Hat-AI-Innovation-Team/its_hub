@@ -91,8 +91,7 @@ print(result)  # {"role": "assistant", "content": "4", ...}
 **Installation required:** `pip install its_hub[lm]`
 
 ```python
-from its_hub import SelfConsistency
-from its_hub.lms import OpenAICompatibleLanguageModel
+from its_hub import OpenAICompatibleLanguageModel, SelfConsistency
 
 lm = OpenAICompatibleLanguageModel(
     endpoint="https://api.openai.com/v1",
@@ -110,9 +109,7 @@ print(result)  # Most common answer from 3 generations
 **Installation required:** `pip install its_hub[lm]`
 
 ```python
-from its_hub import BestOfN
-from its_hub.lms import OpenAICompatibleLanguageModel
-from its_hub.reward_models import LLMJudge
+from its_hub import BestOfN, LLMJudge, OpenAICompatibleLanguageModel
 
 lm = OpenAICompatibleLanguageModel(
     endpoint="https://api.openai.com/v1",

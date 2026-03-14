@@ -23,9 +23,8 @@ Generates multiple responses and selects the most common answer through voting. 
 ### Tool Calling Example (Recommended)
 
 ```python
-from its_hub.algorithms import SelfConsistency
-from its_hub.types import ChatMessage, ChatMessages
-from its_hub.lms import OpenAICompatibleLanguageModel
+from its_hub import OpenAICompatibleLanguageModel, SelfConsistency
+from its_hub.api import ChatMessage, ChatMessages
 
 # Initialize language model
 lm = OpenAICompatibleLanguageModel(
@@ -94,7 +93,7 @@ def extract_boxed(text):
     matches = re.findall(r'\\boxed\{([^{}]+)\}', text)
     return matches[-1] if matches else ""
 
-sc = SelfConsistency(projection_function=extract_boxed)
+sc = SelfConsistency(consistency_space_projection_func=extract_boxed)
 result = sc.infer(lm, "Solve x^2 + 5x + 6 = 0", budget=4)
 ```
 
@@ -111,9 +110,7 @@ Generates N candidate responses and selects the highest-scoring one using a rewa
 ### With LLM Judge (Cloud APIs)
 
 ```python
-from its_hub.algorithms import BestOfN
-from its_hub.integration.reward_hub import LLMJudgeRewardModel
-from its_hub.lms import OpenAICompatibleLanguageModel
+from its_hub import BestOfN, LLMJudge, OpenAICompatibleLanguageModel
 
 # Initialize language model
 lm = OpenAICompatibleLanguageModel(
@@ -123,12 +120,7 @@ lm = OpenAICompatibleLanguageModel(
 )
 
 # Set up LLM judge for scoring
-judge = LLMJudgeRewardModel(
-    model="gpt-4o-mini",
-    criterion="multi_step_tool_judge",  # For tool-calling tasks
-    judge_type="groupwise",
-    api_key="your-api-key"
-)
+judge = LLMJudge(lm=lm)
 
 # Best-of-N with LLM judge
 bon = BestOfN(judge)
@@ -147,7 +139,7 @@ result = bon.infer(
 ### With Local Process Reward Model
 
 ```python
-from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 # Initialize reward model (requires GPU)
 prm = LocalVllmProcessRewardModel(
@@ -171,9 +163,9 @@ result = bon.infer(lm, prompt, budget=16)
 Performs step-by-step generation with beam width control, using process reward models to guide the search.
 
 ```python
-from its_hub.algorithms import BeamSearch
-from its_hub.lms import StepGeneration
-from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
+from its_hub import StepGeneration
+from its_hub.core.algorithms.beam_search import BeamSearch
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 # Initialize components
 sg = StepGeneration("\n\n", max_steps=32, stop_pattern=r"\boxed")
@@ -200,9 +192,9 @@ result = beam_search.infer(lm, prompt, budget=32)  # 32 total generations
 Uses probabilistic resampling to maintain diverse reasoning paths while focusing on promising directions.
 
 ```python
-from its_hub.algorithms import ParticleFiltering
-from its_hub.lms import StepGeneration
-from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
+from its_hub import StepGeneration
+from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 # Initialize components
 sg = StepGeneration("\n\n", max_steps=32, stop_pattern=r"\boxed")
@@ -229,9 +221,9 @@ Entropic Particle Filtering (ePF) is an advanced sampling algorithm that mitigat
 By leveraging Entropic Annealing (EA) to control the variance of the resampling distribution, ePF ensures a more robust and thorough exploration in the early phase of sampling, especially for complex long sequences and multi-step tasks.
 
 ```python
-from its_hub.algorithms import EntropicParticleFiltering
-from its_hub.lms import StepGeneration
-from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
+from its_hub import StepGeneration
+from its_hub.core.algorithms.particle_gibbs import EntropicParticleFiltering
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 # Initialize components
 sg = StepGeneration("\n\n", max_steps=32, stop_pattern=r"\boxed")
@@ -264,7 +256,7 @@ result = epf.infer(lm, prompt, budget=8)
 The `StepGeneration` class enables incremental text generation:
 
 ```python
-from its_hub.lms import StepGeneration
+from its_hub import StepGeneration
 
 # For math problems with boxed answers
 sg = StepGeneration(
@@ -281,7 +273,7 @@ sg = StepGeneration(
 Evaluate reasoning steps incrementally:
 
 ```python
-from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 prm = LocalVllmProcessRewardModel(
     model_name="Qwen/Qwen2.5-Math-PRM-7B",

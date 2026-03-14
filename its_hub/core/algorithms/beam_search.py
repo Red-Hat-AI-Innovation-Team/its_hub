@@ -3,14 +3,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from its_hub.base import (
+from its_hub.api import (
     AbstractLanguageModel,
     AbstractProcessRewardModel,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
+    ChatMessage,
+    ChatMessages,
 )
-from its_hub.lms import StepGeneration
-from its_hub.types import ChatMessage, ChatMessages
+from its_hub.core.lms.step_generation import StepGeneration
 
 
 @dataclass

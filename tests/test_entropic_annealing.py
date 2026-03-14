@@ -1,6 +1,6 @@
 """Test for the particle Gibbs resampling weight calculation fix (issue #54)."""
 
-from its_hub.algorithms.particle_gibbs import (
+from its_hub.core.algorithms.particle_gibbs import (
     EntropicParticleFiltering,
     Particle,
     ParticleFilteringResult,
@@ -8,8 +8,7 @@ from its_hub.algorithms.particle_gibbs import (
     SelectionMethod,
     TemperatureMethod,
 )
-from its_hub.base import AbstractLanguageModel, AbstractProcessRewardModel
-from its_hub.lms import StepGeneration
+from its_hub import AbstractLanguageModel, AbstractProcessRewardModel, StepGeneration
 
 
 class MockLanguageModelForResampling(AbstractLanguageModel):

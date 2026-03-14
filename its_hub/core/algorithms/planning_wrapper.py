@@ -3,13 +3,14 @@
 import re
 from dataclasses import dataclass
 
-from its_hub.base import (
+from its_hub.api import (
     AbstractLanguageModel,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
+    ChatMessage,
+    ChatMessages,
 )
-from its_hub.types import ChatMessage, ChatMessages
-from its_hub.utils import extract_content_from_lm_response
+from its_hub.core.utils import extract_content_from_lm_response
 
 
 @dataclass
@@ -310,7 +311,7 @@ class PlanningWrapper(AbstractScalingAlgorithm):
 
 def create_planning_self_consistency(extract_fn=None):
     """Create Planning-Enhanced Self-Consistency algorithm."""
-    from its_hub.algorithms import SelfConsistency
+    from its_hub.core.algorithms.self_consistency import SelfConsistency
 
     base_alg = SelfConsistency(extract_fn)
     return PlanningWrapper(base_alg)
@@ -318,7 +319,7 @@ def create_planning_self_consistency(extract_fn=None):
 
 def create_planning_particle_filtering(sg, prm, final_response_selection="argmax"):
     """Create Planning-Enhanced Particle Filtering algorithm."""
-    from its_hub.algorithms import ParticleFiltering
+    from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
 
     base_alg = ParticleFiltering(sg, prm, final_response_selection)
     return PlanningWrapper(base_alg)
@@ -326,7 +327,7 @@ def create_planning_particle_filtering(sg, prm, final_response_selection="argmax
 
 def create_planning_best_of_n(orm):
     """Create Planning-Enhanced Best-of-N algorithm."""
-    from its_hub.algorithms import BestOfN
+    from its_hub.core.algorithms.bon import BestOfN
 
     base_alg = BestOfN(orm)
     return PlanningWrapper(base_alg)
@@ -334,7 +335,7 @@ def create_planning_best_of_n(orm):
 
 def create_planning_beam_search(sg, prm, beam_width=4):
     """Create Planning-Enhanced Beam Search algorithm."""
-    from its_hub.algorithms import BeamSearch
+    from its_hub.core.algorithms.beam_search import BeamSearch
 
     base_alg = BeamSearch(sg, prm, beam_width)
     return PlanningWrapper(base_alg)

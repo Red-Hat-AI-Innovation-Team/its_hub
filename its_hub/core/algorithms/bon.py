@@ -1,13 +1,14 @@
 import json
 from dataclasses import dataclass
 
-from its_hub.base import (
+from its_hub.api import (
     AbstractLanguageModel,
     AbstractOutcomeRewardModel,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
+    ChatMessage,
+    ChatMessages,
 )
-from its_hub.types import ChatMessage, ChatMessages
 
 
 def _response_to_hashable_key(response: dict) -> str:
@@ -134,7 +135,11 @@ class BestOfN(AbstractScalingAlgorithm):
         # score only unique responses using new ascore interface (takes messages)
         # Build conversation history: original messages + candidate response
         unique_conversations = [
-            [*chat_messages.to_chat_messages(), cand] for cand in unique_responses
+            [
+                *chat_messages.to_chat_messages(),
+                ChatMessage.from_dict(cand),
+            ]
+            for cand in unique_responses
         ]
         unique_scores = await self.orm.ascore(unique_conversations)
 

@@ -5,7 +5,7 @@ import os
 import pytest
 from dotenv import load_dotenv
 
-from its_hub.lms import OpenAICompatibleLanguageModel
+from its_hub import OpenAICompatibleLanguageModel
 
 
 @pytest.fixture(scope="session", autouse=True)

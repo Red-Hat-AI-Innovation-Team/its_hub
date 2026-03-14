@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from its_hub.base import AbstractLanguageModel, AbstractOutcomeRewardModel
+from its_hub import AbstractLanguageModel, AbstractOutcomeRewardModel
 
 
 def find_free_port() -> int:

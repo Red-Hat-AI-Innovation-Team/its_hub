@@ -38,8 +38,8 @@ import os
 import nest_asyncio
 from dotenv import load_dotenv
 
-from its_hub.lms import OpenAICompatibleLanguageModel
-from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
+from its_hub import OpenAICompatibleLanguageModel
+from its_hub.core.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
 
 nest_asyncio.apply()
 
@@ -69,7 +69,7 @@ lm = OpenAICompatibleLanguageModel(
 prompt = r"Let $a$ be a positive real number such that all the roots of \[x^3 + ax^2 + ax + 1 = 0\]are real. Find the smallest possible value of $a.$"
 
 # Generate response using the proper format
-from its_hub.types import ChatMessages
+from its_hub.api import ChatMessages
 
 chat_messages = ChatMessages.from_prompt_or_messages(prompt)
 response = lm.generate(chat_messages.to_batch(1))[0]
@@ -92,7 +92,7 @@ print(extract_boxed(response['content']))
 # Now we'll use the Self-Consistency algorithm to improve the answer quality.
 
 # %%
-from its_hub.algorithms import SelfConsistency
+from its_hub import SelfConsistency
 
 # Set computational budget for scaling
 budget = 4
@@ -119,7 +119,7 @@ print(scaling_result.response_counts)
 # It first votes on tool names, and then on tool arguments.
 
 # %%
-from its_hub.types import ChatMessage, ChatMessages
+from its_hub.api import ChatMessage, ChatMessages
 
 # Tool schema (OpenAI-style dicts)
 tools = [

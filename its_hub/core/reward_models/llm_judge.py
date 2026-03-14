@@ -3,7 +3,12 @@
 import json
 import logging
 
-from .base import AbstractLanguageModel, AbstractOutcomeRewardModel
+from its_hub.api import (
+    AbstractLanguageModel,
+    AbstractOutcomeRewardModel,
+    ChatMessage,
+    ChatMessages,
+)
 
 
 class LLMJudge(AbstractOutcomeRewardModel):
@@ -41,15 +46,15 @@ Format: {{"score": <number>}}"""
         self.judge_prompt = judge_prompt or self.DEFAULT_JUDGE_PROMPT
         self.fallback_score = fallback_score
 
-    def _format_conversation(self, messages: list[dict]) -> str:
+    def _format_conversation(self, messages: list[ChatMessage]) -> str:
         """Format conversation messages as readable text, including tool calls."""
         lines = []
         for msg in messages:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
+            role = msg.role
+            content = msg.content or ""
 
             # Format tool calls if present
-            tool_calls = msg.get("tool_calls")
+            tool_calls = msg.tool_calls
             if tool_calls:
                 tool_strs = []
                 for tc in tool_calls:
@@ -67,11 +72,11 @@ Format: {{"score": <number>}}"""
                 lines.append(f"{role}: {content}")
         return "\n".join(lines)
 
-    def _build_judge_prompt(self, conversation: list[dict]) -> list[dict]:
+    def _build_judge_prompt(self, conversation: list[ChatMessage]) -> list[ChatMessage]:
         """Build judge prompt from conversation."""
         conversation_text = self._format_conversation(conversation)
         prompt_text = self.judge_prompt.format(conversation=conversation_text)
-        return [{"role": "user", "content": prompt_text}]
+        return [ChatMessage(role="user", content=prompt_text)]
 
     def _parse_score(self, response_content: str) -> float:
         """Parse score from LLM response with fallback."""
@@ -89,7 +94,7 @@ Format: {{"score": <number>}}"""
 
     def score(
         self,
-        messages: list[list[dict]] | list[dict],
+        messages: list[ChatMessage] | ChatMessages,
         **kwargs,
     ) -> list[float] | float:
         """
@@ -104,7 +109,7 @@ Format: {{"score": <number>}}"""
 
     async def ascore(
         self,
-        messages: list[list[dict]] | list[dict],
+        messages: list[ChatMessage] | ChatMessages,
         **kwargs,
     ) -> list[float] | float:
         """
@@ -124,16 +129,7 @@ Format: {{"score": <number>}}"""
         conversations = messages if is_batch else [messages]
 
         # Build judge prompts for all conversations
-        from .types import ChatMessage
-
-        judge_prompts = [
-            [
-                ChatMessage(
-                    role="user", content=self._build_judge_prompt(conv)[0]["content"]
-                )
-            ]
-            for conv in conversations
-        ]
+        judge_prompts = [self._build_judge_prompt(conv) for conv in conversations]
 
         # Leverage LM's async batching!
         responses = await self.lm.agenerate(judge_prompts, **kwargs)

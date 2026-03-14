@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Literal
 
 
@@ -20,6 +20,13 @@ class ChatMessage:
     content: str | list[dict] | None
     tool_calls: list[dict] | None = None  # Store as plain dicts
     tool_call_id: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> ChatMessage:
+        """Create ChatMessage from dictionary, ignoring unknown fields."""
+        known_fields = {f.name for f in fields(cls)}
+        filtered = {k: v for k, v in data.items() if k in known_fields}
+        return cls(**filtered)
 
     def to_dict(self) -> dict:
         """Convert ChatMessage to dictionary, excluding None values."""

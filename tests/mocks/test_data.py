@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from its_hub.types import ChatMessage, ChatMessages
+from its_hub.api import ChatMessage, ChatMessages
 
 
 class TestDataFactory:

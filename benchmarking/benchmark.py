@@ -9,20 +9,17 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from its_hub.algorithms import (
-    BeamSearch,
+from reward_hub.base import AggregationMethod
+
+from its_hub import OpenAICompatibleLanguageModel, SelfConsistency, StepGeneration
+from its_hub.core.algorithms.beam_search import BeamSearch
+from its_hub.core.algorithms.particle_gibbs import (
     EntropicParticleFiltering,
     ParticleFiltering,
-    SelfConsistency,
-    StepGeneration,
+    _softmax,
 )
-from its_hub.algorithms.particle_gibbs import _softmax
-from its_hub.integration.reward_hub import (
-    AggregationMethod,
-    LocalVllmProcessRewardModel,
-)
-from its_hub.lms import OpenAICompatibleLanguageModel
-from its_hub.utils import QWEN_SYSTEM_PROMPT, SAL_STEP_BY_STEP_SYSTEM_PROMPT
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
+from its_hub.core.utils import QWEN_SYSTEM_PROMPT, SAL_STEP_BY_STEP_SYSTEM_PROMPT
 
 
 class BenchmarkDataset(Enum):
