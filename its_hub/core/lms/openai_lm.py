@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import ssl
+import warnings
 
 import aiohttp
 import backoff
@@ -43,8 +44,6 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
 
         # Warn about deprecated is_async parameter
         if is_async is not False:
-            import warnings
-
             warnings.warn(
                 "The 'is_async' parameter is deprecated and will be removed in a future version. "
                 "The implementation now always uses async internally. "
@@ -91,9 +90,25 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         # endpoint type
         self.endpoint_type = "openai" if "openai" in self.endpoint else "vllm"
 
+        # Persistent HTTP session for connection reuse
+        self._session: aiohttp.ClientSession | None = None
+
     @property
     def _chat_completion_endpoint(self) -> str:
         return self.endpoint.rstrip("/") + "/chat/completions"
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Get or create persistent HTTP session."""
+        if self._session is None or self._session.closed:
+            connector = aiohttp.TCPConnector(ssl=self.ssl_context)
+            self._session = aiohttp.ClientSession(connector=connector)
+        return self._session
+
+    async def close(self):
+        """Close the persistent HTTP session."""
+        if self._session is not None and not self._session.closed:
+            await self._session.close()
+            self._session = None
 
     def _prepare_request_data(
         self,
@@ -268,7 +283,12 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
     ) -> dict | list[dict]:
-        """generate response(s) asynchronously"""
+        """
+        generate response(s) asynchronously
+
+        FIXME: Batch processing has been moved to orchestrator. This function will be fully
+        replaced by agenerate_single once all algorithms have been moved to using orchestrator.
+        """
         is_single = not isinstance(messages_or_messages_lst[0], list)
         messages_lst = (
             [messages_or_messages_lst] if is_single else messages_or_messages_lst
@@ -283,3 +303,74 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             tool_choice,
         )
         return response_or_responses[0] if is_single else response_or_responses
+
+    async def agenerate_single(
+        self,
+        messages: list[ChatMessage],
+        stop: str | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        include_stop_str_in_output: bool | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> dict:
+        # Get persistent session for connection reuse
+        session = await self._get_session()
+
+        @backoff.on_exception(
+            backoff.expo,
+            RETRYABLE_ERRORS,
+            max_tries=self.max_tries,
+            on_backoff=enhanced_on_backoff,
+            giveup=lambda e: not should_retry(e),
+        )
+        async def fetch_response(
+            messages: list[ChatMessage], _temperature: float | None
+        ) -> dict:
+            request_data = self._prepare_request_data(
+                messages,
+                stop,
+                max_tokens,
+                _temperature,
+                include_stop_str_in_output,
+                tools,
+                tool_choice,
+            )
+
+            async with session.post(
+                self._chat_completion_endpoint,
+                headers=self.headers,
+                json=request_data,
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    api_error = parse_api_error(response.status, error_text)
+                    if not should_retry(api_error):
+                        logging.error(format_non_retryable_error(api_error))
+                    raise api_error
+                response_json = await response.json()
+                # Return the full message object to preserve tool calls
+                return response_json["choices"][0]["message"]
+
+        async def safe_fetch_response(
+            messages: list[ChatMessage], _temperature: float | None
+        ) -> dict:
+            if self.replace_error_with_message is not None:
+                try:
+                    return await fetch_response(messages, _temperature)
+                except (aiohttp.ClientError, TimeoutError) as e:
+                    logging.error(f"Network error during async generation: {e}")
+                    return {
+                        "role": "assistant",
+                        "content": self.replace_error_with_message,
+                    }
+                except APIError as e:
+                    logging.error(f"API error during async generation: {e}")
+                    return {
+                        "role": "assistant",
+                        "content": self.replace_error_with_message,
+                    }
+            else:
+                return await fetch_response(messages, _temperature)
+
+        return await safe_fetch_response(messages, temperature)
