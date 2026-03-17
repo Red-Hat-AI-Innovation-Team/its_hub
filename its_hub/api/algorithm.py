@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 from its_hub.api.lm import AbstractLanguageModel
+from its_hub.api.orchestrator import AbstractOrchestrator
 from its_hub.api.types import ChatMessage, ChatMessages
 
 
@@ -40,6 +41,7 @@ class AbstractScalingAlgorithm(ABC):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        orchestrator: AbstractOrchestrator | None = None,
     ) -> dict | AbstractScalingResult:
         """
         Run inference asynchronously with the given language model and prompt.
@@ -52,6 +54,7 @@ class AbstractScalingAlgorithm(ABC):
                                    if False, return full result object
             tools: Optional OpenAI-style tool definitions
             tool_choice: Optional tool choice strategy ("auto", "none", or specific tool)
+            orchestrator: Orchestrator that manages parallel calls to LM
 
         Returns:
             Selected response dict (if return_response_only=True) or
@@ -68,6 +71,7 @@ class AbstractScalingAlgorithm(ABC):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        orchestrator: AbstractOrchestrator | None = None,
     ) -> dict | AbstractScalingResult:
         """
         Run inference synchronously with the given language model and prompt.
@@ -78,6 +82,6 @@ class AbstractScalingAlgorithm(ABC):
 
         return asyncio.run(
             self.ainfer(
-                lm, prompt_or_messages, budget, return_response_only, tools, tool_choice
+                lm, prompt_or_messages, budget, return_response_only, tools, tool_choice, orchestrator
             )
         )

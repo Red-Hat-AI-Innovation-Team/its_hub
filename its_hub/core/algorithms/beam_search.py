@@ -5,6 +5,7 @@ import numpy as np
 
 from its_hub.api import (
     AbstractLanguageModel,
+    AbstractOrchestrator,
     AbstractProcessRewardModel,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
@@ -135,6 +136,7 @@ class BeamSearch(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        orchestrator: AbstractOrchestrator | None = None,
     ) -> dict | BeamSearchResult:
         """run inference asynchronously with beam search"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)

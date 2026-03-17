@@ -3,12 +3,14 @@ from dataclasses import dataclass
 
 from its_hub.api import (
     AbstractLanguageModel,
+    AbstractOrchestrator,
     AbstractOutcomeRewardModel,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
     ChatMessage,
     ChatMessages,
 )
+from its_hub.core.orchestrator import LMOrchestrator
 
 
 def _response_to_hashable_key(response: dict) -> str:
@@ -110,13 +112,18 @@ class BestOfN(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        orchestrator: AbstractOrchestrator | None = None,
     ) -> dict | BestOfNResult:
         """run inference asynchronously with best-of-n"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
+        # Fallback to default implementation
+        if orchestrator is None:
+            orchestrator = LMOrchestrator()
+
         # generate responses
-        responses = await lm.agenerate(
-            chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
+        responses = await orchestrator.agenerate(
+            lm, chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
         )
 
         # deduplicate responses to avoid redundant scoring
