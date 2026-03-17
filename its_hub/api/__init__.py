@@ -19,6 +19,7 @@ from .errors import (
     should_retry,
 )
 from .lm import AbstractLanguageModel
+from .orchestrator import AbstractOrchestrator
 from .reward_models.orm import AbstractOutcomeRewardModel
 from .reward_models.prm import AbstractProcessRewardModel
 from .types import ChatMessage, ChatMessages
@@ -32,6 +33,8 @@ __all__ = [  # noqa: RUF022
     # Reward model abstractions
     "AbstractOutcomeRewardModel",
     "AbstractProcessRewardModel",
+    # Orchestrator abstraction
+    "AbstractOrchestrator",
     # Common types
     "ChatMessage",
     "ChatMessages",
