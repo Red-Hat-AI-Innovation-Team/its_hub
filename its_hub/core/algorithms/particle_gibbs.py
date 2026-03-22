@@ -7,7 +7,6 @@ import numpy as np
 
 from its_hub.api import (
     AbstractLanguageModel,
-    AbstractOrchestrator,
     AbstractProcessRewardModel,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
@@ -374,7 +373,6 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
-        orchestrator: AbstractOrchestrator | None = None,
     ) -> dict | ParticleGibbsResult:
         """run inference asynchronously with particle gibbs"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
@@ -534,7 +532,6 @@ class ParticleFiltering(ParticleGibbs):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
-        orchestrator: AbstractOrchestrator | None = None,
     ) -> dict | ParticleFilteringResult:
         """run inference asynchronously with particle filtering"""
         result = await super().ainfer(
@@ -597,7 +594,6 @@ class EntropicParticleFiltering(ParticleGibbs):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
-        orchestrator: AbstractOrchestrator | None = None,
     ) -> dict | ParticleFilteringResult:
         result = super().infer(
             lm,

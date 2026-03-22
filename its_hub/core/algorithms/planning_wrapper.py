@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 from its_hub.api import (
     AbstractLanguageModel,
-    AbstractOrchestrator,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
     ChatMessage,
@@ -138,7 +137,6 @@ class PlanningWrapper(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
-        orchestrator: AbstractOrchestrator | None = None,
     ) -> dict | PlanningWrappedResult:
         """run planning-enhanced inference asynchronously"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)

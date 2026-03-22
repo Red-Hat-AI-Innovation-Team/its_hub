@@ -40,7 +40,7 @@ class AbstractLanguageModel(ABC):
         messages: list[ChatMessage],
         stop: str | None = None,
         **kwargs,
-    ) -> dict | list[dict]:
+    ) -> dict:
         """
         Generate response asynchronously.
 

@@ -35,7 +35,7 @@ class AbstractOrchestrator(ABC):
             max_tokens: (Optional) Maximum tokens to generate per response
             temperature: (Optional) Temperature value(s) for sampling. Can be single float or list of floats
             include_stop_str_in_output: (Optional) Whether to include stop string in output (vLLM only)
-            tools: (Optional) Ist of available tools
+            tools: (Optional) List of available tools
             tool_choice: (Optional) Tool choice mode
 
         Returns:

@@ -36,7 +36,7 @@ class AbstractOutcomeRewardModel(ABC):
     async def ascore(
         self,
         messages: list[ChatMessage] | ChatMessages,
-        orchestrator: AbstractOrchestrator | None = None,
+        orchestrator: AbstractOrchestrator,
         **kwargs,
     ) -> list[float] | float:
         """

@@ -101,8 +101,13 @@ class BestOfNResult(AbstractScalingResult):
 
 
 class BestOfN(AbstractScalingAlgorithm):
-    def __init__(self, orm: AbstractOutcomeRewardModel):
+    def __init__(self, orm: AbstractOutcomeRewardModel, orchestrator: AbstractOrchestrator | None = None):
+        if orchestrator is None:
+            # Fallback to default implementation
+            orchestrator = LMOrchestrator()
+
         self.orm = orm
+        self.orchestrator = orchestrator
 
     async def ainfer(
         self,
@@ -117,12 +122,8 @@ class BestOfN(AbstractScalingAlgorithm):
         """run inference asynchronously with best-of-n"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
-        # Fallback to default implementation
-        if orchestrator is None:
-            orchestrator = LMOrchestrator()
-
         # generate responses
-        responses = await orchestrator.agenerate(
+        responses = await self.orchestrator.agenerate(
             lm, chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
         )
 
@@ -148,7 +149,7 @@ class BestOfN(AbstractScalingAlgorithm):
             ]
             for cand in unique_responses
         ]
-        unique_scores = await self.orm.ascore(unique_conversations)
+        unique_scores = await self.orm.ascore(unique_conversations, self.orchestrator)
 
         # map scores back to original response indices
         scores = [unique_scores[idx] for idx in inverse_idx]
