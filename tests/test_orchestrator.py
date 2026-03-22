@@ -113,11 +113,11 @@ class TestConstruction:
         assert orch.max_concurrency == 1
 
     def test_zero_concurrency_raises(self):
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError):
             LMOrchestrator(max_concurrency=0)
 
     def test_negative_concurrency_raises(self):
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError):
             LMOrchestrator(max_concurrency=-2)
 
 

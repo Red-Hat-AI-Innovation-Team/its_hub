@@ -14,7 +14,7 @@ class _ThreadSafeAsyncSemaphore:
     """A semaphore that works across event loops and threads.
 
     Uses a threading.Semaphore as the source of truth so the concurrency
-    limit is respected globally, and wraps acquire/release for use in
+    limit is respected across event loops and threads, and wraps acquire/release for use in
     async contexts without blocking the event loop.
     """
 
@@ -44,14 +44,13 @@ class LMOrchestrator(AbstractOrchestrator):
     LMOrchestrator is the inline implementation for managing parallel execution
     of language model requests, handling concurrency limits and batching strategies.
 
-    The concurrency limit is enforced globally across event loops and threads
+    The concurrency limit is enforced across event loops and threads
     using a thread-safe semaphore.
     """
 
     def __init__(self, max_concurrency: int = 32):
-        assert max_concurrency == -1 or max_concurrency > 0, (
-            "max_concurrency must be -1 (unlimited concurrency) or a positive integer"
-        )
+        if max_concurrency < -1 or max_concurrency == 0:
+            raise ValueError("max_concurrency must be -1 (unlimited concurrency) or a positive integer")
 
         self.max_concurrency = max_concurrency
         self._semaphore: _ThreadSafeAsyncSemaphore | None = (
@@ -63,7 +62,7 @@ class LMOrchestrator(AbstractOrchestrator):
     async def agenerate(
         self,
         lm: AbstractLanguageModel,
-        messages_batch: list[list[ChatMessage]],
+        messages_lst: list[list[ChatMessage]],
         stop: str | None = None,
         max_tokens: int | None = None,
         temperature: float | list[float] | None = None,
@@ -76,7 +75,7 @@ class LMOrchestrator(AbstractOrchestrator):
 
         Args:
             lm: Language model to use for generation
-            messages_batch: List of conversations to process
+            messages_lst: List of conversations to process
             stop: (Optional) Stop sequence for generation
             max_tokens: (Optional) Maximum tokens to generate per response
             temperature: (Optional) Temperature value(s) for sampling. Can be single float or list of floats
@@ -85,21 +84,21 @@ class LMOrchestrator(AbstractOrchestrator):
             tool_choice: (Optional) Tool choice mode
 
         Returns:
-            List of response dicts in the same order as messages_batch
+            List of response dicts in the same order as messages_lst
         """
 
-        if not messages_batch:
+        if not messages_lst:
             return []
 
         logging.debug(
             "LMOrchestrator: Processing batch of %d messages",
-            len(messages_batch)
+            len(messages_lst)
         )
 
         # Prepare temperature list
         temperature_list = (
             temperature if isinstance(temperature, list)
-            else [temperature] * len(messages_batch)
+            else [temperature] * len(messages_lst)
         )
 
         async def _gen_coro(messages, temp):
@@ -118,7 +117,7 @@ class LMOrchestrator(AbstractOrchestrator):
         async with asyncio.TaskGroup() as tg:
             tasks = [
                 tg.create_task(_gen_coro(msgs, temp))
-                for msgs, temp in zip(messages_batch, temperature_list)
+                for msgs, temp in zip(messages_lst, temperature_list)
             ]
 
         # Collect results in order

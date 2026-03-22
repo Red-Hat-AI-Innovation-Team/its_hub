@@ -10,6 +10,7 @@ from its_hub.api import (
     ChatMessage,
     ChatMessages,
 )
+from its_hub.core.orchestrator import LMOrchestrator
 
 
 class LLMJudge(AbstractOutcomeRewardModel):
@@ -111,7 +112,7 @@ Format: {{"score": <number>}}"""
     async def ascore(
         self,
         messages: list[ChatMessage] | ChatMessages,
-        orchestrator: AbstractOrchestrator,
+        orchestrator: AbstractOrchestrator | None = None,
         **kwargs,
     ) -> list[float] | float:
         """
@@ -133,6 +134,10 @@ Format: {{"score": <number>}}"""
 
         # Build judge prompts for all conversations
         judge_prompts = [self._build_judge_prompt(conv) for conv in conversations]
+
+        if orchestrator is None:
+            # Fallback to default implementation
+            orchestrator = LMOrchestrator()
 
         responses = await orchestrator.agenerate(self.lm, judge_prompts, **kwargs)
 

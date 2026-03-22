@@ -34,7 +34,6 @@ class AbstractLanguageModel(ABC):
         """
         pass
 
-    @abstractmethod
     async def agenerate_single(
         self,
         messages: list[ChatMessage],
@@ -53,4 +52,7 @@ class AbstractLanguageModel(ABC):
             Single response dict
             Response dict format: {"role": "assistant", "content": "...", "tool_calls": [...]}
         """
-        pass
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement async agenerate_single. "
+            "Override agenerate_single() to use this LM with the orchestrator."
+        )

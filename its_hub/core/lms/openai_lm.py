@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import ssl
+import threading
 import warnings
 
 import aiohttp
@@ -92,6 +93,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
 
         # Persistent HTTP session for connection reuse
         self._session: aiohttp.ClientSession | None = None
+        self._session_lock = threading.Lock()
 
     @property
     def _chat_completion_endpoint(self) -> str:
@@ -99,16 +101,19 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create persistent HTTP session."""
-        if self._session is None or self._session.closed:
-            connector = aiohttp.TCPConnector(ssl=self.ssl_context)
-            self._session = aiohttp.ClientSession(connector=connector)
-        return self._session
+        with self._session_lock:
+            if self._session is None or self._session.closed:
+                connector = aiohttp.TCPConnector(ssl=self.ssl_context)
+                self._session = aiohttp.ClientSession(connector=connector)
+            return self._session
 
     async def close(self):
         """Close the persistent HTTP session."""
-        if self._session is not None and not self._session.closed:
-            await self._session.close()
+        with self._session_lock:
+            session = self._session
             self._session = None
+        if session is not None and not session.closed:
+            await session.close()
 
     async def __aenter__(self):
         """Async context manager entry."""
