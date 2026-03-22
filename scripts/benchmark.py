@@ -22,7 +22,11 @@ from its_hub.integration.reward_hub import (
     LocalVllmProcessRewardModel,
 )
 from its_hub.lms import OpenAICompatibleLanguageModel
-from its_hub.utils import QWEN_SYSTEM_PROMPT, SAL_STEP_BY_STEP_SYSTEM_PROMPT
+from its_hub.utils import (
+    QWEN_SYSTEM_PROMPT,
+    SAL_STEP_BY_STEP_SYSTEM_PROMPT,
+    extract_content_from_lm_response,
+)
 
 
 class BenchmarkDataset(Enum):
@@ -424,16 +428,18 @@ def main(
                     if eval_expected_pass_at_one:
                         c = [
                             math_verify.verify(
-                                math_verify.parse(x["answer"]), math_verify.parse(y)
+                                math_verify.parse(x["answer"]),
+                                math_verify.parse(extract_content_from_lm_response(y) if isinstance(y, dict) else y),
                             )
                             for y in row["responses"]
                         ]
                         p = _softmax(row["log_probs"])
                         row["correct"] = np.dot(p, c)
                     else:
+                        response_content = extract_content_from_lm_response(row["response"]) if isinstance(row["response"], dict) else row["response"]
                         row["correct"] = math_verify.verify(
                             math_verify.parse(x["answer"]),
-                            math_verify.parse(row["response"]),
+                            math_verify.parse(response_content),
                         )
                 rows.append(row)
     except KeyboardInterrupt:
