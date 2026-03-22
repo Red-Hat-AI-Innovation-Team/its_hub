@@ -1,5 +1,7 @@
 """Clean tests for algorithms with improved organization and shared utilities."""
 
+import asyncio
+import threading
 from collections import Counter
 from copy import deepcopy
 
@@ -25,12 +27,45 @@ from its_hub.core.algorithms.self_consistency import (
     _select_most_common_or_random,
     create_regex_projection_function,
 )
+from its_hub.core.orchestrator import LMOrchestrator
 from its_hub import StepGeneration
 from its_hub.api import ChatMessage, ChatMessages
 
 # Import from our new shared utilities
 from tests.mocks.language_models import StepMockLanguageModel
 from tests.mocks.reward_models import MockOutcomeRewardModel, MockProcessRewardModel
+
+
+class ConcurrencyTrackingMockLM:
+    """Mock LM that tracks peak concurrency (thread-safe) with async delay."""
+
+    def __init__(self, responses: list[str], delay: float = 0.05):
+        self.responses = responses
+        self.delay = delay
+        self.call_count = 0
+        self.active = 0
+        self.peak = 0
+        self._lock = threading.Lock()
+
+    async def agenerate_single(self, messages, **kwargs):
+        with self._lock:
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            idx = self.call_count % len(self.responses)
+            self.call_count += 1
+
+        await asyncio.sleep(self.delay)
+
+        with self._lock:
+            self.active -= 1
+
+        return {"role": "assistant", "content": self.responses[idx]}
+
+    async def agenerate(self, messages, **kwargs):
+        # Needed for algorithms that still call lm.agenerate directly
+        if isinstance(messages[0], list):
+            return [await self.agenerate_single(m, **kwargs) for m in messages]
+        return await self.agenerate_single(messages, **kwargs)
 
 
 class TestSelfConsistency:
@@ -442,6 +477,34 @@ class TestSelfConsistency:
         assert result["content"] == [{"type": "text", "text": "Answer: 42"}]
 
 
+class TestSelfConsistencyOrchestrator:
+    """Test SelfConsistency orchestrator integration."""
+
+    def test_default_orchestrator_created(self):
+        """SelfConsistency creates a default LMOrchestrator when none provided."""
+        sc = SelfConsistency()
+        assert isinstance(sc.orchestrator, LMOrchestrator)
+
+    def test_custom_orchestrator_used(self):
+        """SelfConsistency uses the provided orchestrator."""
+        orch = LMOrchestrator(max_concurrency=5)
+        sc = SelfConsistency(orchestrator=orch)
+        assert sc.orchestrator is orch
+        assert sc.orchestrator.max_concurrency == 5
+
+    @pytest.mark.asyncio
+    async def test_concurrency_respected(self):
+        """SelfConsistency respects orchestrator max_concurrency."""
+        orch = LMOrchestrator(max_concurrency=2)
+        lm = ConcurrencyTrackingMockLM(
+            responses=["answer1", "answer2", "answer1", "answer1"],
+            delay=0.05,
+        )
+        sc = SelfConsistency(orchestrator=orch)
+        await sc.ainfer(lm, "test prompt", budget=8)
+        assert lm.peak <= 2
+
+
 class TestDataStructures:
     """Test core data structures used by algorithms."""
 
@@ -795,6 +858,37 @@ class TestBestOfN:
         assert result.scores[6] == 0.7
         assert mock_orm.score_call_count == 1
         assert mock_orm.call_count == 4
+
+
+class TestBestOfNOrchestrator:
+    """Test BestOfN orchestrator integration."""
+
+    def test_default_orchestrator_created(self):
+        """BestOfN creates a default LMOrchestrator when none provided."""
+        mock_orm = MockOutcomeRewardModel([0.5])
+        bon = BestOfN(mock_orm)
+        assert isinstance(bon.orchestrator, LMOrchestrator)
+
+    def test_custom_orchestrator_used(self):
+        """BestOfN uses the provided orchestrator."""
+        mock_orm = MockOutcomeRewardModel([0.5])
+        orch = LMOrchestrator(max_concurrency=5)
+        bon = BestOfN(mock_orm, orchestrator=orch)
+        assert bon.orchestrator is orch
+        assert bon.orchestrator.max_concurrency == 5
+
+    @pytest.mark.asyncio
+    async def test_concurrency_respected(self):
+        """BestOfN respects orchestrator max_concurrency."""
+        orch = LMOrchestrator(max_concurrency=2)
+        lm = ConcurrencyTrackingMockLM(
+            responses=["resp1", "resp2", "resp3", "resp4"],
+            delay=0.05,
+        )
+        mock_orm = MockOutcomeRewardModel([0.5, 0.8, 0.3, 0.7])
+        bon = BestOfN(mock_orm, orchestrator=orch)
+        await bon.ainfer(lm, "test prompt", budget=8)
+        assert lm.peak <= 2
 
 
 class TestBeamSearch:

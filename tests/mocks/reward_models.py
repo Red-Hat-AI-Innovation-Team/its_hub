@@ -14,7 +14,7 @@ class MockOutcomeRewardModel(AbstractOutcomeRewardModel):
         self.call_count = 0  # tracks total number of individual scores returned
         self.score_call_count = 0  # tracks number of times score() is called
 
-    async def ascore(self, messages: list[list[dict]] | list[dict], **kwargs) -> float | list[float]:
+    async def ascore(self, messages: list[list[dict]] | list[dict], orchestrator=None, **kwargs) -> float | list[float]:
         return self.score(messages, **kwargs)
 
     def score(self, messages: list[list[dict]] | list[dict], **kwargs) -> float | list[float]:

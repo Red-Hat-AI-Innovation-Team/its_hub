@@ -39,6 +39,11 @@ class MockLanguageModel(AbstractLanguageModel):
         self.planning_response = "APPROACH 1: Direct algebraic approach using standard techniques\nAPPROACH 2: Alternative method using different mathematical properties\nAPPROACH 3: Geometric or graphical interpretation approach"
         self.call_count = 0
 
+    async def agenerate_single(self, messages, **kwargs):
+        content = self.responses[self.call_count % len(self.responses)]
+        self.call_count += 1
+        return {"role": "assistant", "content": content}
+
     async def agenerate(self, messages, **kwargs):
         return self.generate(messages, **kwargs)
 
@@ -95,7 +100,7 @@ class ProcessToOutcomeRewardModel(AbstractOutcomeRewardModel):
     def __init__(self, process_rm: AbstractProcessRewardModel):
         self.process_rm = process_rm
 
-    async def ascore(self, messages: list[list[dict]] | list[dict], **kwargs) -> float | list[float]:
+    async def ascore(self, messages: list[list[dict]] | list[dict], orchestrator=None, **kwargs) -> float | list[float]:
         return self.score(messages, **kwargs)
 
     def score(self, messages: list[list[dict]] | list[dict], **kwargs) -> float | list[float]:
