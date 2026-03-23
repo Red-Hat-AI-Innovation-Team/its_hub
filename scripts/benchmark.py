@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from enum import Enum
 
 import click
@@ -367,8 +368,10 @@ def main(
 
     print(f"running inference-time scaling for {budgets=}...")
     rows = []
+    budget_timings = {}
     try:
         for n in tqdm(budgets):
+            budget_start_time = time.time()
             for x in dataset:
                 y_full = None
                 y = None
@@ -442,11 +445,26 @@ def main(
                             math_verify.parse(response_content),
                         )
                 rows.append(row)
+
+            # Record timing for this budget
+            budget_end_time = time.time()
+            budget_elapsed_time = budget_end_time - budget_start_time
+            budget_timings[n] = budget_elapsed_time
+            print(f"\nBudget {n} completed in {budget_elapsed_time:.2f} seconds ({budget_elapsed_time/60:.2f} minutes)")
     except KeyboardInterrupt:
         print("\nkeyboard interrupt detected, saving partial results")
 
+    # Display timing summary
+    if budget_timings:
+        print("\n=== Timing Summary ===")
+        total_time = sum(budget_timings.values())
+        for budget, elapsed_time in budget_timings.items():
+            print(f"Budget {budget:3d}: {elapsed_time:8.2f}s ({elapsed_time/60:6.2f} min)")
+        print(f"Total time: {total_time:.2f}s ({total_time/60:.2f} min)")
+        print("=" * 40)
+
     # save results to jsonl file using pandas
-    print(f"saving results to {output_file}...")
+    print(f"\nsaving results to {output_file}...")
     df = pd.concat([df_existing, pd.DataFrame(rows)])
     # deduplicate rows with the same unique_id and budget, keeping the updated correctness
     df = df.drop_duplicates(subset=["unique_id", "budget"], keep="last")
