@@ -4,7 +4,7 @@
 
 LLMs are stochastic. Ask the same math question five times and you'll get different quality answers each time. Inference-Time Scaling (ITS), also called test-time scaling, trades compute for accuracy: generate multiple candidates, score them with a reward model, drop the bad reasoning paths, return the best answer.
 
-Google DeepMind's Paper showed that scaling compute at inference time can outperform scaling model parameters [1]. Our team's work on particle-based Monte Carlo methods demonstrated that a 1.5B model with ITS can beat GPT-4o accuracy in just 4 rollouts [2]. NVIDIA has noted that test-time scaling can enable reasoning[3].
+Google DeepMind showed that scaling compute at inference time can outperform scaling model parameters [1]. Our team's work on particle-based Monte Carlo methods demonstrated that a 1.5B model with ITS can beat GPT-4o accuracy in just 4 rollouts [2]. NVIDIA has noted that test-time scaling enables a new class of AI reasoning models [3]. Unlike chain-of-thought reasoning in models like o1 or DeepSeek-R1, which generates long sequential reasoning traces, ITS candidates run in parallel. This makes ITS faster at equivalent compute budgets since it trades latency for parallelism rather than stacking it sequentially.
 
 This document describes how we integrate ITS into the Envoy-based LLM gateway. The goal: a client adds one header (`X-ITS-Budget: 8`) to a standard `/v1/chat/completions` request and gets back a better answer. No SDK, no scaffolding code, no client-side changes.
 
@@ -219,15 +219,15 @@ The resample loop in the diagram applies to particle filtering and beam search. 
 
 ## Future considerations
 
-**vLLM's `n` parameter.** vLLM supports `n` (number of output sequences) and `best_of` in its [sampling parameters](https://docs.vllm.ai/en/latest/api/vllm/sampling_params/). If llm-d exposed the `n` parameter through EPP, self-consistency could send one request with `n=budget` instead of N separate fan-out calls. That eliminates KV cache duplication across particles and cuts prefill compute by up to `budget`x. Needs coordination with the llm-d team on how `n>1` interacts with KV-cache scheduling and prefix caching.
+**Dynamic budget allocation.** GPU clusters often have idle capacity, especially during off-peak hours. The ITS ext_proc or ITS service could query cluster metrics (EPP already tracks queue depth and KV-cache utilization per pod) and automatically increase the effective budget when spare compute is available, giving clients better results without any configuration change. When the cluster is busy, the budget scales back to the client's requested value. The `X-ITS-Budget` header becomes the baseline; the system tops it up when it can.
 
-**Streaming.** ITS buffers all candidates internally for scoring, so streaming partial results during the algorithm doesn't make sense. But once the best answer is selected, the final response can be streamed via SSE. Buffer internally, stream the answer.
+**vLLM's `n` parameter.** vLLM supports `n` (number of output sequences) and `best_of` in its [sampling parameters](https://docs.vllm.ai/en/latest/api/vllm/sampling_params/). If llm-d exposed the `n` parameter through EPP, self-consistency could send one request with `n=budget` instead of N separate fan-out calls. That eliminates KV cache duplication across particles and cuts prefill compute by up to `budget`x. Needs coordination with the llm-d team on how `n>1` interacts with KV-cache scheduling and prefix caching.
 
 **KV-cache affinity for cloned particles.** When particle filtering clones a high-scoring particle, the clone shares the same prefix as the original. If EPP routes the clone to a different pod, it has to re-prefill from scratch. A "prefix affinity" hint to EPP would keep clones on the same pod. Requires EPP routing logic changes.
 
-**Algorithm selection header (`X-ITS-Algorithm`).** Self-consistency needs `budget` LLM calls. Particle filtering needs `budget x max_steps`. Exposing algorithm selection per-request enables better capacity planning and per-algorithm budget caps.
-
 **Native C++ filter.** Envoy's MCP router (v1.37+) shows that in-process fan-out with `AsyncClient` and `MultiStream` works. If ITS adoption grows enough to justify the investment, a native filter would eliminate the network hop to the ITS backend and plug directly into Envoy's connection pool. That's a lot of C++ to write and maintain, though.
+
+**Streaming.** ITS buffers all candidates internally for scoring, so streaming partial results during the algorithm doesn't make sense. But once the best answer is selected, the final response can be streamed via SSE. Buffer internally, stream the answer.
 
 ## References
 
