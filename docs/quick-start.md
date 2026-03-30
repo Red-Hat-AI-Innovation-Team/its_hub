@@ -9,6 +9,8 @@ This guide shows examples of inference-time scaling. **Tool calling is the prima
 This example shows how to use Self-Consistency for reliable tool calling in agent applications.
 
 ```python
+import asyncio
+
 from its_hub import OpenAICompatibleLanguageModel, SelfConsistency
 from its_hub.api import ChatMessage, ChatMessages
 
@@ -62,6 +64,9 @@ result = sc.infer(
     tool_choice="auto"
 )
 print(result)
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 **What happens:**
@@ -79,6 +84,8 @@ print(result)
 This example uses Best-of-N algorithm with an LLM judge for response selection. Works with any OpenAI-compatible API and requires no GPU.
 
 ```python
+import asyncio
+
 from its_hub import BestOfN, OpenAICompatibleLanguageModel
 from its_hub.core.reward_models.llm_judge import LLMJudge
 
@@ -100,6 +107,9 @@ result = scaling_alg.infer(
     budget=4
 )
 print(result)
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 **What happens:**
@@ -135,6 +145,8 @@ CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen2.5-Math-1.5B-Instruct \
 ### Step 2: Run Particle Filtering
 
 ```python
+import asyncio
+
 from its_hub import OpenAICompatibleLanguageModel, StepGeneration
 from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
 from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
@@ -160,6 +172,9 @@ scaling_alg = ParticleFiltering(sg, prm)
 # Solve with step-by-step reasoning
 result = scaling_alg.infer(lm, "Solve x^2 + 5x + 6 = 0", budget=8)
 print(result)
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 **What happens:**

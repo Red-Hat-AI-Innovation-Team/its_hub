@@ -23,6 +23,8 @@ Generates multiple responses and selects the most common answer through voting. 
 ### Tool Calling Example (Recommended)
 
 ```python
+import asyncio
+
 from its_hub import OpenAICompatibleLanguageModel, SelfConsistency
 from its_hub.api import ChatMessage, ChatMessages
 
@@ -76,6 +78,9 @@ result = sc.infer(
     tool_choice="auto"
 )
 print(result)
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 **Tool voting modes:**
@@ -110,6 +115,8 @@ Generates N candidate responses and selects the highest-scoring one using a rewa
 ### With LLM Judge (Cloud APIs)
 
 ```python
+import asyncio
+
 from its_hub import BestOfN, LLMJudge, OpenAICompatibleLanguageModel
 
 # Initialize language model
@@ -134,6 +141,9 @@ result = bon.infer(
     tools=tools,
     tool_choice="auto"
 )
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 ### With Local Process Reward Model
