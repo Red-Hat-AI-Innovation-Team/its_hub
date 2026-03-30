@@ -96,7 +96,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         self._sessions: weakref.WeakKeyDictionary[
             asyncio.AbstractEventLoop, aiohttp.ClientSession
         ] = weakref.WeakKeyDictionary()
-        self._sessions_lock = threading.Lock()
+        self._session_lock = threading.Lock()
 
     @property
     def _chat_completion_endpoint(self) -> str:
@@ -108,33 +108,36 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         Sessions are cached per event loop and automatically cleaned up
         when the loop is garbage collected.
         """
-        with self._sessions_lock:
+        with self._session_lock:
             session = self._sessions.get(loop)
             if session is not None and not session.closed:
                 return session
 
-            # Create new session for this loop
+            # Create new session for the event loop
             connector = aiohttp.TCPConnector(ssl=self.ssl_context)
             session = aiohttp.ClientSession(connector=connector)
             self._sessions[loop] = session
 
-            # Best effort cleanup when the loop is garbage collected.
-            # session.close() is async so we use a temporary event loop
-            # in the finalizer to close the session.
-            def _cleanup(s):
-                try:
-                    if not s.closed:
-                        cleanup_loop = asyncio.new_event_loop()
-                        try:
-                            cleanup_loop.run_until_complete(s.close())
-                        finally:
-                            cleanup_loop.close()
-                except Exception as exc:
-                    logging.error(f"Error cleaning up the session resource: {exc}")
-
-            weakref.finalize(loop, _cleanup, session)
-
             return session
+
+    async def close(self) -> None:
+        """Close all cached HTTP sessions."""
+        with self._session_lock:
+            sessions = list(self._sessions.values())
+            self._sessions.clear()
+
+        for session in sessions:
+            if not session.closed:
+                await session.close()
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit - ensures sessions are closed."""
+        await self.close()
+        return False
 
     def _prepare_request_data(
         self,
