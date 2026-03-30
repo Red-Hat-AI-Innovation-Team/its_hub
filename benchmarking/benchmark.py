@@ -3,6 +3,7 @@ import re
 import time
 from enum import Enum
 
+import asyncio
 import click
 import datasets
 import math_verify
@@ -470,6 +471,9 @@ def main(
     display_results(df)
 
     df.to_json(output_file, orient="records", lines=True)
+
+    # Close lm for resource cleanup
+    asyncio.run(lm.close())
 
 
 if __name__ == "__main__":

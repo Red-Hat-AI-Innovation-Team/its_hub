@@ -10,6 +10,7 @@ Requirements:
 This example uses reward-hub integration for process reward models.
 """
 
+import asyncio
 import os
 
 from its_hub import OpenAICompatibleLanguageModel, StepGeneration
@@ -55,6 +56,9 @@ def main():
     for prompt in test_prompts:
         print(f"\nTesting: {prompt}")
         print("Response:", scaling_alg.infer(lm, prompt, budget=8))
+
+    # Close lm for resource cleanup
+    asyncio.run(lm.close())
 
 
 if __name__ == "__main__":
