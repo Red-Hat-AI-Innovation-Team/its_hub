@@ -3,6 +3,7 @@ import logging
 import ssl
 import threading
 import warnings
+import weakref
 
 import aiohttp
 import backoff
@@ -91,38 +92,49 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         # endpoint type
         self.endpoint_type = "openai" if "openai" in self.endpoint else "vllm"
 
-        # Persistent HTTP session for connection reuse
-        self._session: aiohttp.ClientSession | None = None
-        self._session_lock = threading.Lock()
+        # Session cache: one session per event loop, auto-cleaned via weak references
+        self._sessions: weakref.WeakKeyDictionary[
+            asyncio.AbstractEventLoop, aiohttp.ClientSession
+        ] = weakref.WeakKeyDictionary()
+        self._sessions_lock = threading.Lock()
 
     @property
     def _chat_completion_endpoint(self) -> str:
         return self.endpoint.rstrip("/") + "/chat/completions"
 
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create persistent HTTP session."""
-        with self._session_lock:
-            if self._session is None or self._session.closed:
-                connector = aiohttp.TCPConnector(ssl=self.ssl_context)
-                self._session = aiohttp.ClientSession(connector=connector)
-            return self._session
+    def _get_session(self, loop: asyncio.AbstractEventLoop) -> aiohttp.ClientSession:
+        """Get or create an HTTP session for the given event loop.
 
-    async def close(self):
-        """Close the persistent HTTP session."""
-        with self._session_lock:
-            session = self._session
-            self._session = None
-        if session is not None and not session.closed:
-            await session.close()
+        Sessions are cached per event loop and automatically cleaned up
+        when the loop is garbage collected.
+        """
+        with self._sessions_lock:
+            session = self._sessions.get(loop)
+            if session is not None and not session.closed:
+                return session
 
-    async def __aenter__(self):
-        """Async context manager entry."""
-        return self
+            # Create new session for this loop
+            connector = aiohttp.TCPConnector(ssl=self.ssl_context)
+            session = aiohttp.ClientSession(connector=connector)
+            self._sessions[loop] = session
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit - ensures session is closed."""
-        await self.close()
-        return False
+            # Best effort cleanup when the loop is garbage collected.
+            # session.close() is async so we use a temporary event loop
+            # in the finalizer to close the session.
+            def _cleanup(s):
+                try:
+                    if not s.closed:
+                        cleanup_loop = asyncio.new_event_loop()
+                        try:
+                            cleanup_loop.run_until_complete(s.close())
+                        finally:
+                            cleanup_loop.close()
+                except Exception as exc:
+                    logging.error(f"Error cleaning up the session resource: {exc}")
+
+            weakref.finalize(loop, _cleanup, session)
+
+            return session
 
     def _prepare_request_data(
         self,
@@ -303,6 +315,14 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         FIXME: Batch processing has been moved to orchestrator. This function will be fully
         replaced by agenerate_single once all algorithms have been moved to using orchestrator.
         """
+
+        warnings.warn(
+            "agenerate() is deprecated and will be removed in a future version. "
+            "Use agenerate_single() with the orchestrator instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         is_single = not isinstance(messages_or_messages_lst[0], list)
         messages_lst = (
             [messages_or_messages_lst] if is_single else messages_or_messages_lst
@@ -327,9 +347,13 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        loop: asyncio.AbstractEventLoop | None = None,
     ) -> dict:
-        # Get persistent session for connection reuse
-        session = await self._get_session()
+        # Fallback to the current event loop
+        if loop is None:
+            loop = asyncio.get_running_loop()
+        # Get or create session for the event loop
+        session = self._get_session(loop)
 
         @backoff.on_exception(
             backoff.expo,

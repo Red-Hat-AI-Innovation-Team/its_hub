@@ -101,7 +101,7 @@ class ChatMessages:
     def to_batch(self, size: int) -> list[list[ChatMessage]]:
         """Create a batch of identical chat message lists for parallel generation."""
         chat_messages = self.to_chat_messages()
-        return [chat_messages for _ in range(size)]
+        return [list(chat_messages) for _ in range(size)]
 
     def to_prompt(self) -> str:
         """Convert to prompt string representation.

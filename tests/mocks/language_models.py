@@ -47,7 +47,7 @@ class StepMockLanguageModel(AbstractLanguageModel):
         self.step_responses = step_responses
         self.call_count = 0
 
-    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
+    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, loop=None):
         """Single message generation used by the orchestrator."""
         content = self.step_responses[self.call_count % len(self.step_responses)]
         self.call_count += 1
@@ -89,7 +89,7 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
         self.error_on_calls = error_on_calls or []
         self.call_count = 0
 
-    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
+    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, loop=None):
         """Single message generation used by the orchestrator."""
         if self.call_count in self.error_on_calls:
             self.call_count += 1

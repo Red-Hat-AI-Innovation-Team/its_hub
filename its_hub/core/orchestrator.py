@@ -16,6 +16,11 @@ class _ThreadSafeAsyncSemaphore:
     Uses a threading.Semaphore as the source of truth so the concurrency
     limit is respected across event loops and threads, and wraps acquire/release for use in
     async contexts without blocking the event loop.
+
+    FIXME: When a task wants to acquire the semaphore, it submits self._sem.acquire (a blocking call)
+    to the default ThreadPoolExecutor. The default thread pool can be exhausted when max_concurrency
+    is low (e.g., 2-4) with large batches. Our default max_concurrency=32 should help avoid the issue
+    but needs further investigation, if necessary.
     """
 
     def __init__(self, value: int):
@@ -101,6 +106,8 @@ class LMOrchestrator(AbstractOrchestrator):
             else [temperature] * len(messages_lst)
         )
 
+        current_loop = asyncio.get_running_loop()
+
         async def _gen_coro(messages, temp):
             ctx = self._semaphore if self._semaphore is not None else contextlib.nullcontext()
             async with ctx:
@@ -112,6 +119,7 @@ class LMOrchestrator(AbstractOrchestrator):
                     include_stop_str_in_output=include_stop_str_in_output,
                     tools=tools,
                     tool_choice=tool_choice,
+                    loop=current_loop,
                 )
 
         async with asyncio.TaskGroup() as tg:

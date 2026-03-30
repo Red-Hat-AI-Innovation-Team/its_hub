@@ -26,7 +26,7 @@ class MockLM:
         self._lock = threading.Lock()
         self.calls: list[dict] = []
 
-    async def agenerate_single(self, messages, **kwargs):
+    async def agenerate_single(self, messages, loop=None, **kwargs):
         with self._lock:
             self.active += 1
             self.peak = max(self.peak, self.active)
@@ -58,7 +58,7 @@ class ErrorMockLM:
         self.call_count = 0
         self._lock = threading.Lock()
 
-    async def agenerate_single(self, messages, **kwargs):
+    async def agenerate_single(self, messages, loop=None, **kwargs):
         with self._lock:
             idx = self.call_count
             self.call_count += 1
@@ -165,7 +165,7 @@ class TestBasicAgenerate:
                 self._lock = threading.Lock()
                 self.call_count = 0
 
-            async def agenerate_single(self, messages, **kwargs):
+            async def agenerate_single(self, messages, loop=None, **kwargs):
                 with self._lock:
                     idx = self.call_count
                     self.call_count += 1
@@ -275,7 +275,44 @@ class TestSyncWrapper:
 
 
 # ===========================================================================
-# 5. Concurrency Limiting (single event loop)
+# 5. Loop Parameter Forwarding
+# ===========================================================================
+
+class TestLoopForwarding:
+    @pytest.mark.asyncio
+    async def test_loop_forwarded_to_agenerate_single(self):
+        """Orchestrator passes the current event loop to agenerate_single."""
+        orch = LMOrchestrator(max_concurrency=4)
+        received_loops = []
+
+        class LoopCaptureLM:
+            async def agenerate_single(self, messages, loop=None, **kwargs):
+                received_loops.append(loop)
+                return {"role": "assistant", "content": "ok"}
+
+        lm = LoopCaptureLM()
+        await orch.agenerate(lm, _make_batch(3))
+
+        current_loop = asyncio.get_running_loop()
+        assert len(received_loops) == 3
+        assert all(l is current_loop for l in received_loops)
+
+    def test_sequential_sync_calls_no_stale_loop(self):
+        """Repeated generate() calls must not raise RuntimeError from stale sessions."""
+        orch = LMOrchestrator(max_concurrency=4)
+        lm = MockLM(delay=0.01, responses=["resp"])
+
+        # Two sequential sync calls — each creates a new event loop via asyncio.run()
+        result1 = orch.generate(lm, _make_batch(2))
+        result2 = orch.generate(lm, _make_batch(2))
+
+        assert len(result1) == 2
+        assert len(result2) == 2
+        assert lm.call_count == 4
+
+
+# ===========================================================================
+# 6. Concurrency Limiting (single event loop)
 # ===========================================================================
 
 class TestConcurrencyLimiting:
@@ -326,7 +363,7 @@ class TestConcurrencyLimiting:
 
 
 # ===========================================================================
-# 6. Cross-Thread Concurrency
+# 7. Cross-Thread Concurrency
 # ===========================================================================
 
 class TestCrossThreadConcurrency:
@@ -381,7 +418,7 @@ class TestCrossThreadConcurrency:
 
 
 # ===========================================================================
-# 7. Error Handling
+# 8. Error Handling
 # ===========================================================================
 
 class TestErrorHandling:
@@ -429,7 +466,7 @@ class TestErrorHandling:
 
 
 # ===========================================================================
-# 8. Semaphore Leak / Release Safety
+# 9. Semaphore Leak / Release Safety
 # ===========================================================================
 
 class TestSemaphoreSafety:
@@ -471,7 +508,7 @@ class TestSemaphoreSafety:
 
 
 # ===========================================================================
-# 9. _ThreadSafeAsyncSemaphore Unit Tests
+# 10. _ThreadSafeAsyncSemaphore Unit Tests
 # ===========================================================================
 
 class TestThreadSafeAsyncSemaphore:
