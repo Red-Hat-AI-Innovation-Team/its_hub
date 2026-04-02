@@ -91,6 +91,8 @@ print(result)  # {"role": "assistant", "content": "4", ...}
 **Installation required:** `pip install its_hub[lm]`
 
 ```python
+import asyncio
+
 from its_hub import OpenAICompatibleLanguageModel, SelfConsistency
 
 lm = OpenAICompatibleLanguageModel(
@@ -102,6 +104,9 @@ lm = OpenAICompatibleLanguageModel(
 algorithm = SelfConsistency()
 result = algorithm.infer(lm, "What is the capital of France?", budget=3)
 print(result)  # Most common answer from 3 generations
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 ### Example 3: Best-of-N with LLM Judge
@@ -109,6 +114,8 @@ print(result)  # Most common answer from 3 generations
 **Installation required:** `pip install its_hub[lm]`
 
 ```python
+import asyncio
+
 from its_hub import BestOfN, LLMJudge, OpenAICompatibleLanguageModel
 
 lm = OpenAICompatibleLanguageModel(
@@ -121,6 +128,9 @@ judge = LLMJudge(lm=lm, fallback_score=5.0)
 algorithm = BestOfN(reward_model=judge)
 result = algorithm.infer(lm, "Write a sorting function", budget=5)
 print(result)  # Best response as judged by LLM
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 ## Key Features

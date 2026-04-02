@@ -54,12 +54,16 @@ result = sc.infer(lm, "Your prompt", budget=5)
 
 **After:**
 ```python
+import asyncio
 from its_hub import OpenAICompatibleLanguageModel, SelfConsistency
 from its_hub.api import ChatMessage, ChatMessages
 
 lm = OpenAICompatibleLanguageModel(...)
 sc = SelfConsistency()
 result = sc.infer(lm, "Your prompt", budget=5)
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 ### Example 2: Best-of-N with LLM Judge
@@ -82,12 +86,16 @@ result = bon.infer(lm, "Your prompt", budget=4)
 
 **After:**
 ```python
+import asyncio
 from its_hub import OpenAICompatibleLanguageModel, BestOfN, LLMJudge
 
 lm = OpenAICompatibleLanguageModel(...)
 judge = LLMJudge(lm=lm)
 bon = BestOfN(judge)
 result = bon.infer(lm, "Your prompt", budget=4)
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 ### Example 3: Particle Filtering (Experimental)
@@ -112,6 +120,7 @@ result = pf.infer(lm, "Your prompt", budget=8)
 
 **After:**
 ```python
+import asyncio
 from its_hub import OpenAICompatibleLanguageModel, StepGeneration
 from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
 from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
@@ -126,6 +135,9 @@ prm = LocalVllmProcessRewardModel(
 )
 pf = ParticleFiltering(sg, prm)
 result = pf.infer(lm, "Your prompt", budget=8)
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 **Note**: For particle filtering and beam search examples, see `examples/test_math_example.py` for complete working code.
@@ -235,6 +247,11 @@ Features in `its_hub.core.algorithms` that require reward-hub integration:
 
 **Problem**: The integration directory was removed.
 **Solution**: Refer to experimental features.
+
+### ERROR:asyncio:Unclosed client session
+
+**Problem**: OpenAICompatibleLanguageModel cached sessions are not being closed.
+**Solution**: Either call lm.close() when done using your lm instance or use lm as a context manager.
 
 ## Support
 

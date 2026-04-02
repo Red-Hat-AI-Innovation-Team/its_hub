@@ -10,6 +10,15 @@ class SimpleMockLanguageModel:
         self.responses = responses
         self.call_count = 0
 
+    async def agenerate_single(self, messages, **kwargs):
+        """Single message generation used by the orchestrator.
+
+        Delegates to generate() with a batch of one and unwraps the result.
+        Subclasses that override generate() for batch mode get this for free.
+        """
+        result = self.generate([messages], **kwargs)
+        return result[0] if isinstance(result, list) else result
+
     async def agenerate(self, messages, **kwargs):
         return self.generate(messages, **kwargs)
 
@@ -37,6 +46,12 @@ class StepMockLanguageModel(AbstractLanguageModel):
     def __init__(self, step_responses: list[str]):
         self.step_responses = step_responses
         self.call_count = 0
+
+    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, loop=None):
+        """Single message generation used by the orchestrator."""
+        content = self.step_responses[self.call_count % len(self.step_responses)]
+        self.call_count += 1
+        return {"role": "assistant", "content": content}
 
     async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
         return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
@@ -73,6 +88,15 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
         self.responses = responses
         self.error_on_calls = error_on_calls or []
         self.call_count = 0
+
+    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, loop=None):
+        """Single message generation used by the orchestrator."""
+        if self.call_count in self.error_on_calls:
+            self.call_count += 1
+            raise Exception("Simulated LM error")
+        content = self.responses[self.call_count % len(self.responses)]
+        self.call_count += 1
+        return {"role": "assistant", "content": content}
 
     async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
         return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+from its_hub.api.orchestrator import AbstractOrchestrator
 from its_hub.api.types import ChatMessage, ChatMessages
 
 
@@ -35,6 +36,7 @@ class AbstractOutcomeRewardModel(ABC):
     async def ascore(
         self,
         messages: list[ChatMessage] | ChatMessages,
+        orchestrator: AbstractOrchestrator | None = None,
         **kwargs,
     ) -> list[float] | float:
         """

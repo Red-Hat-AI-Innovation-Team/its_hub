@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, fields
 from typing import Literal
 
@@ -39,6 +40,41 @@ class ChatMessage:
             result["tool_call_id"] = self.tool_call_id
         return result
 
+    def extract_text_content(self) -> str:
+        """Extract text content from message, handling both string and list formats.
+        For list content (multi-modal), extracts all text parts and warns about non-text content.
+        Returns empty string if no text content is found.
+        """
+        if self.content is None:
+            return ""
+
+        if isinstance(self.content, str):
+            return self.content
+
+        # Must be list[dict] at this point
+        text_parts = []
+        has_image = False
+
+        for item in self.content:
+            content_type = item.get("type", "")
+
+            if content_type == "text":
+                text_parts.append(item.get("text", ""))
+            elif content_type == "image_url":
+                has_image = True
+            elif content_type:
+                raise ValueError(
+                    f"Unsupported content type '{content_type}' in messages content dict."
+                )
+
+        if has_image:
+            logging.warning(
+                "Image content detected in message but is not supported. "
+                "Image content will be ignored. Only text content is processed."
+            )
+
+        return " ".join(text_parts)
+
 
 class ChatMessages:
     """Unified wrapper for handling both string prompts and conversation history."""
@@ -65,7 +101,7 @@ class ChatMessages:
     def to_batch(self, size: int) -> list[list[ChatMessage]]:
         """Create a batch of identical chat message lists for parallel generation."""
         chat_messages = self.to_chat_messages()
-        return [chat_messages for _ in range(size)]
+        return [list(chat_messages) for _ in range(size)]
 
     def to_prompt(self) -> str:
         """Convert to prompt string representation.

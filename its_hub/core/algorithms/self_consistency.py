@@ -8,11 +8,13 @@ from dataclasses import dataclass
 
 from its_hub.api import (
     AbstractLanguageModel,
+    AbstractOrchestrator,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
     ChatMessage,
     ChatMessages,
 )
+from its_hub.core.orchestrator import LMOrchestrator
 from its_hub.core.utils import extract_content_from_lm_response
 
 
@@ -127,6 +129,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
         consistency_space_projection_func: Callable | None = None,
         tool_vote: str | None = None,
         exclude_args: list[str] | None = None,
+        orchestrator: AbstractOrchestrator | None = None,
     ):
         """Initialize SelfConsistency algorithm with optional tool-vote capability.
 
@@ -146,6 +149,8 @@ class SelfConsistency(AbstractScalingAlgorithm):
                 tool_vote is "tool_args" or "tool_hierarchical". Useful for filtering out
                 non-semantic arguments like timestamps, request IDs, etc.
 
+            orchestrator: Orchestrator that manages parallel calls to LM
+
         Raises:
             ValueError: If tool_vote is not one of the supported options.
         """
@@ -162,6 +167,11 @@ class SelfConsistency(AbstractScalingAlgorithm):
         self.tool_vote = tool_vote
         self.exclude_args = exclude_args or []
 
+        if orchestrator is None:
+            # Fallback to default implementation
+            orchestrator = LMOrchestrator()
+        self.orchestrator = orchestrator
+
     async def ainfer(
         self,
         lm: AbstractLanguageModel,
@@ -175,8 +185,8 @@ class SelfConsistency(AbstractScalingAlgorithm):
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
         # generate responses
-        responses = await lm.agenerate(
-            chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
+        responses = await self.orchestrator.agenerate(
+            lm, chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
         )
 
         # process responses and return result

@@ -3,46 +3,49 @@
 import pytest
 
 from its_hub.core.algorithms.self_consistency import SelfConsistency, SelfConsistencyResult
-from tests.mocks.language_models import SimpleMockLanguageModel
 
 
-class ToolCallMockLanguageModel(SimpleMockLanguageModel):
-    """Mock language model that returns responses with tool calls."""
+class ToolCallMockLanguageModel:
+    """Mock language model that returns alternating responses with/without tool calls."""
 
     def __init__(self):
-        super().__init__([])  # No predefined responses
         self.call_count = 0
 
-    def generate(self, messages, **kwargs):
-        if isinstance(messages[0], list):
-            # Batch generation - return responses with tool calls and content
-            responses = []
-            for i in range(len(messages)):
-                if i % 2 == 0:
-                    # Response with tool calls and content
-                    responses.append(
-                        {
-                            "role": "assistant",
-                            "content": "I need to calculate this. The answer is 42.",
-                            "tool_calls": [
-                                {
-                                    "id": f"call_{i}",
-                                    "type": "function",
-                                    "function": {"name": "calculate"},
-                                }
-                            ],
-                        }
-                    )
-                else:
-                    # Response with only content
-                    responses.append({
-                        "role": "assistant",
-                        "content": "The answer is 42."
-                    })
-            return responses
+    def _make_response(self, idx):
+        if idx % 2 == 0:
+            return {
+                "role": "assistant",
+                "content": "I need to calculate this. The answer is 42.",
+                "tool_calls": [
+                    {
+                        "id": f"call_{idx}",
+                        "type": "function",
+                        "function": {"name": "calculate"},
+                    }
+                ],
+            }
         else:
-            # Single generation
             return {"role": "assistant", "content": "The answer is 42."}
+
+    async def agenerate_single(self, messages, **kwargs):
+        idx = self.call_count
+        self.call_count += 1
+        return self._make_response(idx)
+
+
+def _make_fixed_list_mock(responses: list[dict]):
+    """Create a mock LM that cycles through a fixed list of responses."""
+
+    class FixedListMock:
+        def __init__(self):
+            self.call_count = 0
+
+        async def agenerate_single(self, messages, **kwargs):
+            idx = self.call_count % len(responses)
+            self.call_count += 1
+            return responses[idx]
+
+    return FixedListMock()
 
 
 class TestToolCallHandling:
@@ -105,44 +108,29 @@ class TestToolCallHandling:
 
     def test_self_consistency_with_empty_content_and_tool_calls(self):
         """Test self-consistency raises error when all responses have tool calls but tool_vote is not set."""
-
-        class EmptyContentToolCallMock(SimpleMockLanguageModel):
-            def __init__(self):
-                super().__init__([])
-
-            def generate(self, messages, **kwargs):
-                if isinstance(messages[0], list):
-                    # Return responses with tool calls but empty/no content
-                    responses = []
-                    for i in range(len(messages)):
-                        responses.append(
-                            {
-                                "role": "assistant",
-                                "content": "",  # Empty content
-                                "tool_calls": [
-                                    {
-                                        "id": f"call_{i}",
-                                        "type": "function",
-                                        "function": {"name": "search"},
-                                    }
-                                ],
-                            }
-                        )
-                    return responses
-                else:
-                    return {
-                        "role": "assistant",
-                        "content": "",
-                        "tool_calls": [
-                            {
-                                "id": "call_single",
-                                "type": "function",
-                                "function": {"name": "search"},
-                            }
-                        ],
-                    }
-
-        mock_lm = EmptyContentToolCallMock()
+        mock_lm = _make_fixed_list_mock([
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "call_0", "type": "function", "function": {"name": "search"}},
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "call_1", "type": "function", "function": {"name": "search"}},
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "call_2", "type": "function", "function": {"name": "search"}},
+                ],
+            },
+        ])
 
         def identity_projection(text):
             return text
@@ -189,78 +177,33 @@ class TestToolCallVoting:
 
     def test_tool_name_voting(self):
         """Test voting on tool function names only."""
+        mock_lm = _make_fixed_list_mock([
+            {
+                "role": "assistant",
+                "content": "Calculating...",
+                "tool_calls": [{"id": "1", "type": "function", "function": {"name": "calculate", "arguments": {"x": 1}}}],
+            },
+            {
+                "role": "assistant",
+                "content": "Computing...",
+                "tool_calls": [{"id": "2", "type": "function", "function": {"name": "calculate", "arguments": {"x": 2}}}],
+            },
+            {
+                "role": "assistant",
+                "content": "Processing...",
+                "tool_calls": [{"id": "3", "type": "function", "function": {"name": "search", "arguments": {"q": "test"}}}],
+            },
+            {
+                "role": "assistant",
+                "content": "Working...",
+                "tool_calls": [{"id": "4", "type": "function", "function": {"name": "calculate", "arguments": {"x": 3}}}],
+            },
+        ])
 
-        class ToolNameMock(SimpleMockLanguageModel):
-            def __init__(self):
-                super().__init__([])  # No predefined responses needed
-
-            def generate(self, messages, **kwargs):
-                if isinstance(messages[0], list):
-                    return [
-                        {
-                            "role": "assistant",
-                            "content": "Calculating...",
-                            "tool_calls": [
-                                {
-                                    "id": "1",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "calculate",
-                                        "arguments": {"x": 1},
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            "role": "assistant",
-                            "content": "Computing...",
-                            "tool_calls": [
-                                {
-                                    "id": "2",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "calculate",
-                                        "arguments": {"x": 2},
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            "role": "assistant",
-                            "content": "Processing...",
-                            "tool_calls": [
-                                {
-                                    "id": "3",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "search",
-                                        "arguments": {"q": "test"},
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            "role": "assistant",
-                            "content": "Working...",
-                            "tool_calls": [
-                                {
-                                    "id": "4",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "calculate",
-                                        "arguments": {"x": 3},
-                                    },
-                                }
-                            ],
-                        },
-                    ]
-
-        mock_lm = ToolNameMock()
         sc = SelfConsistency(lambda x: x, tool_vote="tool_name")
         result = sc.infer(mock_lm, "Test prompt", budget=4, return_response_only=False)
 
         # Should vote on tool names - "calculate" appears 3 times, "search" 1 time
-        # So "calculate" should win
         assert isinstance(result, SelfConsistencyResult)
         assert "calculate" in str(result.response_counts)
         assert result.response_counts["calculate"] == 3
@@ -268,73 +211,29 @@ class TestToolCallVoting:
 
     def test_tool_args_voting(self):
         """Test voting on tool arguments only."""
+        mock_lm = _make_fixed_list_mock([
+            {
+                "role": "assistant",
+                "content": "Test1",
+                "tool_calls": [{"id": "1", "type": "function", "function": {"name": "func1", "arguments": {"x": 1, "y": 2}}}],
+            },
+            {
+                "role": "assistant",
+                "content": "Test2",
+                "tool_calls": [{"id": "2", "type": "function", "function": {"name": "func2", "arguments": {"x": 1, "y": 2}}}],
+            },
+            {
+                "role": "assistant",
+                "content": "Test3",
+                "tool_calls": [{"id": "3", "type": "function", "function": {"name": "func3", "arguments": {"a": 3, "b": 4}}}],
+            },
+            {
+                "role": "assistant",
+                "content": "Test4",
+                "tool_calls": [{"id": "4", "type": "function", "function": {"name": "func4", "arguments": {"x": 1, "y": 2}}}],
+            },
+        ])
 
-        class ToolArgsMock(SimpleMockLanguageModel):
-            def __init__(self):
-                super().__init__([])
-
-            def generate(self, messages, **kwargs):
-                if isinstance(messages[0], list):
-                    return [
-                        {
-                            "role": "assistant",
-                            "content": "Test1",
-                            "tool_calls": [
-                                {
-                                    "id": "1",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "func1",
-                                        "arguments": {"x": 1, "y": 2},
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            "role": "assistant",
-                            "content": "Test2",
-                            "tool_calls": [
-                                {
-                                    "id": "2",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "func2",
-                                        "arguments": {"x": 1, "y": 2},
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            "role": "assistant",
-                            "content": "Test3",
-                            "tool_calls": [
-                                {
-                                    "id": "3",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "func3",
-                                        "arguments": {"a": 3, "b": 4},
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            "role": "assistant",
-                            "content": "Test4",
-                            "tool_calls": [
-                                {
-                                    "id": "4",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "func4",
-                                        "arguments": {"x": 1, "y": 2},
-                                    },
-                                }
-                            ],
-                        },
-                    ]
-
-        mock_lm = ToolArgsMock()
         sc = SelfConsistency(lambda x: x, tool_vote="tool_args")
         result = sc.infer(mock_lm, "Test prompt", budget=4, return_response_only=False)
 
@@ -344,73 +243,29 @@ class TestToolCallVoting:
 
     def test_tool_hierarchical_voting(self):
         """Test hierarchical voting: tool name first, then arguments."""
+        mock_lm = _make_fixed_list_mock([
+            {
+                "role": "assistant",
+                "content": "Test1",
+                "tool_calls": [{"id": "1", "type": "function", "function": {"name": "calculate", "arguments": {"x": 1}}}],
+            },
+            {
+                "role": "assistant",
+                "content": "Test2",
+                "tool_calls": [{"id": "2", "type": "function", "function": {"name": "calculate", "arguments": {"x": 2}}}],
+            },
+            {
+                "role": "assistant",
+                "content": "Test3",
+                "tool_calls": [{"id": "3", "type": "function", "function": {"name": "search", "arguments": {"q": "test"}}}],
+            },
+            {
+                "role": "assistant",
+                "content": "Test4",
+                "tool_calls": [{"id": "4", "type": "function", "function": {"name": "calculate", "arguments": {"x": 1}}}],
+            },
+        ])
 
-        class HierarchicalMock(SimpleMockLanguageModel):
-            def __init__(self):
-                super().__init__([])
-
-            def generate(self, messages, **kwargs):
-                if isinstance(messages[0], list):
-                    return [
-                        {
-                            "role": "assistant",
-                            "content": "Test1",
-                            "tool_calls": [
-                                {
-                                    "id": "1",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "calculate",
-                                        "arguments": {"x": 1},
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            "role": "assistant",
-                            "content": "Test2",
-                            "tool_calls": [
-                                {
-                                    "id": "2",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "calculate",
-                                        "arguments": {"x": 2},
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            "role": "assistant",
-                            "content": "Test3",
-                            "tool_calls": [
-                                {
-                                    "id": "3",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "search",
-                                        "arguments": {"q": "test"},
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            "role": "assistant",
-                            "content": "Test4",
-                            "tool_calls": [
-                                {
-                                    "id": "4",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "calculate",
-                                        "arguments": {"x": 1},
-                                    },
-                                }
-                            ],
-                        },
-                    ]
-
-        mock_lm = HierarchicalMock()
         sc = SelfConsistency(lambda x: x, tool_vote="tool_hierarchical")
         result = sc.infer(mock_lm, "Test prompt", budget=4, return_response_only=False)
 
@@ -421,53 +276,19 @@ class TestToolCallVoting:
 
     def test_exclude_args_functionality(self):
         """Test excluding certain argument names from voting."""
+        mock_lm = _make_fixed_list_mock([
+            {
+                "role": "assistant",
+                "content": "Test1",
+                "tool_calls": [{"id": "1", "type": "function", "function": {"name": "func", "arguments": {"x": 1, "timestamp": "123", "id": "abc"}}}],
+            },
+            {
+                "role": "assistant",
+                "content": "Test2",
+                "tool_calls": [{"id": "2", "type": "function", "function": {"name": "func", "arguments": {"x": 1, "timestamp": "456", "id": "def"}}}],
+            },
+        ])
 
-        class ExcludeArgsMock(SimpleMockLanguageModel):
-            def __init__(self):
-                super().__init__([])
-
-            def generate(self, messages, **kwargs):
-                if isinstance(messages[0], list):
-                    return [
-                        {
-                            "role": "assistant",
-                            "content": "Test1",
-                            "tool_calls": [
-                                {
-                                    "id": "1",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "func",
-                                        "arguments": {
-                                            "x": 1,
-                                            "timestamp": "123",
-                                            "id": "abc",
-                                        },
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            "role": "assistant",
-                            "content": "Test2",
-                            "tool_calls": [
-                                {
-                                    "id": "2",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "func",
-                                        "arguments": {
-                                            "x": 1,
-                                            "timestamp": "456",
-                                            "id": "def",
-                                        },
-                                    },
-                                }
-                            ],
-                        },
-                    ]
-
-        mock_lm = ExcludeArgsMock()
         sc = SelfConsistency(
             lambda x: x, tool_vote="tool_args", exclude_args=["timestamp", "id"]
         )
@@ -479,18 +300,11 @@ class TestToolCallVoting:
 
     def test_fallback_to_content_voting_when_no_tool_calls(self):
         """Test that it falls back to content voting when responses have no tool calls."""
-
-        class NoToolCallsMock(SimpleMockLanguageModel):
-            def __init__(self):
-                super().__init__([])
-
-            def generate(self, messages, **kwargs):
-                if isinstance(messages[0], list):
-                    return [
-                        {"role": "assistant", "content": "Answer: 42"},
-                        {"role": "assistant", "content": "Answer: 42"},
-                        {"role": "assistant", "content": "Answer: 24"},
-                    ]
+        mock_lm = _make_fixed_list_mock([
+            {"role": "assistant", "content": "Answer: 42"},
+            {"role": "assistant", "content": "Answer: 42"},
+            {"role": "assistant", "content": "Answer: 24"},
+        ])
 
         def extract_answer(text):
             import re
@@ -498,7 +312,6 @@ class TestToolCallVoting:
             match = re.search(r"Answer: (\d+)", text)
             return match.group(1) if match else None
 
-        mock_lm = NoToolCallsMock()
         sc = SelfConsistency(extract_answer, tool_vote="tool_name")
         result = sc.infer(mock_lm, "Test prompt", budget=3, return_response_only=False)
 
@@ -509,46 +322,20 @@ class TestToolCallVoting:
 
     def test_mixed_responses_with_and_without_tool_calls(self):
         """Test behavior when some responses have tool calls and others don't."""
+        mock_lm = _make_fixed_list_mock([
+            {
+                "role": "assistant",
+                "content": "Using calculator",
+                "tool_calls": [{"id": "1", "type": "function", "function": {"name": "calculate", "arguments": {"x": 1}}}],
+            },
+            {"role": "assistant", "content": "Direct answer: 42"},
+            {
+                "role": "assistant",
+                "content": "Let me compute",
+                "tool_calls": [{"id": "2", "type": "function", "function": {"name": "calculate", "arguments": {"x": 1}}}],
+            },
+        ])
 
-        class MixedMock(SimpleMockLanguageModel):
-            def __init__(self):
-                super().__init__([])
-
-            def generate(self, messages, **kwargs):
-                if isinstance(messages[0], list):
-                    return [
-                        {
-                            "role": "assistant",
-                            "content": "Using calculator",
-                            "tool_calls": [
-                                {
-                                    "id": "1",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "calculate",
-                                        "arguments": {"x": 1},
-                                    },
-                                }
-                            ],
-                        },
-                        {"role": "assistant", "content": "Direct answer: 42"},
-                        {
-                            "role": "assistant",
-                            "content": "Let me compute",
-                            "tool_calls": [
-                                {
-                                    "id": "2",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "calculate",
-                                        "arguments": {"x": 1},
-                                    },
-                                }
-                            ],
-                        },
-                    ]
-
-        mock_lm = MixedMock()
         sc = SelfConsistency(lambda x: x, tool_vote="tool_name")
         result = sc.infer(mock_lm, "Test prompt", budget=3, return_response_only=False)
 

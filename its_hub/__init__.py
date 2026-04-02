@@ -7,6 +7,7 @@ from importlib.metadata import version
 # Core - Algorithm implementations (always available)
 from its_hub.api import (
     AbstractLanguageModel,
+    AbstractOrchestrator,
     AbstractOutcomeRewardModel,
     AbstractProcessRewardModel,
     AbstractScalingAlgorithm,
@@ -36,9 +37,10 @@ __all__ = [  # noqa: RUF022
 try:
     from its_hub.core.lms.openai_lm import OpenAICompatibleLanguageModel
     from its_hub.core.lms.step_generation import StepGeneration
+    from its_hub.core.orchestrator import LMOrchestrator
     from its_hub.core.reward_models.llm_judge import LLMJudge
 
-    __all__.extend(["LLMJudge", "OpenAICompatibleLanguageModel", "StepGeneration"])
+    __all__.extend(["LLMJudge", "LMOrchestrator", "OpenAICompatibleLanguageModel", "StepGeneration"])
 except ImportError:
     # LM implementations not available - install with: pip install its_hub[lm]
     pass

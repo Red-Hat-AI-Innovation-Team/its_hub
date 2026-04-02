@@ -1,7 +1,9 @@
 import os
 import re
+import time
 from enum import Enum
 
+import asyncio
 import click
 import datasets
 import math_verify
@@ -19,7 +21,11 @@ from its_hub.core.algorithms.particle_gibbs import (
     _softmax,
 )
 from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
-from its_hub.core.utils import QWEN_SYSTEM_PROMPT, SAL_STEP_BY_STEP_SYSTEM_PROMPT
+from its_hub.core.utils import (
+    QWEN_SYSTEM_PROMPT,
+    SAL_STEP_BY_STEP_SYSTEM_PROMPT,
+    extract_content_from_lm_response,
+)
 
 
 class BenchmarkDataset(Enum):
@@ -360,8 +366,10 @@ def main(
 
     print(f"running inference-time scaling for {budgets=}...")
     rows = []
+    budget_timings = {}
     try:
         for n in tqdm(budgets):
+            budget_start_time = time.time()
             for x in dataset:
                 y_full = None
                 y = None
@@ -421,23 +429,41 @@ def main(
                     if eval_expected_pass_at_one:
                         c = [
                             math_verify.verify(
-                                math_verify.parse(x["answer"]), math_verify.parse(y)
+                                math_verify.parse(x["answer"]),
+                                math_verify.parse(extract_content_from_lm_response(y) if isinstance(y, dict) else y),
                             )
                             for y in row["responses"]
                         ]
                         p = _softmax(row["log_probs"])
                         row["correct"] = np.dot(p, c)
                     else:
+                        response_content = extract_content_from_lm_response(row["response"]) if isinstance(row["response"], dict) else row["response"]
                         row["correct"] = math_verify.verify(
                             math_verify.parse(x["answer"]),
-                            math_verify.parse(row["response"]),
+                            math_verify.parse(response_content),
                         )
                 rows.append(row)
+
+            # Record timing for this budget
+            budget_end_time = time.time()
+            budget_elapsed_time = budget_end_time - budget_start_time
+            budget_timings[n] = budget_elapsed_time
+            print(f"\nBudget {n} completed in {budget_elapsed_time:.2f} seconds ({budget_elapsed_time/60:.2f} minutes)")
+
     except KeyboardInterrupt:
         print("\nkeyboard interrupt detected, saving partial results")
 
+    # Display timing summary
+    if budget_timings:
+        print("\n=== Timing Summary ===")
+        total_time = sum(budget_timings.values())
+        for budget, elapsed_time in budget_timings.items():
+            print(f"Budget {budget:3d}: {elapsed_time:8.2f}s ({elapsed_time/60:6.2f} min)")
+        print(f"Total time: {total_time:.2f}s ({total_time/60:.2f} min)")
+        print("=" * 40)
+
     # save results to jsonl file using pandas
-    print(f"saving results to {output_file}...")
+    print(f"\nsaving results to {output_file}...")
     df = pd.concat([df_existing, pd.DataFrame(rows)])
     # deduplicate rows with the same unique_id and budget, keeping the updated correctness
     df = df.drop_duplicates(subset=["unique_id", "budget"], keep="last")
@@ -445,6 +471,9 @@ def main(
     display_results(df)
 
     df.to_json(output_file, orient="records", lines=True)
+
+    # Close lm for resource cleanup
+    asyncio.run(lm.close())
 
 
 if __name__ == "__main__":

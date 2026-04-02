@@ -3,12 +3,14 @@ from dataclasses import dataclass
 
 from its_hub.api import (
     AbstractLanguageModel,
+    AbstractOrchestrator,
     AbstractOutcomeRewardModel,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
     ChatMessage,
     ChatMessages,
 )
+from its_hub.core.orchestrator import LMOrchestrator
 
 
 def _response_to_hashable_key(response: dict) -> str:
@@ -99,8 +101,13 @@ class BestOfNResult(AbstractScalingResult):
 
 
 class BestOfN(AbstractScalingAlgorithm):
-    def __init__(self, orm: AbstractOutcomeRewardModel):
+    def __init__(self, orm: AbstractOutcomeRewardModel, orchestrator: AbstractOrchestrator | None = None):
+        if orchestrator is None:
+            # Fallback to default implementation
+            orchestrator = LMOrchestrator()
+
         self.orm = orm
+        self.orchestrator = orchestrator
 
     async def ainfer(
         self,
@@ -115,8 +122,8 @@ class BestOfN(AbstractScalingAlgorithm):
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
         # generate responses
-        responses = await lm.agenerate(
-            chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
+        responses = await self.orchestrator.agenerate(
+            lm, chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
         )
 
         # deduplicate responses to avoid redundant scoring
@@ -141,7 +148,7 @@ class BestOfN(AbstractScalingAlgorithm):
             ]
             for cand in unique_responses
         ]
-        unique_scores = await self.orm.ascore(unique_conversations)
+        unique_scores = await self.orm.ascore(unique_conversations, orchestrator=self.orchestrator)
 
         # map scores back to original response indices
         scores = [unique_scores[idx] for idx in inverse_idx]

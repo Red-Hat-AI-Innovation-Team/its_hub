@@ -5,10 +5,12 @@ import logging
 
 from its_hub.api import (
     AbstractLanguageModel,
+    AbstractOrchestrator,
     AbstractOutcomeRewardModel,
     ChatMessage,
     ChatMessages,
 )
+from its_hub.core.orchestrator import LMOrchestrator
 
 
 class LLMJudge(AbstractOutcomeRewardModel):
@@ -110,6 +112,7 @@ Format: {{"score": <number>}}"""
     async def ascore(
         self,
         messages: list[ChatMessage] | ChatMessages,
+        orchestrator: AbstractOrchestrator | None = None,
         **kwargs,
     ) -> list[float] | float:
         """
@@ -117,6 +120,7 @@ Format: {{"score": <number>}}"""
 
         Args:
             messages: Single conversation or multiple conversations
+            orchestrator: Orchestrator that manages parallel calls to LM
             **kwargs: Additional parameters passed to LM (temperature, max_tokens, etc.)
 
         Returns:
@@ -131,8 +135,11 @@ Format: {{"score": <number>}}"""
         # Build judge prompts for all conversations
         judge_prompts = [self._build_judge_prompt(conv) for conv in conversations]
 
-        # Leverage LM's async batching!
-        responses = await self.lm.agenerate(judge_prompts, **kwargs)
+        if orchestrator is None:
+            # Fallback to default implementation
+            orchestrator = LMOrchestrator()
+
+        responses = await orchestrator.agenerate(self.lm, judge_prompts, **kwargs)
 
         # Parse scores from responses
         scores = [self._parse_score(r.get("content", "")) for r in responses]
