@@ -507,6 +507,233 @@ class TestToolCallVoting:
         assert result.response_counts["24"] == 1
         assert result.the_one["content"] == "Answer: 42"  # Returns full content, not extracted value
 
+    def test_tool_flat_all_single_tool(self):
+        """Test tool_flat_all with single tool calls behaves like tool_hierarchical."""
+
+        class SingleToolMock(SimpleMockLanguageModel):
+            def __init__(self):
+                super().__init__([])
+
+            def generate(self, messages, **kwargs):
+                if isinstance(messages[0], list):
+                    return [
+                        {
+                            "role": "assistant",
+                            "content": "Test1",
+                            "tool_calls": [
+                                {
+                                    "id": "1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "pods_log",
+                                        "arguments": {"namespace": "demo-oom"},
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "role": "assistant",
+                            "content": "Test2",
+                            "tool_calls": [
+                                {
+                                    "id": "2",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "events_list",
+                                        "arguments": {},
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "role": "assistant",
+                            "content": "Test3",
+                            "tool_calls": [
+                                {
+                                    "id": "3",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "pods_log",
+                                        "arguments": {"namespace": "demo-oom"},
+                                    },
+                                }
+                            ],
+                        },
+                    ]
+
+        mock_lm = SingleToolMock()
+        sc = SelfConsistency(lambda x: x, tool_vote="tool_flat_all")
+        result = sc.infer(mock_lm, "Test prompt", budget=3, return_response_only=False)
+
+        assert isinstance(result, SelfConsistencyResult)
+        # pods_log(namespace=demo-oom) appears 2/3 times, should win
+        winner = result.the_one
+        assert winner["tool_calls"][0]["function"]["name"] == "pods_log"
+
+    def test_tool_flat_all_multiple_tools_order_independent(self):
+        """Test tool_flat_all treats [A, B] and [B, A] as the same signature."""
+
+        class MultiToolOrderMock(SimpleMockLanguageModel):
+            def __init__(self):
+                super().__init__([])
+
+            def generate(self, messages, **kwargs):
+                if isinstance(messages[0], list):
+                    return [
+                        {
+                            "role": "assistant",
+                            "content": "Test1",
+                            "tool_calls": [
+                                {"id": "1a", "type": "function", "function": {"name": "pods_log", "arguments": {"ns": "x"}}},
+                                {"id": "1b", "type": "function", "function": {"name": "events_list", "arguments": {}}},
+                            ],
+                        },
+                        {
+                            "role": "assistant",
+                            "content": "Test2",
+                            "tool_calls": [
+                                {"id": "2a", "type": "function", "function": {"name": "events_list", "arguments": {}}},
+                                {"id": "2b", "type": "function", "function": {"name": "pods_log", "arguments": {"ns": "x"}}},
+                            ],
+                        },
+                        {
+                            "role": "assistant",
+                            "content": "Test3",
+                            "tool_calls": [
+                                {"id": "3a", "type": "function", "function": {"name": "resources_get", "arguments": {}}},
+                            ],
+                        },
+                    ]
+
+        mock_lm = MultiToolOrderMock()
+        sc = SelfConsistency(lambda x: x, tool_vote="tool_flat_all")
+        result = sc.infer(mock_lm, "Test prompt", budget=3, return_response_only=False)
+
+        # [pods_log, events_list] and [events_list, pods_log] should be the same signature
+        # That signature appears 2/3, should win over resources_get (1/3)
+        winner = result.the_one
+        assert len(winner["tool_calls"]) == 2
+        tool_names = {tc["function"]["name"] for tc in winner["tool_calls"]}
+        assert tool_names == {"pods_log", "events_list"}
+
+    def test_tool_flat_all_different_tool_sets(self):
+        """Test tool_flat_all distinguishes [A] from [A, B]."""
+
+        class DifferentSetsMock(SimpleMockLanguageModel):
+            def __init__(self):
+                super().__init__([])
+
+            def generate(self, messages, **kwargs):
+                if isinstance(messages[0], list):
+                    return [
+                        {
+                            "role": "assistant",
+                            "content": "Test1",
+                            "tool_calls": [
+                                {"id": "1", "type": "function", "function": {"name": "pods_log", "arguments": {"ns": "x"}}},
+                            ],
+                        },
+                        {
+                            "role": "assistant",
+                            "content": "Test2",
+                            "tool_calls": [
+                                {"id": "2a", "type": "function", "function": {"name": "pods_log", "arguments": {"ns": "x"}}},
+                                {"id": "2b", "type": "function", "function": {"name": "events_list", "arguments": {}}},
+                            ],
+                        },
+                        {
+                            "role": "assistant",
+                            "content": "Test3",
+                            "tool_calls": [
+                                {"id": "3a", "type": "function", "function": {"name": "pods_log", "arguments": {"ns": "x"}}},
+                                {"id": "3b", "type": "function", "function": {"name": "events_list", "arguments": {}}},
+                            ],
+                        },
+                    ]
+
+        mock_lm = DifferentSetsMock()
+        sc = SelfConsistency(lambda x: x, tool_vote="tool_flat_all")
+        result = sc.infer(mock_lm, "Test prompt", budget=3, return_response_only=False)
+
+        # [pods_log + events_list] appears 2/3, [pods_log alone] appears 1/3
+        winner = result.the_one
+        assert len(winner["tool_calls"]) == 2
+
+    def test_tool_flat_all_exclude_args(self):
+        """Test exclude_args works with tool_flat_all across all tool calls."""
+
+        class ExcludeArgsFlatMock(SimpleMockLanguageModel):
+            def __init__(self):
+                super().__init__([])
+
+            def generate(self, messages, **kwargs):
+                if isinstance(messages[0], list):
+                    return [
+                        {
+                            "role": "assistant",
+                            "content": "Test1",
+                            "tool_calls": [
+                                {"id": "1", "type": "function", "function": {"name": "pods_log", "arguments": {"ns": "x", "timestamp": "111"}}},
+                            ],
+                        },
+                        {
+                            "role": "assistant",
+                            "content": "Test2",
+                            "tool_calls": [
+                                {"id": "2", "type": "function", "function": {"name": "pods_log", "arguments": {"ns": "x", "timestamp": "222"}}},
+                            ],
+                        },
+                    ]
+
+        mock_lm = ExcludeArgsFlatMock()
+        sc = SelfConsistency(lambda x: x, tool_vote="tool_flat_all", exclude_args=["timestamp"])
+        result = sc.infer(mock_lm, "Test prompt", budget=2, return_response_only=False)
+
+        # After excluding timestamp, both should have the same signature
+        # All values in the Counter should be the same frozenset
+        assert len(result.response_counts) == 1
+
+    def test_tool_flat_all_uses_flat_voting(self):
+        """Test that tool_flat_all uses flat Counter voting, not hierarchical."""
+
+        class FlatVoteMock(SimpleMockLanguageModel):
+            def __init__(self):
+                super().__init__([])
+
+            def generate(self, messages, **kwargs):
+                if isinstance(messages[0], list):
+                    return [
+                        {
+                            "role": "assistant",
+                            "content": "Test1",
+                            "tool_calls": [
+                                {"id": "1", "type": "function", "function": {"name": "pods_log", "arguments": {"ns": "a"}}},
+                            ],
+                        },
+                        {
+                            "role": "assistant",
+                            "content": "Test2",
+                            "tool_calls": [
+                                {"id": "2", "type": "function", "function": {"name": "pods_log", "arguments": {"ns": "a"}}},
+                            ],
+                        },
+                        {
+                            "role": "assistant",
+                            "content": "Test3",
+                            "tool_calls": [
+                                {"id": "3", "type": "function", "function": {"name": "pods_log", "arguments": {"ns": "b"}}},
+                            ],
+                        },
+                    ]
+
+        mock_lm = FlatVoteMock()
+        sc = SelfConsistency(lambda x: x, tool_vote="tool_flat_all")
+        result = sc.infer(mock_lm, "Test prompt", budget=3, return_response_only=False)
+
+        # response_counts should use frozenset keys (flat), not tuple keys (hierarchical)
+        for key in result.response_counts:
+            assert isinstance(key, frozenset), f"Expected frozenset key, got {type(key)}"
+
     def test_mixed_responses_with_and_without_tool_calls(self):
         """Test behavior when some responses have tool calls and others don't."""
 
