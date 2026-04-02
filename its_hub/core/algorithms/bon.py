@@ -148,7 +148,7 @@ class BestOfN(AbstractScalingAlgorithm):
             ]
             for cand in unique_responses
         ]
-        unique_scores = await self.orm.ascore(unique_conversations, self.orchestrator)
+        unique_scores = await self.orm.ascore(unique_conversations, orchestrator=self.orchestrator)
 
         # map scores back to original response indices
         scores = [unique_scores[idx] for idx in inverse_idx]
