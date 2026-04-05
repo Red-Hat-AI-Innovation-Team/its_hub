@@ -113,4 +113,14 @@ print(result)
 - ⚡ **Async Support**: Concurrent generation with limits and error handling
 
 
+## Demo
+
+See the library in action with a walkthrough of inference-time scaling algorithms:
+
+[![Demo walkthrough](https://img.youtube.com/vi/qaXyvmR-YBU/maxresdefault.jpg)](https://www.youtube.com/watch?v=qaXyvmR-YBU)
+
+Try it in your browser: [https://red.ht/its-hub-demo](https://red.ht/its-hub-demo)
+
+To run the demo yourself, see the [demo setup instructions](https://github.com/lukeinglis/its_hub_demo/blob/main/demo_ui/README.md).
+
 For detailed documentation, visit: [https://ai-innovation.team/its_hub](https://ai-innovation.team/its_hub)
