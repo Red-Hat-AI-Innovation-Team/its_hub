@@ -105,6 +105,129 @@ class TestOpenAICompatibleLanguageModel:
         ]
         assert responses == expected
 
+    def test_prepare_request_data_with_response_format(self, openai_server):
+        """Test response_format is included in request payload."""
+        model = OpenAICompatibleLanguageModel(
+            endpoint=openai_server,
+            api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
+            model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            max_tries=2,
+        )
+
+        messages = TestDataFactory.create_chat_messages(
+            "Return JSON"
+        ).to_chat_messages()
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "test_schema",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {"x": {"type": "integer"}},
+                    "required": ["x"],
+                },
+            },
+        }
+
+        request_data = model._prepare_request_data(
+            messages,
+            response_format=response_format,
+        )
+
+        assert request_data["response_format"] == response_format
+
+    def test_response_format_fallback_when_unsupported(self):
+        """Test fallback and caching when response_format is unsupported."""
+
+        class MockResponse:
+            def __init__(
+                self, status: int, *, text_body: str = "", json_body: dict | None = None
+            ):
+                self.status = status
+                self._text_body = text_body
+                self._json_body = json_body or {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def text(self):
+                return self._text_body
+
+            async def json(self):
+                return self._json_body
+
+        class MockClientSession:
+            def __init__(self):
+                self.requests: list[dict] = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def post(self, url, headers=None, json=None):
+                del url, headers
+                self.requests.append(json)
+                if len(self.requests) == 1:
+                    return MockResponse(
+                        400,
+                        text_body='{"error": {"message": "response_format not supported"}}',
+                    )
+                return MockResponse(
+                    200,
+                    json_body={
+                        "choices": [
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "fallback response",
+                                }
+                            }
+                        ]
+                    },
+                )
+
+        model = OpenAICompatibleLanguageModel(
+            endpoint="http://mock-server",
+            api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
+            model_name="response-format-cache-model",
+            max_tries=1,
+        )
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "test_schema",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {"x": {"type": "integer"}},
+                    "required": ["x"],
+                },
+            },
+        }
+        messages = TestDataFactory.create_chat_messages(
+            "Return JSON"
+        ).to_chat_messages()
+
+        mock_session = MockClientSession()
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            response = model.generate(messages, response_format=response_format)
+            second_response = model.generate(messages, response_format=response_format)
+
+        assert response["content"] == "fallback response"
+        assert second_response["content"] == "fallback response"
+        assert mock_session.requests[0]["response_format"] == response_format
+        assert "response_format" not in mock_session.requests[1]
+        assert "response_format" not in mock_session.requests[2]
+        assert len(mock_session.requests) == 3
+
     def test_async_generation(self, openai_server):
         """Test async generation functionality."""
         async_model = OpenAICompatibleLanguageModel(
@@ -240,12 +363,15 @@ class TestOpenAICompatibleLanguageModel:
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
             system_prompt="You are a helpful assistant.",
-            max_tries=2
+            max_tries=2,
         )
 
         chat_messages = TestDataFactory.create_chat_messages("Hello, world!")
         response = await model.agenerate(chat_messages.to_chat_messages())
-        assert response == {"role": "assistant", "content": "Response to: Hello, world!"}
+        assert response == {
+            "role": "assistant",
+            "content": "Response to: Hello, world!",
+        }
 
     @pytest.mark.asyncio
     async def test_agenerate_batch(self, openai_server):
@@ -254,23 +380,25 @@ class TestOpenAICompatibleLanguageModel:
             endpoint=openai_server,
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
-            max_tries=2
+            max_tries=2,
         )
 
         messages_lst = [
             TestDataFactory.create_chat_messages("Hello, world!").to_chat_messages(),
-            TestDataFactory.create_chat_messages("How are you?").to_chat_messages()
+            TestDataFactory.create_chat_messages("How are you?").to_chat_messages(),
         ]
 
         responses = await model.agenerate(messages_lst)
         expected = [
             {"role": "assistant", "content": "Response to: Hello, world!"},
-            {"role": "assistant", "content": "Response to: How are you?"}
+            {"role": "assistant", "content": "Response to: How are you?"},
         ]
         assert responses == expected
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("scenario_name", ["simple_chat", "math_problem", "with_system_prompt"])
+    @pytest.mark.parametrize(
+        "scenario_name", ["simple_chat", "math_problem", "with_system_prompt"]
+    )
     async def test_agenerate_scenarios(self, openai_server, scenario_name):
         """Test async generation with various predefined scenarios."""
         scenario = TEST_SCENARIOS[scenario_name]
@@ -282,37 +410,41 @@ class TestOpenAICompatibleLanguageModel:
             endpoint=openai_server,
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
-            max_tries=2
+            max_tries=2,
         )
 
         chat_messages = TestDataFactory.create_chat_messages(
-            scenario["user_content"],
-            scenario.get("system_content")
+            scenario["user_content"], scenario.get("system_content")
         )
 
         response = await model.agenerate(chat_messages.to_chat_messages())
         assert response == scenario["expected_response"]
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("stop_token,include_stop,expected_suffix", [
-        (None, False, ""),
-        ("STOP", False, ""),
-        ("STOP", True, "STOP"),
-    ])
-    async def test_agenerate_stop_token_handling(self, openai_server, stop_token, include_stop, expected_suffix):
+    @pytest.mark.parametrize(
+        "stop_token,include_stop,expected_suffix",
+        [
+            (None, False, ""),
+            ("STOP", False, ""),
+            ("STOP", True, "STOP"),
+        ],
+    )
+    async def test_agenerate_stop_token_handling(
+        self, openai_server, stop_token, include_stop, expected_suffix
+    ):
         """Test async generation stop token handling with different configurations."""
         model = OpenAICompatibleLanguageModel(
             endpoint=openai_server,
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
-            max_tries=2
+            max_tries=2,
         )
 
         chat_messages = TestDataFactory.create_chat_messages("Hello, world!")
         response = await model.agenerate(
             chat_messages.to_chat_messages(),
             stop=stop_token,
-            include_stop_str_in_output=include_stop
+            include_stop_str_in_output=include_stop,
         )
 
         expected_content = "Response to: Hello, world!" + expected_suffix
@@ -326,10 +458,12 @@ class TestOpenAICompatibleLanguageModel:
             endpoint=openai_server,
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
-            max_tries=2
+            max_tries=2,
         )
 
-        chat_messages = TestDataFactory.create_chat_messages(TEST_CONSTANTS["ERROR_TRIGGER"])
+        chat_messages = TestDataFactory.create_chat_messages(
+            TEST_CONSTANTS["ERROR_TRIGGER"]
+        )
 
         with pytest.raises(Exception) as exc_info:
             await model.agenerate(chat_messages.to_chat_messages())
@@ -337,22 +471,29 @@ class TestOpenAICompatibleLanguageModel:
         assert "Server error" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("error_message,expected_result", [
-        ("[CUSTOM ERROR]", "[CUSTOM ERROR]"),
-        ("", ""),
-        (None, Exception),  # Should raise exception
-    ])
-    async def test_agenerate_replace_error_with_message(self, openai_server, error_message, expected_result):
+    @pytest.mark.parametrize(
+        "error_message,expected_result",
+        [
+            ("[CUSTOM ERROR]", "[CUSTOM ERROR]"),
+            ("", ""),
+            (None, Exception),  # Should raise exception
+        ],
+    )
+    async def test_agenerate_replace_error_with_message(
+        self, openai_server, error_message, expected_result
+    ):
         """Test async replace_error_with_message functionality."""
         model = OpenAICompatibleLanguageModel(
             endpoint=openai_server,
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
             max_tries=1,
-            replace_error_with_message=error_message
+            replace_error_with_message=error_message,
         )
 
-        chat_messages = TestDataFactory.create_chat_messages(TEST_CONSTANTS["ERROR_TRIGGER"])
+        chat_messages = TestDataFactory.create_chat_messages(
+            TEST_CONSTANTS["ERROR_TRIGGER"]
+        )
 
         if expected_result is Exception:
             with pytest.raises(Exception):  # noqa: B017
@@ -371,20 +512,22 @@ class TestOpenAICompatibleLanguageModel:
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
             max_tries=1,
-            replace_error_with_message=error_message
+            replace_error_with_message=error_message,
         )
 
         messages_lst = [
             TestDataFactory.create_chat_messages("Hello, world!").to_chat_messages(),
-            TestDataFactory.create_chat_messages(TEST_CONSTANTS["ERROR_TRIGGER"]).to_chat_messages(),
-            TestDataFactory.create_chat_messages("How are you?").to_chat_messages()
+            TestDataFactory.create_chat_messages(
+                TEST_CONSTANTS["ERROR_TRIGGER"]
+            ).to_chat_messages(),
+            TestDataFactory.create_chat_messages("How are you?").to_chat_messages(),
         ]
 
         results = await model.agenerate(messages_lst)
         expected = [
             {"role": "assistant", "content": "Response to: Hello, world!"},
             {"role": "assistant", "content": error_message},
-            {"role": "assistant", "content": "Response to: How are you?"}
+            {"role": "assistant", "content": "Response to: How are you?"},
         ]
         assert results == expected
 
@@ -396,12 +539,15 @@ class TestOpenAICompatibleLanguageModel:
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
             system_prompt="You are a helpful assistant.",
-            max_tries=2
+            max_tries=2,
         )
 
         chat_messages = TestDataFactory.create_chat_messages("Hello, world!")
         response = await model.agenerate(chat_messages.to_chat_messages())
-        assert response == {"role": "assistant", "content": "Response to: Hello, world!"}
+        assert response == {
+            "role": "assistant",
+            "content": "Response to: Hello, world!",
+        }
 
     @pytest.mark.asyncio
     async def test_agenerate_batch(self, openai_server):
@@ -410,23 +556,25 @@ class TestOpenAICompatibleLanguageModel:
             endpoint=openai_server,
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
-            max_tries=2
+            max_tries=2,
         )
 
         messages_lst = [
             TestDataFactory.create_chat_messages("Hello, world!").to_chat_messages(),
-            TestDataFactory.create_chat_messages("How are you?").to_chat_messages()
+            TestDataFactory.create_chat_messages("How are you?").to_chat_messages(),
         ]
 
         responses = await model.agenerate(messages_lst)
         expected = [
             {"role": "assistant", "content": "Response to: Hello, world!"},
-            {"role": "assistant", "content": "Response to: How are you?"}
+            {"role": "assistant", "content": "Response to: How are you?"},
         ]
         assert responses == expected
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("scenario_name", ["simple_chat", "math_problem", "with_system_prompt"])
+    @pytest.mark.parametrize(
+        "scenario_name", ["simple_chat", "math_problem", "with_system_prompt"]
+    )
     async def test_agenerate_scenarios(self, openai_server, scenario_name):
         """Test async generation with various predefined scenarios."""
         scenario = TEST_SCENARIOS[scenario_name]
@@ -438,37 +586,41 @@ class TestOpenAICompatibleLanguageModel:
             endpoint=openai_server,
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
-            max_tries=2
+            max_tries=2,
         )
 
         chat_messages = TestDataFactory.create_chat_messages(
-            scenario["user_content"],
-            scenario.get("system_content")
+            scenario["user_content"], scenario.get("system_content")
         )
 
         response = await model.agenerate(chat_messages.to_chat_messages())
         assert response == scenario["expected_response"]
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("stop_token,include_stop,expected_suffix", [
-        (None, False, ""),
-        ("STOP", False, ""),
-        ("STOP", True, "STOP"),
-    ])
-    async def test_agenerate_stop_token_handling(self, openai_server, stop_token, include_stop, expected_suffix):
+    @pytest.mark.parametrize(
+        "stop_token,include_stop,expected_suffix",
+        [
+            (None, False, ""),
+            ("STOP", False, ""),
+            ("STOP", True, "STOP"),
+        ],
+    )
+    async def test_agenerate_stop_token_handling(
+        self, openai_server, stop_token, include_stop, expected_suffix
+    ):
         """Test async generation stop token handling with different configurations."""
         model = OpenAICompatibleLanguageModel(
             endpoint=openai_server,
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
-            max_tries=2
+            max_tries=2,
         )
 
         chat_messages = TestDataFactory.create_chat_messages("Hello, world!")
         response = await model.agenerate(
             chat_messages.to_chat_messages(),
             stop=stop_token,
-            include_stop_str_in_output=include_stop
+            include_stop_str_in_output=include_stop,
         )
 
         expected_content = "Response to: Hello, world!" + expected_suffix
@@ -482,10 +634,12 @@ class TestOpenAICompatibleLanguageModel:
             endpoint=openai_server,
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
-            max_tries=2
+            max_tries=2,
         )
 
-        chat_messages = TestDataFactory.create_chat_messages(TEST_CONSTANTS["ERROR_TRIGGER"])
+        chat_messages = TestDataFactory.create_chat_messages(
+            TEST_CONSTANTS["ERROR_TRIGGER"]
+        )
 
         with pytest.raises(Exception) as exc_info:
             await model.agenerate(chat_messages.to_chat_messages())
@@ -493,22 +647,29 @@ class TestOpenAICompatibleLanguageModel:
         assert "Server error" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("error_message,expected_result", [
-        ("[CUSTOM ERROR]", "[CUSTOM ERROR]"),
-        ("", ""),
-        (None, Exception),  # Should raise exception
-    ])
-    async def test_agenerate_replace_error_with_message(self, openai_server, error_message, expected_result):
+    @pytest.mark.parametrize(
+        "error_message,expected_result",
+        [
+            ("[CUSTOM ERROR]", "[CUSTOM ERROR]"),
+            ("", ""),
+            (None, Exception),  # Should raise exception
+        ],
+    )
+    async def test_agenerate_replace_error_with_message(
+        self, openai_server, error_message, expected_result
+    ):
         """Test async replace_error_with_message functionality."""
         model = OpenAICompatibleLanguageModel(
             endpoint=openai_server,
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
             max_tries=1,
-            replace_error_with_message=error_message
+            replace_error_with_message=error_message,
         )
 
-        chat_messages = TestDataFactory.create_chat_messages(TEST_CONSTANTS["ERROR_TRIGGER"])
+        chat_messages = TestDataFactory.create_chat_messages(
+            TEST_CONSTANTS["ERROR_TRIGGER"]
+        )
 
         if expected_result is Exception:
             with pytest.raises(Exception):  # noqa: B017
@@ -527,20 +688,22 @@ class TestOpenAICompatibleLanguageModel:
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model_name=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
             max_tries=1,
-            replace_error_with_message=error_message
+            replace_error_with_message=error_message,
         )
 
         messages_lst = [
             TestDataFactory.create_chat_messages("Hello, world!").to_chat_messages(),
-            TestDataFactory.create_chat_messages(TEST_CONSTANTS["ERROR_TRIGGER"]).to_chat_messages(),
-            TestDataFactory.create_chat_messages("How are you?").to_chat_messages()
+            TestDataFactory.create_chat_messages(
+                TEST_CONSTANTS["ERROR_TRIGGER"]
+            ).to_chat_messages(),
+            TestDataFactory.create_chat_messages("How are you?").to_chat_messages(),
         ]
 
         results = await model.agenerate(messages_lst)
         expected = [
             {"role": "assistant", "content": "Response to: Hello, world!"},
             {"role": "assistant", "content": error_message},
-            {"role": "assistant", "content": "Response to: How are you?"}
+            {"role": "assistant", "content": "Response to: How are you?"},
         ]
         assert results == expected
 
@@ -750,7 +913,9 @@ class TestStepGeneration:
         from unittest.mock import AsyncMock, Mock
 
         mock_lm = Mock()
-        mock_lm.agenerate = AsyncMock(return_value={"role": "assistant", "content": "test response"})
+        mock_lm.agenerate = AsyncMock(
+            return_value={"role": "assistant", "content": "test response"}
+        )
 
         step_gen = StepGeneration(tokens_per_step=100, max_steps=3)
         step_gen.forward(mock_lm, "test prompt")
@@ -758,4 +923,4 @@ class TestStepGeneration:
         # Verify that max_tokens=100 was passed to the language model
         mock_lm.agenerate.assert_called_once()
         call_args = mock_lm.agenerate.call_args
-        assert call_args.kwargs['max_tokens'] == 100
+        assert call_args.kwargs["max_tokens"] == 100

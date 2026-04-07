@@ -57,6 +57,7 @@ class MetropolisHastings(AbstractScalingAlgorithm):
         budget: int,
         show_progress: bool = False,
         return_response_only: bool = True,
+        response_format: dict | None = None,
     ) -> str | MetropolisHastingsResult:
         # TODO: Implement Metropolis-Hastings algorithm
         # Will need to convert prompt_or_messages to ChatMessages format when implemented

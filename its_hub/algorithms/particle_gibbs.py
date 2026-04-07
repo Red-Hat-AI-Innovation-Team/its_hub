@@ -1,4 +1,5 @@
 import copy
+import logging
 import random
 from enum import Enum
 
@@ -372,12 +373,18 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict | ParticleGibbsResult:
         """run inference asynchronously with particle gibbs"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
         assert budget % self.num_iterations == 0, (
             "budget must be divisible by num_iterations"
         )
+
+        if response_format is not None:
+            logging.warning(
+                "response_format is ignored for particle-based algorithms using step-wise generation"
+            )
 
         num_particles = budget // self.num_iterations
 
@@ -531,6 +538,7 @@ class ParticleFiltering(ParticleGibbs):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict | ParticleFilteringResult:
         """run inference asynchronously with particle filtering"""
         result = await super().ainfer(
@@ -540,6 +548,7 @@ class ParticleFiltering(ParticleGibbs):
             return_response_only=False,
             tools=tools,
             tool_choice=tool_choice,
+            response_format=response_format,
         )
 
         # Flatten the single-iteration result
@@ -593,6 +602,7 @@ class EntropicParticleFiltering(ParticleGibbs):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict | ParticleFilteringResult:
         result = super().infer(
             lm,
@@ -601,6 +611,7 @@ class EntropicParticleFiltering(ParticleGibbs):
             return_response_only=False,
             tools=tools,
             tool_choice=tool_choice,
+            response_format=response_format,
         )
 
         # Flatten the single-iteration result

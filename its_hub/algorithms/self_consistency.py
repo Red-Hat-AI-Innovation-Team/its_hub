@@ -170,22 +170,29 @@ class SelfConsistency(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict | SelfConsistencyResult:
         """run inference asynchronously with self-consistency"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
+        generation_kwargs: dict = {
+            "tools": tools,
+            "tool_choice": tool_choice,
+        }
+        if response_format is not None:
+            generation_kwargs["response_format"] = response_format
+
         # generate responses
         responses = await lm.agenerate(
-            chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
+            chat_messages.to_batch(budget),
+            **generation_kwargs,
         )
 
         # process responses and return result
         return self._process_responses(responses, return_response_only)
 
     def _process_responses(
-        self,
-        responses: list[dict],
-        return_response_only: bool = True
+        self, responses: list[dict], return_response_only: bool = True
     ) -> dict | SelfConsistencyResult:
         """Process responses and return result."""
         # Check if majority of responses have tool calls to decide voting method
@@ -215,7 +222,9 @@ class SelfConsistency(AbstractScalingAlgorithm):
                 i for i, r in enumerate(responses) if not r.get("tool_calls")
             ]
             responses_projected = [
-                self.consistency_space_projection_func(extract_content_from_lm_response(responses[i]))
+                self.consistency_space_projection_func(
+                    extract_content_from_lm_response(responses[i])
+                )
                 for i in eligible_indices
             ]
 

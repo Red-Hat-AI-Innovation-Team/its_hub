@@ -378,6 +378,10 @@ class ChatCompletionRequest(BaseModel):
     tool_choice: str | dict[str, Any] | None = Field(
         None, description="Tool choice strategy ('auto', 'none', or specific tool)"
     )
+    response_format: dict[str, Any] | None = Field(
+        None,
+        description="OpenAI-compatible structured output configuration",
+    )
     return_response_only: bool = Field(
         True, description="Return only final response or include algorithm metadata"
     )
@@ -502,6 +506,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
             return_response_only=request.return_response_only,
             tools=request.tools,
             tool_choice=request.tool_choice,
+            response_format=request.response_format,
         )
 
         # Extract response content and metadata

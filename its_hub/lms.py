@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import ssl
+from collections import OrderedDict
 
 import aiohttp
 import backoff
@@ -23,6 +24,83 @@ from .error_handling import (
 )
 from .types import ChatMessage
 from .utils import extract_content_from_lm_response
+
+
+def _is_response_format_unsupported_error(error: Exception | str) -> bool:
+    message = str(error).lower()
+    if "response_format" not in message and "json_schema" not in message:
+        return False
+
+    unsupported_markers = (
+        "not supported",
+        "unsupported",
+        "unknown",
+        "invalid parameter",
+        "extra inputs are not permitted",
+    )
+    return any(marker in message for marker in unsupported_markers)
+
+
+_RESPONSE_FORMAT_SUPPORT_CACHE_MAX_SIZE = 256
+_RESPONSE_FORMAT_SUPPORT_CACHE: OrderedDict[tuple[str, ...], bool] = OrderedDict()
+
+
+def _remove_response_format(request_data: dict) -> dict:
+    return {
+        key: value for key, value in request_data.items() if key != "response_format"
+    }
+
+
+def _get_cached_response_format_support(cache_key: tuple[str, ...]) -> bool | None:
+    support = _RESPONSE_FORMAT_SUPPORT_CACHE.get(cache_key)
+    if support is None:
+        return None
+
+    _RESPONSE_FORMAT_SUPPORT_CACHE.move_to_end(cache_key)
+    return support
+
+
+def _set_cached_response_format_support(
+    cache_key: tuple[str, ...], is_supported: bool
+) -> None:
+    _RESPONSE_FORMAT_SUPPORT_CACHE[cache_key] = is_supported
+    _RESPONSE_FORMAT_SUPPORT_CACHE.move_to_end(cache_key)
+
+    while len(_RESPONSE_FORMAT_SUPPORT_CACHE) > _RESPONSE_FORMAT_SUPPORT_CACHE_MAX_SIZE:
+        _RESPONSE_FORMAT_SUPPORT_CACHE.popitem(last=False)
+
+
+def _prepare_request_data_for_response_format_support(
+    request_data: dict,
+    cache_key: tuple[str, ...],
+) -> tuple[dict, bool]:
+    if request_data.get("response_format") is None:
+        return request_data, False
+
+    if _get_cached_response_format_support(cache_key) is False:
+        return _remove_response_format(request_data), False
+
+    return request_data, True
+
+
+def _build_response_format_fallback_request(
+    request_data: dict,
+    error: Exception | str,
+    cache_key: tuple[str, ...],
+    provider_name: str,
+) -> dict | None:
+    if request_data.get("response_format") is None:
+        return None
+
+    if not _is_response_format_unsupported_error(error):
+        return None
+
+    _set_cached_response_format_support(cache_key, False)
+    logging.warning(
+        "%s does not support response_format; retrying without response_format",
+        provider_name,
+    )
+    return _remove_response_format(request_data)
 
 
 def rstrip_iff_entire(s: str, subs: str) -> str:
@@ -300,6 +378,10 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     def _chat_completion_endpoint(self) -> str:
         return self.endpoint.rstrip("/") + "/chat/completions"
 
+    @property
+    def _response_format_cache_key(self) -> tuple[str, ...]:
+        return ("openai-compatible", self.endpoint.rstrip("/"), self.model_name)
+
     def _prepare_request_data(
         self,
         messages: list[ChatMessage],
@@ -309,6 +391,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict:
         # helper method to prepare request data for both sync and async methods
         # Convert dict messages to Message objects if needed
@@ -370,6 +453,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             request_data["tools"] = tools
         if tool_choice is not None:
             request_data["tool_choice"] = tool_choice
+        if response_format is not None:
+            request_data["response_format"] = response_format
 
         return request_data
 
@@ -382,6 +467,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> list[dict]:
         # limit concurrency to max_concurrency using a semaphore
         semaphore = asyncio.Semaphore(
@@ -407,6 +493,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 messages: list[ChatMessage], _temperature: float | None
             ) -> dict:
                 async with semaphore:
+                    cache_key = self._response_format_cache_key
                     request_data = self._prepare_request_data(
                         messages,
                         stop,
@@ -415,6 +502,13 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         include_stop_str_in_output,
                         tools,
                         tool_choice,
+                        response_format,
+                    )
+                    request_data, attempted_response_format = (
+                        _prepare_request_data_for_response_format_support(
+                            request_data,
+                            cache_key,
+                        )
                     )
 
                     async with session.post(
@@ -425,10 +519,49 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         if response.status != 200:
                             error_text = await response.text()
                             api_error = parse_api_error(response.status, error_text)
+
+                            fallback_request_data = (
+                                _build_response_format_fallback_request(
+                                    request_data,
+                                    api_error,
+                                    cache_key,
+                                    "Upstream model",
+                                )
+                            )
+                            if fallback_request_data is not None:
+                                async with session.post(
+                                    self._chat_completion_endpoint,
+                                    headers=self.headers,
+                                    json=fallback_request_data,
+                                ) as fallback_response:
+                                    if fallback_response.status != 200:
+                                        fallback_error_text = (
+                                            await fallback_response.text()
+                                        )
+                                        fallback_api_error = parse_api_error(
+                                            fallback_response.status,
+                                            fallback_error_text,
+                                        )
+                                        if not should_retry(fallback_api_error):
+                                            logging.error(
+                                                format_non_retryable_error(
+                                                    fallback_api_error
+                                                )
+                                            )
+                                        raise fallback_api_error
+                                    fallback_response_json = (
+                                        await fallback_response.json()
+                                    )
+                                    return fallback_response_json["choices"][0][
+                                        "message"
+                                    ]
+
                             if not should_retry(api_error):
                                 logging.error(format_non_retryable_error(api_error))
                             raise api_error
                         response_json = await response.json()
+                        if attempted_response_format:
+                            _set_cached_response_format_support(cache_key, True)
                         # Return the full message object to preserve tool calls
                         return response_json["choices"][0]["message"]
 
@@ -475,6 +608,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict | list[dict]:
         """generate response(s) asynchronously"""
         is_single = not isinstance(messages_or_messages_lst[0], list)
@@ -489,6 +623,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             include_stop_str_in_output,
             tools,
             tool_choice,
+            response_format,
         )
         return response_or_responses[0] if is_single else response_or_responses
 
@@ -501,6 +636,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict | list[dict]:
         """Generate response(s) synchronously.
 
@@ -522,6 +658,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 include_stop_str_in_output,
                 tools,
                 tool_choice,
+                response_format,
             )
         )
         return response_or_responses[0] if is_single else response_or_responses
@@ -583,6 +720,15 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
         self.custom_llm_provider = custom_llm_provider
         self.extra_kwargs = kwargs
 
+    @property
+    def _response_format_cache_key(self) -> tuple[str, ...]:
+        return (
+            "litellm",
+            self.model_name,
+            self.api_base or "",
+            self.custom_llm_provider or "",
+        )
+
     def _prepare_request_data(
         self,
         messages: list[ChatMessage],
@@ -592,6 +738,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict:
         # Convert dict messages to Message objects if needed
         messages = [
@@ -643,6 +790,8 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
             request_data["tools"] = tools
         if tool_choice is not None:
             request_data["tool_choice"] = tool_choice
+        if response_format is not None:
+            request_data["response_format"] = response_format
 
         # add any extra kwargs
         request_data.update(self.extra_kwargs)
@@ -663,6 +812,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> list[dict]:
         import time
 
@@ -684,6 +834,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
             messages: list[ChatMessage], _temperature: float | None
         ) -> dict:
             async with semaphore:
+                cache_key = self._response_format_cache_key
                 request_data = self._prepare_request_data(
                     messages,
                     stop,
@@ -692,9 +843,33 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
                     include_stop_str_in_output,
                     tools,
                     tool_choice,
+                    response_format,
                 )
+                request_data, attempted_response_format = (
+                    _prepare_request_data_for_response_format_support(
+                        request_data,
+                        cache_key,
+                    )
+                )
+                used_fallback = False
 
-                response = await litellm.acompletion(**request_data)
+                try:
+                    response = await litellm.acompletion(**request_data)
+                except Exception as e:
+                    fallback_request_data = _build_response_format_fallback_request(
+                        request_data,
+                        e,
+                        cache_key,
+                        "LiteLLM provider",
+                    )
+                    if fallback_request_data is None:
+                        raise
+
+                    response = await litellm.acompletion(**fallback_request_data)
+                    used_fallback = True
+
+                if attempted_response_format and not used_fallback:
+                    _set_cached_response_format_support(cache_key, True)
                 # Return the full message object to preserve tool calls
                 return response.choices[0].message.dict()
 
@@ -735,6 +910,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict | list[dict]:
         # Check if we have a single list of messages or a list of message lists
         is_single = not isinstance(messages_or_messages_lst[0], list)
@@ -759,6 +935,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
                                 include_stop_str_in_output,
                                 tools,
                                 tool_choice,
+                                response_format,
                             )
                         )
                     ).result()
@@ -773,6 +950,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
                         include_stop_str_in_output,
                         tools,
                         tool_choice,
+                        response_format,
                     )
                 )
         else:
@@ -787,6 +965,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
             def fetch_single_response(
                 messages: list[ChatMessage], _temperature: float | None
             ) -> dict:
+                cache_key = self._response_format_cache_key
                 request_data = self._prepare_request_data(
                     messages,
                     stop,
@@ -795,9 +974,33 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
                     include_stop_str_in_output,
                     tools,
                     tool_choice,
+                    response_format,
                 )
+                request_data, attempted_response_format = (
+                    _prepare_request_data_for_response_format_support(
+                        request_data,
+                        cache_key,
+                    )
+                )
+                used_fallback = False
 
-                response = litellm.completion(**request_data)
+                try:
+                    response = litellm.completion(**request_data)
+                except Exception as e:
+                    fallback_request_data = _build_response_format_fallback_request(
+                        request_data,
+                        e,
+                        cache_key,
+                        "LiteLLM provider",
+                    )
+                    if fallback_request_data is None:
+                        raise
+
+                    response = litellm.completion(**fallback_request_data)
+                    used_fallback = True
+
+                if attempted_response_format and not used_fallback:
+                    _set_cached_response_format_support(cache_key, True)
                 # Return the full message object to preserve tool calls
                 return response.choices[0].message.dict()
 
@@ -836,6 +1039,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict | list[dict]:
         """Async version of generate method for use in async contexts."""
         # Check if we have a single list of messages or a list of message lists
@@ -853,6 +1057,7 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
             include_stop_str_in_output,
             tools,
             tool_choice,
+            response_format,
         )
 
         return response_or_responses[0] if is_single else response_or_responses
