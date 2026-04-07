@@ -2,9 +2,11 @@
 
 This guide shows examples of inference-time scaling. **Tool calling is the primary use case** for production applications.
 
+> **Note:** All algorithms provide both `ainfer()` (async, primary) and `infer()` (sync wrapper via `asyncio.run()`). The examples below use `infer()` for simplicity. For production async code, use `ainfer()` directly within an `async def`.
+
 ## Example 1: Self-Consistency with Tool Calling (Recommended)
 
-**Installation required:** `pip install its_hub`
+**Installation required:** `pip install its_hub[lm]`
 
 This example shows how to use Self-Consistency for reliable tool calling in agent applications.
 
@@ -77,17 +79,16 @@ asyncio.run(lm.close())
 
 ---
 
-## Example 2: Best-of-N with LLM Judge (Core Installation)
+## Example 2: Best-of-N with LLM Judge
 
-**Installation required:** `pip install its_hub`
+**Installation required:** `pip install its_hub[lm]`
 
 This example uses Best-of-N algorithm with an LLM judge for response selection. Works with any OpenAI-compatible API and requires no GPU.
 
 ```python
 import asyncio
 
-from its_hub import BestOfN, OpenAICompatibleLanguageModel
-from its_hub.core.reward_models.llm_judge import LLMJudge
+from its_hub import BestOfN, LLMJudge, OpenAICompatibleLanguageModel
 
 # Initialize language model
 lm = OpenAICompatibleLanguageModel(

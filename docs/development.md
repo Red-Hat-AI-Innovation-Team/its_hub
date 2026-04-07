@@ -57,58 +57,69 @@ ruff format its_hub/
 
 ### Key Base Classes
 
-Located in `its_hub/api`:
+Located in `its_hub/api/`:
 
 ```python
-# Language model interface
+# Language model interface (its_hub/api/lm.py)
 class AbstractLanguageModel:
-    def generate(self, prompt: str) -> str: ...
-    def generate_batch(self, prompts: list[str]) -> list[str]: ...
+    async def agenerate(self, messages, stop=None, **kwargs) -> dict | list[dict]: ...
+    async def agenerate_single(self, messages, stop=None, **kwargs) -> dict: ...
 
-# Algorithm interface  
+# Algorithm interface (its_hub/api/algorithm.py)
 class AbstractScalingAlgorithm:
-    def infer(self, lm, prompt, budget, return_response_only=True): ...
+    async def ainfer(self, lm, prompt_or_messages, budget,
+                     return_response_only=True, tools=None, tool_choice=None): ...
+    def infer(self, ...): ...  # Sync wrapper via asyncio.run()
 
-# Result interface
+# Result interface (its_hub/api/algorithm.py)
 class AbstractScalingResult:
     @property
-    def the_one(self) -> str: ...  # Best response
+    def the_one(self) -> dict: ...  # Best response as dict
 
-# Reward model interfaces
+# Orchestrator interface (its_hub/api/orchestrator.py)
+class AbstractOrchestrator:
+    async def agenerate(self, lm, messages_lst, ...) -> list[dict]: ...
+
+# Reward model interfaces (its_hub/api/reward_models/)
 class AbstractOutcomeRewardModel:
-    def score(self, prompt: str, response: str) -> float: ...
+    def score(self, messages, **kwargs) -> list[float] | float: ...
+    async def ascore(self, messages, orchestrator=None, **kwargs) -> list[float] | float: ...
 
 class AbstractProcessRewardModel:
-    def score_steps(self, prompt: str, steps: list[str]) -> list[float]: ...
+    def score(self, prompt_or_messages, steps) -> list[float]: ...
+    async def ascore(self, prompt_or_messages, steps) -> list[float]: ...
 ```
 
 ### Component Overview
 
 ```
 its_hub/
-├── algorithms/__init__.py  # For backward compatibility
-├── api/                    # Abstract interfaces
-│   ├── reward_models
-│   │   ├── orm.py
-│   │   └── prm.py
-│   ├── algorithm.py
-│   ├── errors.py
-│   ├── lm.py
-│   └── types.py
-├── core/
-│   ├── algorithms/         # Scaling algorithms
-│   │   ├── beam_search.py
+├── __init__.py             # Top-level exports (import from here)
+├── algorithms/__init__.py  # Deprecated, backward compatibility only
+├── api/                    # Public interfaces (stable API)
+│   ├── lm.py              # AbstractLanguageModel
+│   ├── algorithm.py       # AbstractScalingAlgorithm, AbstractScalingResult
+│   ├── orchestrator.py    # AbstractOrchestrator
+│   ├── types.py           # ChatMessage, ChatMessages
+│   ├── errors.py          # APIError, RateLimitError, etc.
+│   └── reward_models/
+│       ├── orm.py         # AbstractOutcomeRewardModel
+│       └── prm.py         # AbstractProcessRewardModel
+├── core/                   # Implementations (internal)
+│   ├── algorithms/
+│   │   ├── self_consistency.py
 │   │   ├── bon.py
+│   │   ├── beam_search.py
 │   │   ├── particle_gibbs.py
 │   │   └── planning_wrapper.py
-│   │   └── self_consistency.py
-│   ├── lms/                # Language model implementations
-│   │   ├── openai_lm.py
+│   ├── lms/
+│   │   ├── openai_lm.py   # OpenAICompatibleLanguageModel
 │   │   └── step_generation.py
-│   ├── reward_models/      # Reward models
-│   │   ├── llm_judge.py
+│   ├── reward_models/
+│   │   ├── llm_judge.py   # LLMJudge
 │   │   └── local_vllm_prm.py
-└──-└──utils.py             # Utilities and prompts
+│   ├── orchestrator.py    # LMOrchestrator
+│   └── utils.py           # System prompts, helpers
 ```
 
 ## Adding New Algorithms
@@ -117,15 +128,15 @@ its_hub/
 
 ```python
 from its_hub import AbstractScalingAlgorithm, AbstractScalingResult
+from its_hub.api import ChatMessages
 
 class MyAlgorithmResult(AbstractScalingResult):
-    def __init__(self, responses: list[str], scores: list[float]):
+    def __init__(self, responses: list[dict], scores: list[float]):
         self.responses = responses
         self.scores = scores
     
     @property
-    def the_one(self) -> str:
-        # Return best response based on your criteria
+    def the_one(self) -> dict:
         best_idx = max(range(len(self.scores)), key=lambda i: self.scores[i])
         return self.responses[best_idx]
 
@@ -133,13 +144,14 @@ class MyAlgorithm(AbstractScalingAlgorithm):
     def __init__(self, custom_param: float = 1.0):
         self.custom_param = custom_param
     
-    def infer(self, lm, prompt: str, budget: int, return_response_only: bool = True):
+    async def ainfer(self, lm, prompt_or_messages, budget, return_response_only=True):
         # Implement your algorithm logic here
+        messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
         responses = []
         scores = []
         
         for i in range(budget):
-            response = lm.generate(prompt)
+            response = await lm.agenerate_single(messages)
             score = self._score_response(response)
             responses.append(response)
             scores.append(score)
@@ -147,82 +159,81 @@ class MyAlgorithm(AbstractScalingAlgorithm):
         result = MyAlgorithmResult(responses, scores)
         return result.the_one if return_response_only else result
     
-    def _score_response(self, response: str) -> float:
+    def _score_response(self, response: dict) -> float:
         # Implement your scoring logic
-        return len(response)  # Example: prefer longer responses
+        return len(response.get("content", ""))  # Example: prefer longer responses
 ```
 
-### 2. Add to Algorithms Module
+> The base class provides a sync `infer()` wrapper that calls `asyncio.run(self.ainfer(...))` automatically.
+
+### 2. Add to Core Algorithms Module
 
 ```python
-# its_hub/algorithms/__init__.py
-from .my_algorithm import MyAlgorithm
-
-__all__ = ['SelfConsistency', 'BestOfN', 'BeamSearch', 'ParticleFiltering', 'MyAlgorithm']
+# its_hub/core/algorithms/my_algorithm.py
+# Place your implementation here, then export from its_hub/__init__.py
 ```
 
 ### 3. Write Tests
 
 ```python
 # tests/test_my_algorithm.py
-import pytest
-from its_hub.algorithms import MyAlgorithm
-from its_hub import OpenAICompatibleLanguageModel
+import asyncio
+from its_hub import AbstractLanguageModel, MyAlgorithm
+
+class MockLM(AbstractLanguageModel):
+    async def agenerate_single(self, messages, stop=None, **kwargs):
+        return {"role": "assistant", "content": "mock response"}
 
 def test_my_algorithm():
-    # Mock language model for testing
-    class MockLM:
-        def generate(self, prompt):
-            return f"Response to: {prompt}"
-    
     lm = MockLM()
     algorithm = MyAlgorithm(custom_param=2.0)
     
     result = algorithm.infer(lm, "test prompt", budget=3)
-    assert isinstance(result, str)
-    assert "Response to: test prompt" in result
+    assert isinstance(result, dict)
+    assert result["role"] == "assistant"
 ```
 
 ## Adding New Language Models
 
-### 1. Implement Abstract Interface
+### Implement Abstract Interface
+
+The key method to implement is `agenerate_single()`, which the `AbstractOrchestrator` calls to fan out parallel LM requests. This is the contract between your LM and the orchestration layer — the orchestrator handles concurrency control, and your LM handles a single request:
 
 ```python
 from its_hub import AbstractLanguageModel
+from its_hub.api import ChatMessage
 
 class MyLanguageModel(AbstractLanguageModel):
-    def __init__(self, model_path: str):
-        self.model_path = model_path
-        # Initialize your model here
+    def __init__(self, api_client):
+        self.client = api_client
     
-    def generate(self, prompt: str) -> str:
-        # Implement single generation
-        pass
+    async def agenerate_single(
+        self, messages: list[ChatMessage], stop=None, **kwargs
+    ) -> dict:
+        # Convert ChatMessage objects to your API format and call your backend
+        response = await self.client.generate(
+            [m.to_dict() for m in messages], stop=stop, **kwargs
+        )
+        return {"role": "assistant", "content": response}
     
-    def generate_batch(self, prompts: list[str]) -> list[str]:
-        # Implement batch generation
-        return [self.generate(p) for p in prompts]
-    
-    def score(self, prompt: str, response: str) -> float:
-        # Implement response scoring (optional)
-        return 0.0
+    async def close(self):
+        # Clean up resources (sessions, connections, etc.)
+        await self.client.close()
 ```
 
-### 2. Add Async Support
+### Resource Cleanup
+
+Language models that hold async resources (HTTP sessions, connections) must be cleaned up after use:
 
 ```python
-import asyncio
-from typing import Optional
+# Option 1: Async context manager
+async with MyLanguageModel(client) as lm:
+    result = await algorithm.ainfer(lm, prompt, budget=5)
 
-class MyAsyncLanguageModel(AbstractLanguageModel):
-    async def generate_async(self, prompt: str, **kwargs) -> str:
-        # Implement async generation
-        pass
-    
-    async def generate_batch_async(self, prompts: list[str], **kwargs) -> list[str]:
-        # Implement async batch generation
-        tasks = [self.generate_async(p, **kwargs) for p in prompts]
-        return await asyncio.gather(*tasks)
+# Option 2: Explicit close (sync context)
+lm = MyLanguageModel(client)
+result = algorithm.infer(lm, prompt, budget=5)
+asyncio.run(lm.close())
 ```
 
 ## Adding New Reward Models
@@ -231,24 +242,25 @@ class MyAsyncLanguageModel(AbstractLanguageModel):
 
 ```python
 from its_hub import AbstractProcessRewardModel
+from its_hub.api import ChatMessage, ChatMessages
 
 class MyProcessRewardModel(AbstractProcessRewardModel):
     def __init__(self, model_path: str):
         self.model_path = model_path
-        # Load your reward model
     
-    def score_steps(self, prompt: str, steps: list[str]) -> list[float]:
-        """Score each reasoning step"""
+    def score(self, prompt_or_messages, steps: list[str]) -> list[float]:
+        """Score each reasoning step."""
+        messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
         scores = []
-        context = prompt
-        
         for step in steps:
-            score = self._score_step(context, step)
+            score = self._score_step(messages.to_prompt(), step)
             scores.append(score)
-            context += f"\\n{step}"
-        
         return scores
     
+    async def ascore(self, prompt_or_messages, steps: list[str]) -> list[float]:
+        """Async version of score."""
+        return self.score(prompt_or_messages, steps)
+
     def _score_step(self, context: str, step: str) -> float:
         # Implement step scoring logic
         return 1.0  # Placeholder
@@ -258,16 +270,14 @@ class MyProcessRewardModel(AbstractProcessRewardModel):
 
 ```python
 from its_hub import AbstractOutcomeRewardModel
+from its_hub.api import ChatMessage, ChatMessages
 
 class MyOutcomeRewardModel(AbstractOutcomeRewardModel):
-    def score(self, prompt: str, response: str) -> float:
-        """Score the final response"""
-        # Implement outcome scoring logic
-        return self._evaluate_correctness(prompt, response)
-    
-    def _evaluate_correctness(self, prompt: str, response: str) -> float:
-        # Custom evaluation logic
-        return 1.0 if "correct" in response.lower() else 0.0
+    def score(self, messages, **kwargs) -> list[float] | float:
+        """Score conversation(s)."""
+        msgs = ChatMessages.from_prompt_or_messages(messages)
+        content = msgs.to_chat_messages()[-1].extract_text_content()
+        return 1.0 if "correct" in content.lower() else 0.0
 ```
 
 ## Testing Guidelines
@@ -293,11 +303,15 @@ def test_algorithm_with_mock():
 
 ```python
 # Test component interactions
+import asyncio
+
 def test_algorithm_with_real_lm():
     lm = OpenAICompatibleLanguageModel(...)
     algorithm = MyAlgorithm()
     result = algorithm.infer(lm, "test", budget=2)
     # Verify end-to-end behavior
+    assert isinstance(result, dict)
+    asyncio.run(lm.close())
 ```
 
 ### Performance Tests

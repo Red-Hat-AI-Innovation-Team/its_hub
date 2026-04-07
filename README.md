@@ -65,26 +65,40 @@ uv sync --extra dev
 
 **Installation required:** `pip install its_hub` (core only, minimal dependencies)
 
-Gateway integration is simple: implement the `AbstractLanguageModel` interface with your existing LM client.
+Gateway integration requires implementing two interfaces: `AbstractLanguageModel` for LM calls and `AbstractOrchestrator` for managing parallel execution with concurrency control and rate limiting.
 
 ```python
-from its_hub import AbstractLanguageModel, SelfConsistency
+import asyncio
 
-# Implement AbstractLanguageModel interface - this is the ONLY integration work required
+from its_hub import AbstractLanguageModel, AbstractOrchestrator, SelfConsistency
+
+# Step 1: Implement AbstractLanguageModel with your gateway's LM client
 class MyGatewayLM(AbstractLanguageModel):
     def __init__(self, gateway_client):
         self.client = gateway_client
 
-    async def agenerate(self, messages, stop=None, **kwargs):
+    async def agenerate_single(self, messages, stop=None, **kwargs):
         response = await self.client.generate(messages, stop=stop, **kwargs)
         return {"role": "assistant", "content": response}
 
-# Use its_hub algorithms with your gateway's LM
-lm = MyGatewayLM(your_gateway_client)
-algorithm = SelfConsistency()
-result = await algorithm.ainfer(lm, "What is 2+2?", budget=5)
-print(result)  # {"role": "assistant", "content": "4", ...}
+# Step 2: Implement AbstractOrchestrator for concurrency control
+# (or use the built-in LMOrchestrator from its_hub[lm])
+class MyGatewayOrchestrator(AbstractOrchestrator):
+    async def agenerate(self, lm, messages_lst, **kwargs):
+        # Manage parallel calls with your gateway's rate limits
+        ...
+
+async def main():
+    lm = MyGatewayLM(your_gateway_client)
+    orchestrator = MyGatewayOrchestrator()
+    algorithm = SelfConsistency(orchestrator=orchestrator)
+    result = await algorithm.ainfer(lm, "What is 2+2?", budget=5)
+    print(result)  # {"role": "assistant", "content": "4", ...}
+
+asyncio.run(main())
 ```
+
+The `AbstractOrchestrator` is the central coordination point — it controls how algorithms fan out parallel LM calls, enforces rate limits, and provides structured error handling. See [Orchestration](docs/orchestration.md) for details.
 
 ### Example 2: Standalone Use with OpenAI-Compatible LM
 
@@ -125,7 +139,7 @@ lm = OpenAICompatibleLanguageModel(
 )
 
 judge = LLMJudge(lm=lm, fallback_score=5.0)
-algorithm = BestOfN(reward_model=judge)
+algorithm = BestOfN(orm=judge)
 result = algorithm.infer(lm, "Write a sorting function", budget=5)
 print(result)  # Best response as judged by LLM
 
@@ -136,9 +150,10 @@ asyncio.run(lm.close())
 ## Key Features
 
 - 🔬 **Multiple Algorithms**: Self-Consistency, Best-of-N, Beam Search (experimental), Particle Filtering (experimental)
-- 🚀 **Gateway Integration**: Clean abstractions for easy integration with AI gateways
+- 🚀 **Gateway Integration**: Clean abstractions (`AbstractLanguageModel`, `AbstractOrchestrator`) for easy integration with AI gateways
+- 🔄 **Orchestration**: `AbstractOrchestrator` provides structured concurrency, rate limiting, and error propagation for parallel LM calls — essential for production gateway deployments
 - 🧮 **Math-Optimized**: Built for mathematical reasoning tasks
-- ⚡ **Async Support**: Concurrent generation with limits and error handling
+- ⚡ **Async-First**: `ainfer()` is the primary method; `infer()` is a sync wrapper. Concurrent generation with limits and error handling
 - 🎯 **Minimal Core**: Only 2 dependencies (numpy, typing-extensions) for core install
 
 For detailed documentation, visit: [https://ai-innovation.team/its_hub](https://ai-innovation.team/its_hub)

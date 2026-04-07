@@ -2,17 +2,18 @@
 
 ## Prerequisites
 
-- Python 3.10+ (3.11+ recommended)
+- Python 3.11+
 - pip or uv package manager
-- GPU with CUDA 11.8+ (only for `[prm]` installation)
+- GPU with CUDA 11.8+ (only for `[experimental]` installation)
 
 ## Installation Options
 
 | Option | Command | Use Case |
 |--------|---------|----------|
-| **Core** | `pip install its_hub` | Best-of-N, Self-Consistency, cloud APIs |
+| **Core** | `pip install its_hub` | Algorithms and interfaces only (2 dependencies) |
+| **LM** | `pip install its_hub[lm]` | OpenAI-compatible LM, LLMJudge, StepGeneration |
+| **IaaS** | `pip install its_hub[iaas]` | FastAPI Inference-as-a-Service server |
 | **Experimental** | `pip install its_hub[experimental]` | Particle Filtering, Beam Search, reward-hub integration |
-| **Cloud** | `pip install its_hub[cloud]` | AWS Bedrock, Google Vertex AI |
 | **Research** | `pip install its_hub[research]` | Benchmarks, evaluation tools |
 | **Dev** | `pip install -e ".[dev]"` | Contributing, testing |
 
@@ -44,6 +45,7 @@ pip install its_hub[lm]
 ```python
 # Verify installation
 from its_hub import BestOfN, LLMJudge, SelfConsistency
+from its_hub import OpenAICompatibleLanguageModel, StepGeneration
 ```
 
 ---
@@ -82,17 +84,6 @@ from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardMode
 import torch
 print(f'CUDA available: {torch.cuda.is_available()}')
 ```
-
----
-
-## Cloud Installation
-
-```bash
-pip install its_hub[cloud]
-```
-
-**Adds**: AWS Bedrock (`boto3`) and Google Vertex AI (`google-cloud-aiplatform`) SDKs
-**Use if**: Need direct SDK access to Bedrock or Vertex AI (most cloud providers work with core via LiteLLM)
 
 ---
 
@@ -140,8 +131,8 @@ uv run ruff format its_hub/
 
 ```bash
 pip install its_hub[experimental,research]  # Experimental + benchmarking
-pip install its_hub[cloud,research]          # Cloud + benchmarking
-pip install -e ".[dev,research,cloud]"       # Everything
+pip install its_hub[lm,research]            # LM + benchmarking
+pip install -e ".[dev,research]"            # Everything
 ```
 
 ---
@@ -150,10 +141,13 @@ pip install -e ".[dev,research,cloud]"       # Everything
 
 ```bash
 # Core
-python -c "from its_hub import BestOfN; print('✅ Core OK')"
+python -c "from its_hub import BestOfN, SelfConsistency; print('Core OK')"
+
+# LM
+python -c "from its_hub import OpenAICompatibleLanguageModel, LLMJudge; print('LM OK')"
 
 # Experimental
-python -c "from its_hub.core.algorithms.particle_gibbs import ParticleFiltering; print('✅ PRM OK')"
+python -c "from its_hub.core.algorithms.particle_gibbs import ParticleFiltering; print('Experimental OK')"
 python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}')"
 ```
 
