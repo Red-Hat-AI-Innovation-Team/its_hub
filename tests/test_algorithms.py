@@ -19,8 +19,11 @@ from its_hub.algorithms.particle_gibbs import (
     TemperatureMethod,
 )
 from its_hub.algorithms.self_consistency import (
+    ProjectionPreset,
     SelfConsistency,
     SelfConsistencyResult,
+    _extract_answer,
+    _extract_boxed,
     _select_hierarchical_most_common_or_random,
     _select_most_common_or_random,
     create_regex_projection_function,
@@ -182,21 +185,21 @@ class TestSelfConsistency:
         pattern = r"\\boxed\{([^}]+)\}"
         proj_func = create_regex_projection_function(pattern)
 
-        # Test successful extraction
+        # Test successful extraction — single pattern returns string, not tuple
         response1 = "The solution is 42. Therefore, the answer is \\boxed{42}."
         result1 = proj_func(response1)
-        assert result1 == ("42",)
+        assert result1 == "42"
 
         # Test no match
         response2 = "The answer is 42 but not in boxed format."
         result2 = proj_func(response2)
-        assert result2 == (None,)
+        assert result2 is None
 
         # Test pattern without capturing groups
         pattern_no_groups = r"\\boxed\{[^}]+\}"
         proj_func_no_groups = create_regex_projection_function(pattern_no_groups)
         result3 = proj_func_no_groups(response1)
-        assert result3 == ("\\boxed{42}",)
+        assert result3 == "\\boxed{42}"
 
     def test_create_regex_projection_function_multiple_patterns(self):
         """Test creating projection function from multiple regex patterns."""
@@ -232,7 +235,7 @@ class TestSelfConsistency:
         pattern = r"ANSWER:\s*(\w+)"
         proj_func = create_regex_projection_function(pattern)
 
-        # Test different cases
+        # Test different cases — single pattern returns string
         responses = [
             "ANSWER: correct",
             "answer: correct",
@@ -242,7 +245,7 @@ class TestSelfConsistency:
 
         for response in responses:
             result = proj_func(response)
-            assert result == ("correct",), f"Failed for: {response}"
+            assert result == "correct", f"Failed for: {response}"
 
     def test_create_regex_projection_function_multiline(self):
         """Test regex projection function with multiline and DOTALL flags."""
@@ -255,7 +258,7 @@ class TestSelfConsistency:
         Result: success"""
 
         result = proj_func(response)
-        assert result == ("success",)
+        assert result == "success"
 
     def test_create_regex_projection_function_with_self_consistency(self):
         """Test integration of regex projection function with SelfConsistency."""
@@ -277,7 +280,7 @@ class TestSelfConsistency:
 
         assert isinstance(result, SelfConsistencyResult)
         # "42" appears 3 times, should be selected over "24" (1 time)
-        extracted_answer = proj_func(result.the_one["content"])[0]
+        extracted_answer = proj_func(result.the_one["content"])
         assert extracted_answer == "42"
 
     def test_create_regex_projection_function_hierarchical_with_self_consistency(self):
@@ -308,8 +311,8 @@ class TestSelfConsistency:
         """Test the default projection function behavior."""
         from its_hub.algorithms.self_consistency import _default_projection_func
 
-        # Test basic stripping
-        assert _default_projection_func("  hello world  ") == "hello world"
+        # Test basic stripping and lowercasing
+        assert _default_projection_func("  Hello World  ") == "hello world"
         assert _default_projection_func("test") == "test"
         assert _default_projection_func("") == ""
 
@@ -317,16 +320,17 @@ class TestSelfConsistency:
         assert _default_projection_func("\n\ttest\n\t") == "test"
         assert _default_projection_func("   ") == ""
 
-        # Test that it preserves internal whitespace
-        assert _default_projection_func("  hello world  ") == "hello world"
-        assert _default_projection_func("\nhello\nworld\n") == "hello\nworld"
+        # Test case normalization
+        assert _default_projection_func("YES") == "yes"
+        assert _default_projection_func("  Hello World  ") == "hello world"
+        assert _default_projection_func("\nHello\nWorld\n") == "hello\nworld"
 
     def test_default_projection_function_with_self_consistency(self):
         """Test that default projection function works correctly with SelfConsistency."""
         responses = [
             "  answer: 42  ",  # Leading/trailing whitespace
             "answer: 42",  # No whitespace
-            "  answer: 42  ",  # Duplicate with whitespace
+            "  ANSWER: 42  ",  # Case variation
             "answer: 24",  # Different answer
         ]
         mock_lm = StepMockLanguageModel(responses)
@@ -336,10 +340,10 @@ class TestSelfConsistency:
         result = sc.infer(mock_lm, "test prompt", budget=4, return_response_only=False)
 
         assert isinstance(result, SelfConsistencyResult)
-        # "answer: 42" should be most common after stripping whitespace
-        assert result.the_one["content"].strip() == "answer: 42"
+        # "answer: 42" should be most common after stripping and lowercasing
+        assert result.the_one["content"].strip().lower() == "answer: 42"
 
-        # Verify the counts - "answer: 42" should appear 3 times after projection
+        # Verify the counts — all 3 variants map to "answer: 42" after projection
         assert result.response_counts["answer: 42"] == 3
         assert result.response_counts["answer: 24"] == 1
 
@@ -440,6 +444,93 @@ class TestSelfConsistency:
         assert isinstance(result, dict)
         # Content should be preserved as list
         assert result["content"] == [{"type": "text", "text": "Answer: 42"}]
+
+    # --- Projection preset tests ---
+
+    def test_projection_preset_is_enum(self):
+        """Test that ProjectionPreset is a proper Enum."""
+        assert isinstance(ProjectionPreset.MATH, ProjectionPreset)
+        assert ProjectionPreset.MATH.value == "math"
+        assert ProjectionPreset("general") == ProjectionPreset.GENERAL
+
+    def test_projection_preset_invalid_raises(self):
+        """Test that invalid projection_preset raises ValueError."""
+        with pytest.raises(ValueError, match="projection_preset"):
+            SelfConsistency(projection_preset="invalid")
+
+    def test_projection_preset_exact(self):
+        """Test that exact preset preserves legacy .strip() behavior (no lowercasing)."""
+        sc = SelfConsistency(projection_preset="exact")
+        assert sc.consistency_space_projection_func("  Hello  ") == "Hello"
+
+    def test_projection_preset_math(self):
+        """Test that math preset extracts boxed answers with nested braces."""
+        sc = SelfConsistency(projection_preset="math")
+        func = sc.consistency_space_projection_func
+        assert func("The answer is \\boxed{42}") == "42"
+        assert func("Result: \\boxed{x^{2}+1}") == "x^{2}+1"
+        # No boxed — falls back to strip+lower
+        assert func("  Just text  ") == "just text"
+
+    def test_projection_preset_general(self):
+        """Test that general preset extracts answers via pattern matching."""
+        sc = SelfConsistency(projection_preset="general")
+        func = sc.consistency_space_projection_func
+        assert func("Reasoning...\n\nFinal Answer: 45") == "45"
+        assert func("Lots of work.\n\n\\boxed{42}") == "42"
+
+    def test_custom_func_takes_priority_over_preset(self):
+        """Test that explicit function takes priority over preset."""
+        def custom(r):
+            return "custom"
+        sc = SelfConsistency(
+            consistency_space_projection_func=custom,
+            projection_preset="math",
+        )
+        assert sc.consistency_space_projection_func("anything") == "custom"
+
+    # --- _extract_boxed tests ---
+
+    def test_extract_boxed_simple(self):
+        """Test boxed extraction with simple content."""
+        assert _extract_boxed("\\boxed{42}") == "42"
+
+    def test_extract_boxed_nested(self):
+        """Test boxed extraction with nested braces."""
+        assert _extract_boxed("\\boxed{x^{2}+1}") == "x^{2}+1"
+        assert _extract_boxed("\\boxed{\\frac{1}{2}}") == "\\frac{1}{2}"
+
+    def test_extract_boxed_none(self):
+        """Test boxed extraction returns None when no boxed expression."""
+        assert _extract_boxed("no boxed here") is None
+        assert _extract_boxed("") is None
+
+    # --- _extract_answer tests ---
+
+    def test_extract_answer_boxed(self):
+        """Test answer extraction with boxed format."""
+        assert _extract_answer("Reasoning...\n\\boxed{42}") == "42"
+
+    def test_extract_answer_final_answer_pattern(self):
+        """Test answer extraction with Final Answer pattern."""
+        assert _extract_answer("Work...\nFinal Answer: 45") == "45"
+
+    def test_extract_answer_therefore_pattern(self):
+        """Test answer extraction with Therefore pattern."""
+        assert _extract_answer("Therefore, the answer is 99.") == "99"
+
+    def test_extract_answer_last_paragraph_fallback(self):
+        """Test answer extraction falls back to last paragraph."""
+        response = "First paragraph.\n\nSecond paragraph.\n\nThe answer is 7."
+        assert _extract_answer(response) == "the answer is 7."
+
+    def test_extract_answer_empty(self):
+        """Test answer extraction with empty string."""
+        assert _extract_answer("") == ""
+
+    def test_extract_answer_case_normalization(self):
+        """Test that extracted answers are lowercased."""
+        assert _extract_answer("Final Answer: YES") == "yes"
 
 
 class TestDataStructures:

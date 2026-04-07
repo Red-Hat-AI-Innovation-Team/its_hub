@@ -7,7 +7,7 @@ from .particle_gibbs import (
     ParticleGibbs,
     ParticleGibbsResult,
 )
-from .self_consistency import SelfConsistency, SelfConsistencyResult
+from .self_consistency import ProjectionPreset, SelfConsistency, SelfConsistencyResult
 
 __all__ = [
     "BeamSearch",
@@ -21,6 +21,7 @@ __all__ = [
     "ParticleFilteringResult",
     "ParticleGibbs",
     "ParticleGibbsResult",
+    "ProjectionPreset",
     "SelfConsistency",
     "SelfConsistencyResult",
 ]
