@@ -92,7 +92,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         # endpoint type
         self.endpoint_type = "openai" if "openai" in self.endpoint else "vllm"
 
-        # Session cache: one session per event loop, auto-cleaned via weak references
+        # Session cache: one session per event loop, entry is auto-cleaned via weak references.
+        # Session(s) need to be closed via close or close_session function calls.
         self._sessions: weakref.WeakKeyDictionary[
             asyncio.AbstractEventLoop, aiohttp.ClientSession
         ] = weakref.WeakKeyDictionary()
@@ -129,6 +130,19 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         for session in sessions:
             if not session.closed:
                 await session.close()
+
+    async def close_session(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
+        """Close the cached session for the given event loop.
+
+        Args:
+            loop: Event loop whose session to close. Defaults to the current running loop.
+        """
+        if loop is None:
+            loop = asyncio.get_running_loop()
+        with self._session_lock:
+            session = self._sessions.get(loop)
+        if session and not session.closed:
+            await session.close()
 
     async def __aenter__(self):
         """Async context manager entry."""
