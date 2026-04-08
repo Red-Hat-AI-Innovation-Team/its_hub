@@ -38,10 +38,10 @@ class StepMockLanguageModel(AbstractLanguageModel):
         self.step_responses = step_responses
         self.call_count = 0
 
-    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
+    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, **kwargs):
         return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
 
-    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
+    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, **kwargs):
         if isinstance(messages, list) and len(messages) > 0 and isinstance(messages[0], list):
             # Batched generation
             num_requests = len(messages)
@@ -74,10 +74,10 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
         self.error_on_calls = error_on_calls or []
         self.call_count = 0
 
-    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
+    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, **kwargs):
         return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
 
-    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
+    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, **kwargs):
         if self.call_count in self.error_on_calls:
             self.call_count += 1
             raise Exception("Simulated LM error")

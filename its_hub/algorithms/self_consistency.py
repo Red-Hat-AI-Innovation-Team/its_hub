@@ -34,6 +34,7 @@ class SelfConsistencyResult(AbstractScalingResult):
     responses: list[dict]  # Keep original message format with tool calls
     response_counts: Counter[str] | Counter[tuple] | Counter
     selected_index: int
+    usage: GenerationUsage | None = None
 
     @property
     def the_one(self) -> dict:
@@ -175,24 +176,26 @@ class SelfConsistency(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
-        usage_accumulator: GenerationUsage | None = None,
     ) -> dict | SelfConsistencyResult:
         """run inference asynchronously with self-consistency"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
+        usage = GenerationUsage()
+
         # generate responses
         responses = await lm.agenerate(
             chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice,
-            usage_accumulator=usage_accumulator,
+            usage_accumulator=usage,
         )
 
         # process responses and return result
-        return self._process_responses(responses, return_response_only)
+        return self._process_responses(responses, return_response_only, usage)
 
     def _process_responses(
         self,
         responses: list[dict],
-        return_response_only: bool = True
+        return_response_only: bool = True,
+        usage: GenerationUsage | None = None,
     ) -> dict | SelfConsistencyResult:
         """Process responses and return result."""
         # Check if majority of responses have tool calls to decide voting method
@@ -252,6 +255,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
             responses=responses,  # ALL original responses
             response_counts=response_counts,
             selected_index=selected_index,  # Index into original responses
+            usage=usage,
         )
         return result.the_one if return_response_only else result
 

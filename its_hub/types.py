@@ -168,6 +168,12 @@ class GenerationUsage:
         self.completion_tokens += completion
         self.num_calls += 1
 
+    def merge(self, other: GenerationUsage) -> None:
+        """Merge another GenerationUsage into this one."""
+        self.prompt_tokens += other.prompt_tokens
+        self.completion_tokens += other.completion_tokens
+        self.num_calls += other.num_calls
+
     @property
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens

@@ -42,6 +42,7 @@ class BestOfNResult(AbstractScalingResult):
     responses: list[dict]  # Keep original message format with tool calls
     scores: list[float]
     selected_index: int
+    usage: GenerationUsage | None = None
 
     @property
     def the_one(self) -> dict:
@@ -60,15 +61,16 @@ class BestOfN(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
-        usage_accumulator: GenerationUsage | None = None,
     ) -> dict | BestOfNResult:
         """run inference asynchronously with best-of-n"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
+        usage = GenerationUsage()
+
         # generate responses
         responses = await lm.agenerate(
             chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice,
-            usage_accumulator=usage_accumulator,
+            usage_accumulator=usage,
         )
 
         # extract content from message dict responses
@@ -84,6 +86,7 @@ class BestOfN(AbstractScalingAlgorithm):
                 responses=responses,
                 scores=scores,
                 selected_index=0,
+                usage=usage,
             )
             return result.the_one if return_response_only else result
 
@@ -109,5 +112,6 @@ class BestOfN(AbstractScalingAlgorithm):
             responses=responses,  # Keep original dict format with tool calls
             scores=scores,
             selected_index=selected_index,
+            usage=usage,
         )
         return result.the_one if return_response_only else result

@@ -23,6 +23,7 @@ class PlanningWrappedResult(AbstractScalingResult):
     combined_responses: list[dict]  # Keep original message format with tool calls
     best_approach: str
     best_approach_result: AbstractScalingResult
+    usage: GenerationUsage | None = None
 
     @property
     def the_one(self) -> dict:
@@ -136,7 +137,6 @@ class PlanningWrapper(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
-        usage_accumulator: GenerationUsage | None = None,
     ) -> dict | PlanningWrappedResult:
         """run planning-enhanced inference asynchronously"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
@@ -151,6 +151,8 @@ class PlanningWrapper(AbstractScalingAlgorithm):
         Returns:
             Best response string or full result object
         """
+        usage = GenerationUsage()
+
         # Step 1: Generate plan (uses 1 generation from budget)
         # TODO: Update PlanningPromptTemplate to support native ChatMessages format instead of string conversion
         planning_prompt = PlanningPromptTemplate.create_planning_prompt(
@@ -158,7 +160,7 @@ class PlanningWrapper(AbstractScalingAlgorithm):
         )
         plan_response = await lm.agenerate(
             [ChatMessage(role="user", content=planning_prompt)],
-            usage_accumulator=usage_accumulator,
+            usage_accumulator=usage,
         )
         plan = extract_content_from_lm_response(plan_response)
 
@@ -203,8 +205,11 @@ class PlanningWrapper(AbstractScalingAlgorithm):
                 return_response_only=False,
                 tools=tools,
                 tool_choice=tool_choice,
-                usage_accumulator=usage_accumulator,
             )
+
+            # Merge usage from inner algorithm
+            if hasattr(approach_result, "usage") and approach_result.usage is not None:
+                usage.merge(approach_result.usage)
 
             # Store approach-specific result
             approach_results[approach] = approach_result
@@ -236,6 +241,7 @@ class PlanningWrapper(AbstractScalingAlgorithm):
             combined_responses=combined_responses,
             best_approach=best_approach,
             best_approach_result=best_result,
+            usage=usage,
         )
 
         return result.the_one if return_response_only else result
