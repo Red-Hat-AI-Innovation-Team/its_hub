@@ -149,3 +149,25 @@ class ChatMessages:
     def is_string(self) -> bool:
         """Check if the original input was a string."""
         return self._is_string
+
+
+@dataclass
+class GenerationUsage:
+    """Accumulated token usage from LLM API calls.
+
+    Pass an instance to agenerate(usage_accumulator=...) to collect
+    prompt/completion token counts across all parallel API calls.
+    """
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    num_calls: int = 0
+
+    def add(self, prompt: int, completion: int) -> None:
+        self.prompt_tokens += prompt
+        self.completion_tokens += completion
+        self.num_calls += 1
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens

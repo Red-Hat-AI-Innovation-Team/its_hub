@@ -8,7 +8,7 @@ from its_hub.base import (
     AbstractScalingAlgorithm,
     AbstractScalingResult,
 )
-from its_hub.types import ChatMessage, ChatMessages
+from its_hub.types import ChatMessage, ChatMessages, GenerationUsage
 from its_hub.utils import extract_content_from_lm_response
 
 
@@ -136,6 +136,7 @@ class PlanningWrapper(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        usage_accumulator: GenerationUsage | None = None,
     ) -> dict | PlanningWrappedResult:
         """run planning-enhanced inference asynchronously"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
@@ -156,7 +157,8 @@ class PlanningWrapper(AbstractScalingAlgorithm):
             chat_messages.to_prompt()
         )
         plan_response = await lm.agenerate(
-            [ChatMessage(role="user", content=planning_prompt)]
+            [ChatMessage(role="user", content=planning_prompt)],
+            usage_accumulator=usage_accumulator,
         )
         plan = extract_content_from_lm_response(plan_response)
 
@@ -201,6 +203,7 @@ class PlanningWrapper(AbstractScalingAlgorithm):
                 return_response_only=False,
                 tools=tools,
                 tool_choice=tool_choice,
+                usage_accumulator=usage_accumulator,
             )
 
             # Store approach-specific result

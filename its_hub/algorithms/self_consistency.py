@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 from pydantic.dataclasses import dataclass
 
+from its_hub.types import GenerationUsage
 from its_hub.base import (
     AbstractLanguageModel,
     AbstractScalingAlgorithm,
@@ -174,13 +175,15 @@ class SelfConsistency(AbstractScalingAlgorithm):
         return_response_only: bool = True,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        usage_accumulator: GenerationUsage | None = None,
     ) -> dict | SelfConsistencyResult:
         """run inference asynchronously with self-consistency"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
         # generate responses
         responses = await lm.agenerate(
-            chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
+            chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice,
+            usage_accumulator=usage_accumulator,
         )
 
         # process responses and return result

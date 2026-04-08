@@ -21,7 +21,7 @@ from .error_handling import (
     parse_api_error,
     should_retry,
 )
-from .types import ChatMessage
+from .types import ChatMessage, GenerationUsage
 from .utils import extract_content_from_lm_response
 
 
@@ -382,6 +382,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        usage_accumulator: "GenerationUsage | None" = None,
     ) -> list[dict]:
         # limit concurrency to max_concurrency using a semaphore
         semaphore = asyncio.Semaphore(
@@ -429,6 +430,12 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                                 logging.error(format_non_retryable_error(api_error))
                             raise api_error
                         response_json = await response.json()
+                        if usage_accumulator is not None:
+                            api_usage = response_json.get("usage", {})
+                            usage_accumulator.add(
+                                api_usage.get("prompt_tokens", 0),
+                                api_usage.get("completion_tokens", 0),
+                            )
                         # Return the full message object to preserve tool calls
                         return response_json["choices"][0]["message"]
 
@@ -475,6 +482,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        usage_accumulator: "GenerationUsage | None" = None,
     ) -> dict | list[dict]:
         """generate response(s) asynchronously"""
         is_single = not isinstance(messages_or_messages_lst[0], list)
@@ -489,6 +497,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             include_stop_str_in_output,
             tools,
             tool_choice,
+            usage_accumulator,
         )
         return response_or_responses[0] if is_single else response_or_responses
 
