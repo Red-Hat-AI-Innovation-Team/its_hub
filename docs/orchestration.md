@@ -27,19 +27,27 @@ The `AbstractOrchestrator` interface solves these by centralizing parallel execu
 For gateway deployments, implement `AbstractOrchestrator` to integrate with your infrastructure's concurrency and rate limiting:
 
 ```python
+import asyncio
 from its_hub import AbstractOrchestrator
 
 class MyGatewayOrchestrator(AbstractOrchestrator):
     def __init__(self, rate_limiter):
         self.rate_limiter = rate_limiter
 
-    async def agenerate(self, lm, messages_lst, **kwargs):
-        results = []
-        for messages in messages_lst:
-            await self.rate_limiter.acquire()
-            result = await lm.agenerate_single(messages, **kwargs)
-            results.append(result)
-        return results
+    async def agenerate(self, lm, messages_lst, temperature_list, **kwargs):
+        async def _gen_coro(messages, temp):
+            async with self.rate_limiter:
+                return await lm.agenerate_single(messages, temperature=temp, **kwargs)
+
+        async with asyncio.TaskGroup() as tg:
+            tasks = [
+                tg.create_task(_gen_coro(msgs, temp))
+                for msgs, temp in zip(messages_lst, temperature_list)
+            ]
+
+        # Collect results in order
+        result = [task.result() for task in tasks]
+        return result
 ```
 
 Alternatively, use the built-in `LMOrchestrator` (available with `its_hub[lm]`) which provides a sensible default with `asyncio.TaskGroup` and semaphore-based concurrency control.

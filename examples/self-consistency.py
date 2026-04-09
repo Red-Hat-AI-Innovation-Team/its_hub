@@ -71,7 +71,7 @@ prompt = r"Let $a$ be a positive real number such that all the roots of \[x^3 + 
 from its_hub.api import ChatMessages
 
 chat_messages = ChatMessages.from_prompt_or_messages(prompt)
-response = asyncio.run(lm.agenerate(chat_messages.to_chat_messages()))
+response = asyncio.run(lm.agenerate_single(chat_messages.to_chat_messages()))
 
 print(response)
 

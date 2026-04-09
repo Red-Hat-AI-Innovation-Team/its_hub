@@ -62,8 +62,9 @@ Located in `its_hub/api/`:
 ```python
 # Language model interface (its_hub/api/lm.py)
 class AbstractLanguageModel:
-    async def agenerate(self, messages, stop=None, **kwargs) -> dict | list[dict]: ...
     async def agenerate_single(self, messages, stop=None, **kwargs) -> dict: ...
+    # Deprecation warning! agenerate is being deprecated in favor of agenerate_single
+    async def agenerate(self, messages, stop=None, **kwargs) -> dict | list[dict]: ...
 
 # Algorithm interface (its_hub/api/algorithm.py)
 class AbstractScalingAlgorithm:
