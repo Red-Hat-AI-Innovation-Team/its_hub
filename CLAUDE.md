@@ -90,33 +90,69 @@ curl -X POST http://localhost:8108/configure \
 
 ## Architecture Overview
 
-**its_hub** is a library for inference-time scaling of LLMs, focusing on mathematical reasoning tasks. The core architecture uses abstract base classes to define clean interfaces between components.
+**its_hub** is a library for inference-time scaling of LLMs, focusing on mathematical reasoning tasks. The architecture separates public interfaces (`its_hub/api/`) from implementations (`its_hub/core/`).
 
-### Key Base Classes (`its_hub/base.py`)
-- `AbstractLanguageModel`: Interface for LM generation and evaluation
-- `AbstractScalingAlgorithm`: Base for all scaling algorithms with unified `infer()` method
-- `AbstractScalingResult`: Base for algorithm results with `the_one` property
+### Directory Structure
+
+```
+its_hub/
+├── __init__.py                 # Top-level exports (import from here)
+├── api/                        # Public interfaces (stable API)
+│   ├── lm.py                  # AbstractLanguageModel
+│   ├── algorithm.py           # AbstractScalingAlgorithm, AbstractScalingResult
+│   ├── orchestrator.py        # AbstractOrchestrator
+│   ├── types.py               # ChatMessage, ChatMessages
+│   ├── errors.py              # APIError, RateLimitError, etc.
+│   └── reward_models/
+│       ├── orm.py             # AbstractOutcomeRewardModel
+│       └── prm.py             # AbstractProcessRewardModel
+├── core/                       # Implementations (internal)
+│   ├── algorithms/
+│   │   ├── self_consistency.py
+│   │   ├── bon.py
+│   │   ├── beam_search.py     # Experimental
+│   │   ├── particle_gibbs.py  # Experimental
+│   │   └── planning_wrapper.py
+│   ├── lms/
+│   │   ├── openai_lm.py      # OpenAICompatibleLanguageModel
+│   │   └── step_generation.py # StepGeneration
+│   ├── reward_models/
+│   │   ├── llm_judge.py       # LLMJudge
+│   │   └── local_vllm_prm.py # LocalVllmProcessRewardModel
+│   ├── orchestrator.py        # LMOrchestrator
+│   └── utils.py               # System prompts, helpers
+```
+
+### Key Base Classes (`its_hub/api/`)
+- `AbstractLanguageModel`: Interface for async LM generation (`agenerate()`, `agenerate_single()`)
+- `AbstractScalingAlgorithm`: Base for all scaling algorithms with `ainfer()` (async) and `infer()` (sync wrapper)
+- `AbstractScalingResult`: Base for algorithm results with `the_one` property returning a `dict`
+- `AbstractOrchestrator`: Interface for managing parallel LM calls
 - `AbstractOutcomeRewardModel`: Interface for outcome-based reward models
 - `AbstractProcessRewardModel`: Interface for process-based reward models (step-by-step scoring)
 
 ### Main Components
 
-#### Language Models (`its_hub/lms.py`)
-- `OpenAICompatibleLanguageModel`: Primary LM implementation supporting vLLM and OpenAI APIs
+#### Language Models (`its_hub/core/lms/`)
+- `OpenAICompatibleLanguageModel`: Primary LM implementation supporting vLLM and OpenAI APIs. Supports async context manager (`async with`) and requires `close()` for cleanup.
 - `StepGeneration`: Handles incremental generation with configurable step tokens and stop conditions
-- Supports async generation with concurrency limits and backoff strategies
+- Async-first design with concurrency limits and backoff strategies
 
-#### Algorithms (`its_hub/algorithms/`)
-All algorithms follow the same interface: `infer(lm, prompt, budget, return_response_only=True)`
+#### Algorithms (`its_hub/core/algorithms/`)
+All algorithms follow the same interface: `ainfer(lm, prompt_or_messages, budget, return_response_only=True, tools=None, tool_choice=None)` (async primary) or `infer(...)` (sync wrapper)
 
-- **Self-Consistency**: Generate multiple responses, select most common answer
-- **Best-of-N**: Generate N responses, select highest scoring via outcome reward model  
-- **Beam Search**: Step-by-step generation with beam width, uses process reward models
-- **Particle Filtering/Gibbs**: Probabilistic resampling with process reward models
+- **Self-Consistency**: Generate multiple responses, select most common answer (supports tool voting)
+- **Best-of-N**: Generate N responses, select highest scoring via outcome reward model
+- **Beam Search** (experimental): Step-by-step generation with beam width, uses process reward models
+- **Particle Filtering/Gibbs** (experimental): Probabilistic resampling with process reward models
 
-#### Integration (`its_hub/integration/`)
-- `LocalVllmProcessRewardModel`: Integrates with reward_hub library for process-based scoring
-- `iaas.py`: Inference-as-a-Service FastAPI server providing OpenAI-compatible chat completions API with budget parameter for inference-time scaling
+#### Orchestrator (`its_hub/core/orchestrator.py`)
+- `LMOrchestrator`: Built-in implementation of `AbstractOrchestrator` using `asyncio.TaskGroup` with thread-safe semaphore for concurrency control
+- The orchestrator is central to gateway integration — it controls how algorithms fan out parallel LM calls, enforces rate limits, and handles error propagation. Gateway teams can implement `AbstractOrchestrator` with their own concurrency policies or use the built-in `LMOrchestrator`
+
+#### Reward Models (`its_hub/core/reward_models/`)
+- `LLMJudge`: LLM-based outcome reward model for scoring responses
+- `LocalVllmProcessRewardModel`: Integrates with reward_hub library for process-based scoring (experimental)
 
 ### Budget Interpretation
 The budget parameter controls computational resources allocated to each algorithm. Different algorithms interpret budget as follows:
@@ -136,11 +172,12 @@ The `StepGeneration` class enables incremental text generation:
 3. Create `StepGeneration` with step/stop tokens appropriate for the task
 4. Initialize reward model (e.g., `LocalVllmProcessRewardModel`)
 5. Create scaling algorithm with step generation and reward model
-6. Call `infer()` with prompt and budget
+6. Call `ainfer()` (async) or `infer()` (sync wrapper) with prompt and budget
+7. Close LM with `await lm.close()` or `asyncio.run(lm.close())` for resource cleanup
 
 ### Mathematical Focus
 The library is optimized for mathematical reasoning:
-- Predefined system prompts in `its_hub/utils.py` (SAL_STEP_BY_STEP_SYSTEM_PROMPT, QWEN_SYSTEM_PROMPT)
+- Predefined system prompts in `its_hub/core/utils.py` (SAL_STEP_BY_STEP_SYSTEM_PROMPT, QWEN_SYSTEM_PROMPT)
 - Regex patterns for mathematical notation (e.g., `r"\boxed"` for final answers)
 - Integration with math_verify for evaluation
 - Benchmarking on MATH500 and AIME-2024 datasets

@@ -1,17 +1,58 @@
 # Orchestration Architecture
 
-This document describes the orchestration architecture in its_hub, which provides reusable components for managing language model calls across different inference-time scaling algorithms.
+This document describes the orchestration architecture in its_hub, which provides structured concurrency for managing parallel language model calls.
 
 ## Overview
 
-The its_hub library uses an orchestration pattern to eliminate code duplication and provide structured concurrency for LM calls. The core package provides an inline implementation of the orchestrator interface (`its_hub.api.AbstractOrchestrator`). The implementation includes:
+The `LMOrchestrator` eliminates code duplication across algorithms by providing a single component for parallel LM invocation. It implements the `AbstractOrchestrator` interface (`its_hub.api.orchestrator`).
 
-- `agenerate(lm, messages_lst, ...)`: Manages language model calls using taskgroups to generate responses for a batch of messages
-- `generate(lm, messages_list, ...)`: Calls agenerate method
+**Key methods:**
+- `agenerate(lm, messages_lst, ...)`: Manages parallel language model calls using `asyncio.TaskGroup` (Python 3.11+)
+- `generate(lm, messages_lst, ...)`: Sync wrapper via `asyncio.run()`
+
+**When to use:** Algorithms like `SelfConsistency` and `BestOfN` accept an optional `orchestrator` parameter. If not provided, they create a default `LMOrchestrator` internally. Pass your own orchestrator when you need to control concurrency limits.
+
+## Why Orchestration Matters for Gateways
+
+Inference-time scaling algorithms generate multiple LM calls per user request (e.g., Self-Consistency with `budget=5` fires 5 parallel calls). Without orchestration, this creates problems in gateway deployments:
+
+- **Rate limit exhaustion**: Uncontrolled parallelism can exceed gateway or provider rate limits, causing cascading failures
+- **Resource contention**: Unbounded concurrent requests can overwhelm backend LM servers
+- **Error propagation**: A single failed LM call should cancel remaining calls and surface cleanly, not leave orphaned tasks
+
+The `AbstractOrchestrator` interface solves these by centralizing parallel execution control. Gateway teams should implement this interface to enforce their own concurrency policies, rate limits, and error handling strategies.
+
+### Implementing a Custom Orchestrator
+
+For gateway deployments, implement `AbstractOrchestrator` to integrate with your infrastructure's concurrency and rate limiting:
+
+```python
+import asyncio
+from its_hub import AbstractOrchestrator
+
+class MyGatewayOrchestrator(AbstractOrchestrator):
+    def __init__(self, rate_limiter):
+        self.rate_limiter = rate_limiter
+
+    async def agenerate(self, lm, messages_lst, temperature_list, **kwargs):
+        async def _gen_coro(messages, temp):
+            async with self.rate_limiter:
+                return await lm.agenerate_single(messages, temperature=temp, **kwargs)
+
+        async with asyncio.TaskGroup() as tg:
+            tasks = [
+                tg.create_task(_gen_coro(msgs, temp))
+                for msgs, temp in zip(messages_lst, temperature_list)
+            ]
+
+        # Collect results in order
+        result = [task.result() for task in tasks]
+        return result
+```
+
+Alternatively, use the built-in `LMOrchestrator` (available with `its_hub[lm]`) which provides a sensible default with `asyncio.TaskGroup` and semaphore-based concurrency control.
 
 ## Architecture Diagram
-
-The workflow follows this pattern:
 
 ```
 ┌─────────────────┐
@@ -31,31 +72,60 @@ The workflow follows this pattern:
 └─────────────────┘
 ```
 
-Note: At the time of writing, only the self-consistency and best-of-n algorithms use orchestrator. The experimental features will be migrated to the outlined workflow in the near future.
+Note: Currently only Self-Consistency and Best-of-N use the orchestrator. Experimental algorithms will be migrated in a future release.
 
 ## Core Implementation
 
 ### LMOrchestrator
 
-The `LMOrchestrator` class provides a unified interface for making language model calls with structured concurrency.
+The `LMOrchestrator` class provides structured concurrency for parallel LM calls.
 
 **Key Features:**
 
-- **TaskGroups (Python 3.11+)**: Uses `asyncio.TaskGroup` for structured concurrency
-- **Automatic Cleanup**: Tasks are automatically cancelled if any task raises an exception
-- **Centralized Logging**: All LM calls are logged through the orchestrator
+- **TaskGroups (Python 3.11+)**: Uses `asyncio.TaskGroup` for structured concurrency with automatic cleanup
+- **Thread-Safe Semaphore**: Controls concurrency across event loops
 - **Error Handling**: First exception cancels all remaining tasks
 
-**Example Usage:**
+### Constructor
 
 ```python
+from its_hub import LMOrchestrator
+
+orchestrator = LMOrchestrator(max_concurrency=32)  # Default: 32
+```
+
+**Parameters:**
+- `max_concurrency` (int, default 32): Maximum number of parallel LM calls. Set to -1 for unlimited.
+
+### agenerate Method
+
+```python
+async def agenerate(
+    self,
+    lm: AbstractLanguageModel,
+    messages_lst: list[list[ChatMessage]],
+    stop: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float | list[float] | None = None,
+    include_stop_str_in_output: bool | None = None,
+    tools: list[dict] | None = None,
+    tool_choice: str | dict | None = None,
+) -> list[dict]
+```
+
+Returns responses in the same order as the input `messages_lst`.
+
+## Example: Sync Usage
+
+```python
+import asyncio
+
 from its_hub import LMOrchestrator, OpenAICompatibleLanguageModel, SelfConsistency
 from its_hub.api import ChatMessage, ChatMessages
 
-# Initialize orchestrator
+# Control concurrency (e.g., limit to 2 parallel calls)
 orchestrator = LMOrchestrator(max_concurrency=2)
 
-# Initialize language model
 lm = OpenAICompatibleLanguageModel(
     endpoint="https://api.openai.com/v1",
     api_key="your-api-key",
@@ -63,24 +133,41 @@ lm = OpenAICompatibleLanguageModel(
 )
 
 messages = ChatMessages([
-    ChatMessage(
-        role="system",
-        content="You are a precise calculator. Always use the calculator tool for arithmetic."
-    ),
-    ChatMessage(
-        role="user",
-        content="What is 847 * 293 + 156?"
-    )
+    ChatMessage(role="system", content="You are a helpful assistant."),
+    ChatMessage(role="user", content="What is 847 * 293 + 156?")
 ])
 
-# Use hierarchical tool voting
-sc = SelfConsistency(tool_vote="tool_hierarchical", orchestrator=orchestrator)
-result = sc.infer(
-    lm,
-    messages,
-    budget=5,
-    tools=tools,
-    tool_choice="auto"
-)
+sc = SelfConsistency(orchestrator=orchestrator)
+result = sc.infer(lm, messages, budget=5)
 print(result)
+
+# Always close LM for resource cleanup
+asyncio.run(lm.close())
+```
+
+## Example: Async Usage
+
+```python
+import asyncio
+
+from its_hub import LMOrchestrator, OpenAICompatibleLanguageModel, SelfConsistency
+from its_hub.api import ChatMessage, ChatMessages
+
+async def main():
+    orchestrator = LMOrchestrator(max_concurrency=4)
+
+    async with OpenAICompatibleLanguageModel(
+        endpoint="https://api.openai.com/v1",
+        api_key="your-api-key",
+        model_name="gpt-4o-mini"
+    ) as lm:
+        messages = ChatMessages([
+            ChatMessage(role="user", content="Explain quantum computing briefly.")
+        ])
+
+        sc = SelfConsistency(orchestrator=orchestrator)
+        result = await sc.ainfer(lm, messages, budget=5)
+        print(result)
+
+asyncio.run(main())
 ```

@@ -33,6 +33,7 @@
 # %autoreload 2
 
 # %%
+import asyncio
 import os
 
 import nest_asyncio
@@ -52,7 +53,6 @@ lm = OpenAICompatibleLanguageModel(
     api_key=os.getenv("OPENAI_API_KEY"),  # Load API key from environment
     model_name="gpt-4o-mini",
     system_prompt=SAL_STEP_BY_STEP_SYSTEM_PROMPT,
-    is_async=True,
 )
 # %%
 # Alternative: vLLM local endpoint (commented out)
@@ -61,7 +61,6 @@ lm = OpenAICompatibleLanguageModel(
 #     api_key="NO_API_KEY",
 #     model_name="qwen2-math-1.5b-instruct",
 #     system_prompt=SAL_STEP_BY_STEP_SYSTEM_PROMPT,
-#     is_async=True,
 # )
 
 # %%
@@ -72,7 +71,7 @@ prompt = r"Let $a$ be a positive real number such that all the roots of \[x^3 + 
 from its_hub.api import ChatMessages
 
 chat_messages = ChatMessages.from_prompt_or_messages(prompt)
-response = lm.generate(chat_messages.to_batch(1))[0]
+response = asyncio.run(lm.agenerate_single(chat_messages.to_chat_messages()))
 
 print(response)
 
@@ -109,8 +108,6 @@ print(scaling_result.the_one)
 # %%
 print("######## Extracted Response Counts ########")
 print(scaling_result.response_counts)
-
-# %%
 
 
 # %% [markdown]
@@ -169,4 +166,8 @@ print(scaling_result.the_one)
 
 print("######## Tool Call Response Counts ########")
 print(scaling_result.response_counts)
+
+# %%
+# Close LM for resource cleanup
+asyncio.run(lm.close())
 

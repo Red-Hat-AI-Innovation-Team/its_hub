@@ -4,7 +4,9 @@ its-hub provides several inference-time scaling algorithms, each optimized for d
 
 ## Overview
 
-All algorithms follow the same interface: `infer(lm, prompt, budget, return_response_only=True)`
+All algorithms follow the same interface:
+- **Async (primary):** `ainfer(lm, prompt_or_messages, budget, return_response_only=True, tools=None, tool_choice=None)`
+- **Sync wrapper:** `infer(...)` (calls `asyncio.run(ainfer(...))`)
 
 The `budget` parameter controls computational resources allocated to each algorithm, with different interpretations:
 
@@ -178,7 +180,7 @@ from its_hub.core.algorithms.beam_search import BeamSearch
 from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 # Initialize components
-sg = StepGeneration("\n\n", max_steps=32, stop_pattern=r"\boxed")
+sg = StepGeneration(max_steps=32, step_token="\n\n", stop_token=r"\boxed")
 prm = LocalVllmProcessRewardModel(
     model_name="Qwen/Qwen2.5-Math-PRM-7B",
     device="cuda:0",
@@ -207,7 +209,7 @@ from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
 from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 # Initialize components
-sg = StepGeneration("\n\n", max_steps=32, stop_pattern=r"\boxed")
+sg = StepGeneration(max_steps=32, step_token="\n\n", stop_token=r"\boxed")
 prm = LocalVllmProcessRewardModel(
     model_name="Qwen/Qwen2.5-Math-PRM-7B",
     device="cuda:0",
@@ -236,7 +238,7 @@ from its_hub.core.algorithms.particle_gibbs import EntropicParticleFiltering
 from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 # Initialize components
-sg = StepGeneration("\n\n", max_steps=32, stop_pattern=r"\boxed")
+sg = StepGeneration(max_steps=32, step_token="\n\n", stop_token=r"\boxed")
 prm = LocalVllmProcessRewardModel(
     model_name="Qwen/Qwen2.5-Math-PRM-7B",
     device="cuda:0",
@@ -270,10 +272,9 @@ from its_hub import StepGeneration
 
 # For math problems with boxed answers
 sg = StepGeneration(
-    step_token="\n\n",        # Split reasoning into steps
     max_steps=32,               # Maximum number of steps
-    stop_pattern=r"\boxed",    # Stop when final answer is found
-    post_process=True           # Clean up output formatting
+    step_token="\n\n",          # Split reasoning into steps
+    stop_token=r"\boxed",       # Stop when final answer is found
 )
 ```
 
@@ -296,11 +297,28 @@ prm = LocalVllmProcessRewardModel(
 Evaluate final answers only:
 
 ```python
+from its_hub import AbstractOutcomeRewardModel
+
 # Custom outcome reward model
-class MathOutcomeRewardModel:
-    def score(self, prompt, response):
+class MathOutcomeRewardModel(AbstractOutcomeRewardModel):
+    def score(self, messages, **kwargs):
         # Extract answer and compute reward
         return score
+```
+
+## Resource Cleanup
+
+When using `OpenAICompatibleLanguageModel`, always close the LM after use to clean up HTTP sessions:
+
+```python
+# Option 1: Async context manager (recommended)
+async with OpenAICompatibleLanguageModel(...) as lm:
+    result = await algorithm.ainfer(lm, prompt, budget=5)
+
+# Option 2: Explicit close after sync usage
+lm = OpenAICompatibleLanguageModel(...)
+result = algorithm.infer(lm, prompt, budget=5)
+asyncio.run(lm.close())
 ```
 
 ## Performance Tips
