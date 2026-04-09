@@ -70,7 +70,7 @@ dev = [
 experimental = [
     "its_hub[lm]",
     "transformers>=4.53.2",
-    "reward-hub>=0.1.8",
+    "reward-hub[prm]>=0.1.10",
 ]
 
 research = [
