@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 from enum import Enum
@@ -241,6 +242,12 @@ def display_results(df: pd.DataFrame):
     default=None,
     help="use tokens_per_step instead of step_token for StepGeneration (easier for PF/BS algorithms)",
 )
+@click.option(
+    "--data_parallel",
+    type=int,
+    default=1,
+    help="number of dataset examples to process in parallel (increase for better GPU utilization with small models, e.g. 8-32)",
+)
 def main(
     benchmark: BenchmarkDataset,
     model_name: str,
@@ -263,6 +270,7 @@ def main(
     eval_expected_pass_at_one: bool,
     display_only: bool,
     tokens_per_step: int,
+    data_parallel: int,
 ):
     # print all arguments using click context
     ctx = click.get_current_context()
@@ -362,14 +370,20 @@ def main(
         os.makedirs(output_dir)
 
     print(f"running inference-time scaling for {budgets=}...")
+    if data_parallel > 1:
+        print(f"using data parallelism with {data_parallel} concurrent examples")
     rows = []
-    try:
-        for n in tqdm(budgets):
+
+    async def _run_async():
+        semaphore = asyncio.Semaphore(data_parallel)
+
+        for n in budgets:
+            cached_rows = []
+            examples_to_process = []
+
             for x in dataset:
-                y_full = None
-                y = None
+                cached_row = None
                 if not force_run and len(df_existing) > 0:
-                    # only skip if both the unique_id and budget matches
                     match = (df_existing["unique_id"] == x["unique_id"]) & (
                         df_existing["budget"] == n
                     )
@@ -378,64 +392,118 @@ def main(
                             f"expected exactly one match, got {match.sum()}"
                         )
                         if eval_expected_pass_at_one:
-                            y_full = {
-                                "responses": df_existing.loc[match, "responses"].values[
-                                    0
-                                ],
-                                "log_probs": df_existing.loc[match, "log_probs"].values[
-                                    0
-                                ],
+                            cached_row = {
+                                "unique_id": x["unique_id"],
+                                "budget": n,
+                                "responses": df_existing.loc[
+                                    match, "responses"
+                                ].values[0],
+                                "log_probs": df_existing.loc[
+                                    match, "log_probs"
+                                ].values[0],
+                                "correct": None,
                             }
                         else:
-                            y = df_existing.loc[match, "response"].values[0]
-                if y_full is None if eval_expected_pass_at_one else y is None:
+                            cached_row = {
+                                "unique_id": x["unique_id"],
+                                "budget": n,
+                                "response": df_existing.loc[
+                                    match, "response"
+                                ].values[0],
+                                "correct": None,
+                            }
+                        if does_eval:
+                            if eval_expected_pass_at_one:
+                                c = [
+                                    math_verify.verify(
+                                        math_verify.parse(x["answer"]),
+                                        math_verify.parse(y),
+                                    )
+                                    for y in cached_row["responses"]
+                                ]
+                                p = _softmax(cached_row["log_probs"])
+                                cached_row["correct"] = np.dot(p, c)
+                            else:
+                                cached_row["correct"] = math_verify.verify(
+                                    math_verify.parse(x["answer"]),
+                                    math_verify.parse(cached_row["response"]),
+                                )
+
+                if cached_row is not None:
+                    cached_rows.append(cached_row)
+                else:
+                    examples_to_process.append(x)
+
+            async def _process_example(x, budget):
+                async with semaphore:
                     try:
                         if eval_expected_pass_at_one:
-                            y_full = scaling_alg.infer(
-                                lm, x["problem"], n, return_response_only=False
+                            result = await scaling_alg.ainfer(
+                                lm,
+                                x["problem"],
+                                budget,
+                                return_response_only=False,
                             )
                             y_full = {
-                                "responses": y_full.responses_lst[-1],
-                                "log_probs": y_full.log_weights_lst[-1],
+                                "responses": result.responses_lst[-1],
+                                "log_probs": result.log_weights_lst[-1],
+                            }
+                            row = {
+                                "unique_id": x["unique_id"],
+                                "budget": budget,
+                                "responses": y_full["responses"],
+                                "log_probs": y_full["log_probs"],
+                                "correct": None,
                             }
                         else:
-                            y = scaling_alg.infer(lm, x["problem"], n)
-                    except KeyboardInterrupt:
-                        raise
+                            y = await scaling_alg.ainfer(
+                                lm, x["problem"], budget
+                            )
+                            row = {
+                                "unique_id": x["unique_id"],
+                                "budget": budget,
+                                "response": y,
+                                "correct": None,
+                            }
+
+                        if does_eval:
+                            if eval_expected_pass_at_one:
+                                c = [
+                                    math_verify.verify(
+                                        math_verify.parse(x["answer"]),
+                                        math_verify.parse(y),
+                                    )
+                                    for y in row["responses"]
+                                ]
+                                p = _softmax(row["log_probs"])
+                                row["correct"] = np.dot(p, c)
+                            else:
+                                row["correct"] = math_verify.verify(
+                                    math_verify.parse(x["answer"]),
+                                    math_verify.parse(row["response"]),
+                                )
+                        return row
                     except Exception as e:
                         print(f"error scaling example {x['unique_id']}: {e}")
-                        continue
-                if eval_expected_pass_at_one:
-                    row = {
-                        "unique_id": x["unique_id"],
-                        "budget": n,
-                        "responses": y_full["responses"],
-                        "log_probs": y_full["log_probs"],
-                        "correct": None,
-                    }
-                else:
-                    row = {
-                        "unique_id": x["unique_id"],
-                        "budget": n,
-                        "response": y,
-                        "correct": None,
-                    }
-                if does_eval:
-                    if eval_expected_pass_at_one:
-                        c = [
-                            math_verify.verify(
-                                math_verify.parse(x["answer"]), math_verify.parse(y)
-                            )
-                            for y in row["responses"]
-                        ]
-                        p = _softmax(row["log_probs"])
-                        row["correct"] = np.dot(p, c)
-                    else:
-                        row["correct"] = math_verify.verify(
-                            math_verify.parse(x["answer"]),
-                            math_verify.parse(row["response"]),
-                        )
-                rows.append(row)
+                        return None
+
+            if examples_to_process:
+                tasks = [
+                    _process_example(x, n) for x in examples_to_process
+                ]
+                for future in tqdm(
+                    asyncio.as_completed(tasks),
+                    total=len(tasks),
+                    desc=f"budget={n}",
+                ):
+                    result = await future
+                    if result is not None:
+                        rows.append(result)
+
+            rows.extend(cached_rows)
+
+    try:
+        asyncio.run(_run_async())
     except KeyboardInterrupt:
         print("\nkeyboard interrupt detected, saving partial results")
 
