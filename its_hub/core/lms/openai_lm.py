@@ -131,7 +131,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             if not session.closed:
                 await session.close()
 
-    async def close_session(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
+    async def close_session(
+        self, loop: asyncio.AbstractEventLoop | None = None
+    ) -> None:
         """Close the cached session for the given event loop.
 
         Args:

@@ -55,7 +55,9 @@ class LMOrchestrator(AbstractOrchestrator):
 
     def __init__(self, max_concurrency: int = 32):
         if max_concurrency < -1 or max_concurrency == 0:
-            raise ValueError("max_concurrency must be -1 (unlimited concurrency) or a positive integer")
+            raise ValueError(
+                "max_concurrency must be -1 (unlimited concurrency) or a positive integer"
+            )
 
         self.max_concurrency = max_concurrency
         self._semaphore: _ThreadSafeAsyncSemaphore | None = (
@@ -98,20 +100,24 @@ class LMOrchestrator(AbstractOrchestrator):
             return []
 
         logging.debug(
-            "LMOrchestrator: Processing batch of %d messages",
-            len(messages_lst)
+            "LMOrchestrator: Processing batch of %d messages", len(messages_lst)
         )
 
         # Prepare temperature list
         temperature_list = (
-            temperature if isinstance(temperature, list)
+            temperature
+            if isinstance(temperature, list)
             else [temperature] * len(messages_lst)
         )
 
         current_loop = asyncio.get_running_loop()
 
         async def _gen_coro(messages, temp):
-            ctx = self._semaphore if self._semaphore is not None else contextlib.nullcontext()
+            ctx = (
+                self._semaphore
+                if self._semaphore is not None
+                else contextlib.nullcontext()
+            )
             async with ctx:
                 return await lm.agenerate_single(
                     messages,
