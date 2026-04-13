@@ -24,6 +24,7 @@ class AbstractOrchestrator(ABC):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> list[dict]:
         """
         Generate responses for a batch of messages asynchronously.
@@ -37,6 +38,9 @@ class AbstractOrchestrator(ABC):
             include_stop_str_in_output: (Optional) Whether to include stop string in output (vLLM only)
             tools: (Optional) List of available tools
             tool_choice: (Optional) Tool choice mode
+            response_format: (Optional) Response format specification for structured outputs.
+                Supports OpenAI-compatible json_schema format, e.g.:
+                {"type": "json_schema", "json_schema": {"name": "...", "strict": True, "schema": {...}}}
 
         Returns:
             List of response dicts in the same order as messages_lst
@@ -53,6 +57,7 @@ class AbstractOrchestrator(ABC):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> list[dict]:
         """
         Synchronous wrapper for agenerate. Runs async generation in event loop.
@@ -73,5 +78,6 @@ class AbstractOrchestrator(ABC):
                 include_stop_str_in_output=include_stop_str_in_output,
                 tools=tools,
                 tool_choice=tool_choice,
+                response_format=response_format,
             )
         )
