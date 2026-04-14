@@ -25,6 +25,7 @@ Usage:
 
 import argparse
 import asyncio
+import os
 import sys
 import time
 
@@ -233,7 +234,8 @@ def main():
 
     # ---- load datasets ----
     requested_datasets = [d.strip() for d in args.datasets.split(",")]
-    loaded = load_datasets(requested_datasets)
+    data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    loaded = load_datasets(requested_datasets, data_dir)
     if not loaded:
         sys.exit("Error: no datasets loaded")
     print()
