@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from typing import ClassVar
 
 from its_hub.api import (
@@ -52,7 +53,7 @@ Format: {{"score": <number>}}"""
         lm: AbstractLanguageModel,
         judge_prompt: str | None = None,
         fallback_score: float = 5.0,
-        response_format: dict | None = "default",
+        response_format: dict | None = SCORE_RESPONSE_FORMAT,
     ):
         """
         Initialize LLM judge.
@@ -70,10 +71,7 @@ Format: {{"score": <number>}}"""
         self.lm = lm
         self.judge_prompt = judge_prompt or self.DEFAULT_JUDGE_PROMPT
         self.fallback_score = fallback_score
-        if response_format == "default":
-            self.response_format = self.SCORE_RESPONSE_FORMAT
-        else:
-            self.response_format = response_format
+        self.response_format = response_format
 
     def _format_conversation(self, messages: list[ChatMessage]) -> str:
         """Format conversation messages as readable text, including tool calls."""
@@ -115,8 +113,6 @@ Format: {{"score": <number>}}"""
         - Markdown code blocks: ```json\n{"score": 7}\n```
         - JSON embedded in surrounding text
         """
-        import re
-
         # 1. Try direct parse
         try:
             return json.loads(text)

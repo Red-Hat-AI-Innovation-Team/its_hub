@@ -75,14 +75,20 @@ class AbstractScalingAlgorithm(ABC):
 
         Default implementation wraps ainfer() using asyncio.run().
         """
+
         async def _run():
             try:
                 return await self.ainfer(
-                    lm, prompt_or_messages, budget, return_response_only, tools, tool_choice
+                    lm,
+                    prompt_or_messages,
+                    budget,
+                    return_response_only,
+                    tools,
+                    tool_choice,
                 )
             finally:
                 # Clean up session if there is one that was created for current event loop
-                if hasattr(lm, 'close_session'):
+                if hasattr(lm, "close_session"):
                     await lm.close_session(asyncio.get_running_loop())
 
         return asyncio.run(_run())

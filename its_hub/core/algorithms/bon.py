@@ -101,7 +101,11 @@ class BestOfNResult(AbstractScalingResult):
 
 
 class BestOfN(AbstractScalingAlgorithm):
-    def __init__(self, orm: AbstractOutcomeRewardModel, orchestrator: AbstractOrchestrator | None = None):
+    def __init__(
+        self,
+        orm: AbstractOutcomeRewardModel,
+        orchestrator: AbstractOrchestrator | None = None,
+    ):
         if orchestrator is None:
             # Fallback to default implementation
             orchestrator = LMOrchestrator()
@@ -148,7 +152,9 @@ class BestOfN(AbstractScalingAlgorithm):
             ]
             for cand in unique_responses
         ]
-        unique_scores = await self.orm.ascore(unique_conversations, orchestrator=self.orchestrator)
+        unique_scores = await self.orm.ascore(
+            unique_conversations, orchestrator=self.orchestrator
+        )
 
         # map scores back to original response indices
         scores = [unique_scores[idx] for idx in inverse_idx]
