@@ -113,6 +113,8 @@ Format: {{"score": <number>}}"""
         - Markdown code blocks: ```json\n{"score": 7}\n```
         - JSON embedded in surrounding text
         """
+        text = text.strip()
+
         # 1. Try direct parse
         try:
             return json.loads(text)
@@ -138,7 +140,12 @@ Format: {{"score": <number>}}"""
         return None
 
     def _parse_score(self, response_content: str) -> float:
-        """Parse score from LLM response with fallback."""
+        """Parse score from LLM response with fallback.
+
+        Tries full JSON parsing first, then falls back to regex extraction
+        for truncated JSON (common with models that pad output with whitespace
+        or repeating characters).
+        """
         parsed = self._extract_json(response_content)
         if parsed is not None:
             try:
@@ -149,8 +156,21 @@ Format: {{"score": <number>}}"""
                 )
                 return self.fallback_score
 
+        # Fallback: extract score directly from truncated/malformed JSON
+        # Handles cases like: {"score": 7.5\n\n\n... (no closing brace)
+        match = re.search(r'"score"\s*:\s*([\d.]+)', response_content)
+        if match:
+            try:
+                score = float(match.group(1))
+                logging.info(
+                    f"Extracted score {score} from truncated JSON via regex fallback."
+                )
+                return score
+            except ValueError:
+                pass
+
         logging.warning(
-            f"Failed to extract JSON from response: {response_content[:200]}. "
+            f"Failed to extract score from response: {response_content[:200]}. "
             f"Using fallback score {self.fallback_score}."
         )
         return self.fallback_score
@@ -207,7 +227,7 @@ Format: {{"score": <number>}}"""
         responses = await orchestrator.agenerate(self.lm, judge_prompts, **kwargs)
 
         # Parse scores from responses
-        scores = [self._parse_score(r.get("content", "")) for r in responses]
+        scores = [self._parse_score(r.get("content") or "") for r in responses]
 
         # Return single or batch
         return scores if is_batch else scores[0]
