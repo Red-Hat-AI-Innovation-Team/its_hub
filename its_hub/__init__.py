@@ -41,7 +41,14 @@ try:
     from its_hub.core.orchestrator import LMOrchestrator
     from its_hub.core.reward_models.llm_judge import LLMJudge
 
-    __all__.extend(["LLMJudge", "LMOrchestrator", "OpenAICompatibleLanguageModel", "StepGeneration"])
+    __all__.extend(
+        [
+            "LLMJudge",
+            "LMOrchestrator",
+            "OpenAICompatibleLanguageModel",
+            "StepGeneration",
+        ]
+    )
 except ImportError:
     # LM implementations not available - install with: pip install its_hub[lm]
     pass

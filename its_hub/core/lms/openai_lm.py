@@ -131,7 +131,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             if not session.closed:
                 await session.close()
 
-    async def close_session(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
+    async def close_session(
+        self, loop: asyncio.AbstractEventLoop | None = None
+    ) -> None:
         """Close the cached session for the given event loop.
 
         Args:
@@ -162,6 +164,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict:
         # helper method to prepare request data for both sync and async methods
         # Convert dict messages to Message objects if needed
@@ -224,6 +227,10 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         if tool_choice is not None:
             request_data["tool_choice"] = tool_choice
 
+        # add response_format for structured outputs
+        if response_format is not None:
+            request_data["response_format"] = response_format
+
         return request_data
 
     async def _agenerate(
@@ -235,6 +242,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> list[dict]:
         # limit concurrency to max_concurrency using a semaphore
         semaphore = asyncio.Semaphore(
@@ -265,6 +273,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         include_stop_str_in_output,
                         tools,
                         tool_choice,
+                        response_format,
                     )
 
                     async with session.post(
@@ -325,6 +334,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
     ) -> dict | list[dict]:
         """
         generate response(s) asynchronously
@@ -352,6 +362,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             include_stop_str_in_output,
             tools,
             tool_choice,
+            response_format,
         )
         return response_or_responses[0] if is_single else response_or_responses
 
@@ -364,6 +375,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        response_format: dict | None = None,
         loop: asyncio.AbstractEventLoop | None = None,
     ) -> dict:
         # Fallback to the current event loop
@@ -390,6 +402,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 include_stop_str_in_output,
                 tools,
                 tool_choice,
+                response_format,
             )
 
             async with session.post(

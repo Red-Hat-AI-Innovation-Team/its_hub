@@ -19,11 +19,7 @@ class AbstractOrchestrator(ABC):
         lm: AbstractLanguageModel,
         messages_lst: list[list[ChatMessage]],
         stop: str | None = None,
-        max_tokens: int | None = None,
-        temperature: float | list[float] | None = None,
-        include_stop_str_in_output: bool | None = None,
-        tools: list[dict] | None = None,
-        tool_choice: str | dict | None = None,
+        **kwargs,
     ) -> list[dict]:
         """
         Generate responses for a batch of messages asynchronously.
@@ -32,11 +28,8 @@ class AbstractOrchestrator(ABC):
             lm: Language model to use for generation
             messages_lst: List of conversations to process
             stop: (Optional) Stop sequence for generation
-            max_tokens: (Optional) Maximum tokens to generate per response
-            temperature: (Optional) Temperature value(s) for sampling. Can be single float or list of floats
-            include_stop_str_in_output: (Optional) Whether to include stop string in output (vLLM only)
-            tools: (Optional) List of available tools
-            tool_choice: (Optional) Tool choice mode
+            **kwargs: Additional model-specific parameters (max_tokens, temperature,
+                      tools, tool_choice, response_format, etc.)
 
         Returns:
             List of response dicts in the same order as messages_lst
@@ -48,11 +41,7 @@ class AbstractOrchestrator(ABC):
         lm: AbstractLanguageModel,
         messages_lst: list[list[ChatMessage]],
         stop: str | None = None,
-        max_tokens: int | None = None,
-        temperature: float | list[float] | None = None,
-        include_stop_str_in_output: bool | None = None,
-        tools: list[dict] | None = None,
-        tool_choice: str | dict | None = None,
+        **kwargs,
     ) -> list[dict]:
         """
         Synchronous wrapper for agenerate. Runs async generation in event loop.
@@ -68,10 +57,6 @@ class AbstractOrchestrator(ABC):
                 lm,
                 messages_lst,
                 stop=stop,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                include_stop_str_in_output=include_stop_str_in_output,
-                tools=tools,
-                tool_choice=tool_choice,
+                **kwargs,
             )
         )

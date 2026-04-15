@@ -26,7 +26,8 @@ class AbstractLanguageModel(ABC):
         Args:
             messages: Single conversation or batch of conversations
             stop: Optional stop sequence for generation
-            **kwargs: Additional model-specific parameters (tools, tool_choice, etc.)
+            **kwargs: Additional model-specific parameters (tools, tool_choice,
+                      response_format, etc.)
 
         Returns:
             Single response dict or list of response dicts (for batched input)
@@ -46,7 +47,8 @@ class AbstractLanguageModel(ABC):
         Args:
             messages: Single conversation
             stop: Optional stop sequence for generation
-            **kwargs: Additional model-specific parameters (tools, tool_choice, etc.)
+            **kwargs: Additional model-specific parameters (tools, tool_choice,
+                      response_format, etc.)
 
         Returns:
             Single response dict
