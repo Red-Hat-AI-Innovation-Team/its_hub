@@ -51,7 +51,7 @@ class StepMockLanguageModel(AbstractLanguageModel):
         self._lock = asyncio.Lock()
         self._base_task_seq: int | None = None
 
-    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None):
+    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None, **kwargs):
         """Single message generation used by the orchestrator."""
         async with self._lock:
             task = asyncio.current_task()
@@ -66,7 +66,7 @@ class StepMockLanguageModel(AbstractLanguageModel):
             content = self.step_responses[idx % len(self.step_responses)]
             return {"role": "assistant", "content": content}
 
-    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None):
+    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, **kwargs):
         return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
 
     def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
@@ -104,7 +104,7 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
         self._lock = asyncio.Lock()
         self._base_task_seq: int | None = None
 
-    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None):
+    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None, **kwargs):
         """Single message generation used by the orchestrator."""
         async with self._lock:
             task = asyncio.current_task()
@@ -122,7 +122,7 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
             self.call_count += 1
         return {"role": "assistant", "content": content}
 
-    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None):
+    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, **kwargs):
         return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
 
     def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):

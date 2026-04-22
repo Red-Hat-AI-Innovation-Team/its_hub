@@ -13,6 +13,7 @@ from its_hub.api import (
     AbstractScalingResult,
     ChatMessage,
     ChatMessages,
+    GenerationUsage,
 )
 from its_hub.core.orchestrator import LMOrchestrator
 from its_hub.core.utils import extract_content_from_lm_response
@@ -35,6 +36,7 @@ class SelfConsistencyResult(AbstractScalingResult):
     responses: list[dict]  # Keep original message format with tool calls
     response_counts: Counter[str] | Counter[tuple] | Counter
     selected_index: int
+    usage: GenerationUsage | None = None
 
     @property
     def the_one(self) -> dict:
@@ -143,6 +145,10 @@ class SelfConsistency(AbstractScalingAlgorithm):
                 - "tool_name": Vote on tool function names only
                 - "tool_args": Vote on tool function arguments only (as dicts)
                 - "tool_hierarchical": Vote on tool name first, then arguments (hierarchical)
+                - "tool_flat_all": Vote on ALL tool calls combined as a flat sorted signature.
+                  Unlike other modes which only consider the first tool call, this creates a
+                  single signature from all tool calls in a response. Two responses calling
+                  the same tools with the same args (in any order) produce the same signature.
                 When tool calls exist and tool_vote is set, this takes priority over content voting.
 
             exclude_args: List of argument names to exclude from tool voting when
@@ -155,7 +161,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
             ValueError: If tool_vote is not one of the supported options.
         """
         # Validate tool_vote parameter - only validation needed since typing handles the rest
-        valid_tool_vote_options = {None, "tool_name", "tool_args", "tool_hierarchical"}
+        valid_tool_vote_options = {None, "tool_name", "tool_args", "tool_hierarchical", "tool_flat_all"}
         if tool_vote not in valid_tool_vote_options:
             raise ValueError(
                 f"tool_vote must be one of {valid_tool_vote_options}, got: {tool_vote}"
@@ -184,16 +190,22 @@ class SelfConsistency(AbstractScalingAlgorithm):
         """run inference asynchronously with self-consistency"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
+        usage = GenerationUsage()
+
         # generate responses
         responses = await self.orchestrator.agenerate(
-            lm, chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
+            lm, chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice,
+            usage_accumulator=usage,
         )
 
         # process responses and return result
-        return self._process_responses(responses, return_response_only)
+        return self._process_responses(responses, return_response_only, usage)
 
     def _process_responses(
-        self, responses: list[dict], return_response_only: bool = True
+        self,
+        responses: list[dict],
+        return_response_only: bool = True,
+        usage: GenerationUsage | None = None,
     ) -> dict | SelfConsistencyResult:
         """Process responses and return result."""
         # Check if majority of responses have tool calls to decide voting method
@@ -255,8 +267,42 @@ class SelfConsistency(AbstractScalingAlgorithm):
             responses=responses,  # ALL original responses
             response_counts=response_counts,
             selected_index=selected_index,  # Index into original responses
+            usage=usage,
         )
         return result.the_one if return_response_only else result
+
+    @staticmethod
+    def _make_hashable(obj):
+        """Recursively convert nested structures to hashable types."""
+        if isinstance(obj, dict):
+            return tuple(sorted((k, SelfConsistency._make_hashable(v)) for k, v in obj.items()))
+        elif isinstance(obj, list):
+            return tuple(SelfConsistency._make_hashable(item) for item in obj)
+        elif isinstance(obj, set):
+            return tuple(sorted(SelfConsistency._make_hashable(item) for item in obj))
+        else:
+            return obj
+
+    def _parse_tool_args(self, raw_args) -> tuple:
+        """Parse tool call arguments into a hashable tuple.
+
+        Handles JSON strings, applies exclude_args filtering, and converts
+        nested structures to hashable types.
+        """
+        import json
+
+        if isinstance(raw_args, str):
+            try:
+                raw_args = json.loads(raw_args)
+            except (json.JSONDecodeError, TypeError):
+                raw_args = {}
+        if not isinstance(raw_args, dict):
+            raw_args = {}
+        if self.exclude_args:
+            raw_args = {
+                k: v for k, v in raw_args.items() if k not in self.exclude_args
+            }
+        return self._make_hashable(raw_args) if raw_args else ()
 
     def _extract_tool_call_features(self, message_obj: dict):
         """Extract tool call features for voting based on tool_vote type."""
@@ -264,51 +310,26 @@ class SelfConsistency(AbstractScalingAlgorithm):
         if not tool_calls:
             return None if self.tool_vote == "tool_name" else (None, None)
 
+        if self.tool_vote == "tool_flat_all":
+            all_features = []
+            for tc in tool_calls:
+                tc_name = tc.get("function", {}).get("name")
+                tc_args = tc.get("function", {}).get("arguments", {})
+                args_tuple = self._parse_tool_args(tc_args)
+                all_features.append((tc_name, args_tuple))
+            return frozenset(all_features)
+
         first_tc = tool_calls[0]
         function_name = first_tc.get("function", {}).get("name")
         function_args = first_tc.get("function", {}).get("arguments", {})
-
-        # Handle case where arguments might be a JSON string instead of dict
-        if isinstance(function_args, str):
-            try:
-                import json
-
-                function_args = json.loads(function_args)
-            except (json.JSONDecodeError, TypeError):
-                # If parsing fails, treat as empty dict
-                function_args = {}
-
-        # Ensure function_args is a dict
-        if not isinstance(function_args, dict):
-            function_args = {}
-
-        # Filter arguments if specified
-        if self.exclude_args:
-            function_args = {
-                k: v for k, v in function_args.items() if k not in self.exclude_args
-            }
-
-        # Convert dict to hashable tuple for Counter compatibility
-        # handles nested structures
-        def make_hashable(obj):
-            """Recursively convert nested structures to hashable types."""
-            if isinstance(obj, dict):
-                return tuple(sorted((k, make_hashable(v)) for k, v in obj.items()))
-            elif isinstance(obj, list):
-                return tuple(make_hashable(item) for item in obj)
-            elif isinstance(obj, set):
-                return tuple(sorted(make_hashable(item) for item in obj))
-            else:
-                return obj
-
-        args_tuple = make_hashable(function_args) if function_args else ()
+        args_tuple = self._parse_tool_args(function_args)
 
         if self.tool_vote == "tool_name":
             return function_name
         elif self.tool_vote == "tool_args":
-            return args_tuple  # Use tuple instead of dict
+            return args_tuple
         elif self.tool_vote == "tool_hierarchical":
-            return (function_name, args_tuple)  # Use tuple instead of dict
+            return (function_name, args_tuple)
         else:
             raise ValueError(f"Unknown tool_vote type: {self.tool_vote}")
 
