@@ -47,13 +47,13 @@ class StepMockLanguageModel(AbstractLanguageModel):
         self.step_responses = step_responses
         self.call_count = 0
 
-    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None):
+    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None, **kwargs):
         """Single message generation used by the orchestrator."""
         content = self.step_responses[self.call_count % len(self.step_responses)]
         self.call_count += 1
         return {"role": "assistant", "content": content}
 
-    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None):
+    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, **kwargs):
         return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
 
     def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
@@ -89,7 +89,7 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
         self.error_on_calls = error_on_calls or []
         self.call_count = 0
 
-    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None):
+    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None, **kwargs):
         """Single message generation used by the orchestrator."""
         if self.call_count in self.error_on_calls:
             self.call_count += 1
@@ -98,7 +98,7 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
         self.call_count += 1
         return {"role": "assistant", "content": content}
 
-    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None):
+    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, **kwargs):
         return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
 
     def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):

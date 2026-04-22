@@ -9,6 +9,7 @@ from its_hub.api import (
     AbstractScalingResult,
     ChatMessage,
     ChatMessages,
+    GenerationUsage,
 )
 from its_hub.core.orchestrator import LMOrchestrator
 
@@ -94,6 +95,7 @@ class BestOfNResult(AbstractScalingResult):
     responses: list[dict]  # Keep original message format with tool calls
     scores: list[float]
     selected_index: int
+    usage: GenerationUsage | None = None
 
     @property
     def the_one(self) -> dict:
@@ -125,9 +127,12 @@ class BestOfN(AbstractScalingAlgorithm):
         """run inference asynchronously with best-of-n"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
 
+        usage = GenerationUsage()
+
         # generate responses
         responses = await self.orchestrator.agenerate(
-            lm, chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice
+            lm, chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice,
+            usage_accumulator=usage,
         )
 
         # deduplicate responses to avoid redundant scoring
@@ -140,6 +145,7 @@ class BestOfN(AbstractScalingAlgorithm):
                 responses=responses,
                 scores=scores,
                 selected_index=0,
+                usage=usage,
             )
             return result.the_one if return_response_only else result
 
@@ -167,5 +173,6 @@ class BestOfN(AbstractScalingAlgorithm):
             responses=responses,  # Keep original dict format with tool calls
             scores=scores,
             selected_index=selected_index,
+            usage=usage,
         )
         return result.the_one if return_response_only else result

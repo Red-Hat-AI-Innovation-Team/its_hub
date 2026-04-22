@@ -22,7 +22,7 @@ from .lm import AbstractLanguageModel
 from .orchestrator import AbstractOrchestrator
 from .reward_models.orm import AbstractOutcomeRewardModel
 from .reward_models.prm import AbstractProcessRewardModel
-from .types import ChatMessage, ChatMessages
+from .types import ChatMessage, ChatMessages, GenerationUsage
 
 __all__ = [  # noqa: RUF022
     # Algorithm abstractions
@@ -38,6 +38,7 @@ __all__ = [  # noqa: RUF022
     # Common types
     "ChatMessage",
     "ChatMessages",
+    "GenerationUsage",
     # Error types
     "APIError",
     "RateLimitError",
