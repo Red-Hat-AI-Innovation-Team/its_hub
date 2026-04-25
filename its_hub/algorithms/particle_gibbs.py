@@ -5,11 +5,13 @@ from enum import Enum
 import numpy as np
 from pydantic.dataclasses import dataclass
 
+from its_hub.aggregators import HardcodedAggregator
 from its_hub.base import (
     AbstractLanguageModel,
     AbstractProcessRewardModel,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
+    AbstractTrajectoryAggregator,
 )
 from its_hub.lms import StepGeneration
 from its_hub.types import ChatMessage, ChatMessages
@@ -45,6 +47,7 @@ class Particle:
     steps: list[str]
     is_stopped: bool
     partial_log_weights: list[float]  # Store aggregated log weights until each step
+    step_scores: list[float]  # Raw PRM scores per step for trajectory aggregation
 
     @property
     def log_weight(self) -> float:
@@ -59,6 +62,7 @@ class Particle:
             steps=copy.deepcopy(self.steps),
             is_stopped=self.is_stopped,
             partial_log_weights=copy.deepcopy(self.partial_log_weights),
+            step_scores=copy.deepcopy(self.step_scores),
         )
 
 
@@ -115,6 +119,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         early_phase: float = 0.5,
         resampling_method: str | ResamplingMethod = ResamplingMethod.MULTINOMIAL,
         temperature_method: str | TemperatureMethod = TemperatureMethod.ESS,
+        aggregator: AbstractTrajectoryAggregator | None = None,
     ):
         if isinstance(final_response_selection, str):
             final_response_selection = SelectionMethod(final_response_selection)
@@ -138,6 +143,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         self.early_phase = early_phase
         self.resampling_method = resampling_method
         self.temperature_method = temperature_method
+        self.aggregator: AbstractTrajectoryAggregator = aggregator or HardcodedAggregator("prod")
 
     async def _apropagate(
         self,
@@ -194,6 +200,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         for p, is_stopped in zip(particles, is_stopped_in_the_beginning):
             if is_stopped:
                 continue
+            p.step_scores.append(scores[i])
             p.partial_log_weights.append(_inv_sigmoid(scores[i]))
             i += 1
 
@@ -391,7 +398,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             num_free_particles = num_particles - len(ref_particles)
 
             particles = [
-                Particle(steps=[], is_stopped=False, partial_log_weights=[])
+                Particle(steps=[], is_stopped=False, partial_log_weights=[], step_scores=[])
                 for _ in range(num_free_particles)
             ] + ref_particles
 
@@ -478,15 +485,15 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             ref_indices_lst.append(ref_indices)
             steps_used_lst.append([len(p.steps) for p in particles])
 
-        # select the chosen particle based on final response selection method
-        # log_weights and probabilities are from the last iteration
+        # select the chosen particle using the trajectory aggregator
+        agg_scores = [self.aggregator.aggregate(p.step_scores) for p in particles]
         match self.final_response_selection:
             case SelectionMethod.SAMPLE:
                 selected_index = random.choices(
-                    range(len(particles)), weights=probabilities, k=1
+                    range(len(particles)), weights=_softmax(agg_scores), k=1
                 )[0]
             case SelectionMethod.ARGMAX:
-                selected_index = np.argmax(log_weights).item()
+                selected_index = int(np.argmax(agg_scores))
 
         result = ParticleGibbsResult(
             responses_lst=responses_lst,
@@ -510,6 +517,7 @@ class ParticleFiltering(ParticleGibbs):
         prm: AbstractProcessRewardModel,
         final_response_selection: str | SelectionMethod = SelectionMethod.ARGMAX,
         resampling_method: str | ResamplingMethod = ResamplingMethod.MULTINOMIAL,
+        aggregator: AbstractTrajectoryAggregator | None = None,
     ):
         # initialize with num_iterations=1
         super().__init__(
@@ -521,6 +529,7 @@ class ParticleFiltering(ParticleGibbs):
             does_ancestor_sampling=False,
             does_entropic_annealing=False,
             does_lookahead_modulation=False,
+            aggregator=aggregator,
         )
 
     async def ainfer(
