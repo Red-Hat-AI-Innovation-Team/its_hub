@@ -1,13 +1,16 @@
 import copy
+from dataclasses import field
 
 import numpy as np
 from pydantic.dataclasses import dataclass
 
+from its_hub.aggregators import HardcodedAggregator
 from its_hub.base import (
     AbstractLanguageModel,
     AbstractProcessRewardModel,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
+    AbstractTrajectoryAggregator,
 )
 from its_hub.lms import StepGeneration
 from its_hub.types import ChatMessage, ChatMessages
@@ -30,6 +33,7 @@ class Path:
     steps: list[str]
     is_stopped: bool
     score: float
+    step_scores: list[float] = field(default_factory=list)  # Raw PRM scores per step for trajectory aggregation
 
     def deepcopy(self):
         # create a deep copy of the path object
@@ -37,6 +41,7 @@ class Path:
             steps=copy.deepcopy(self.steps),
             is_stopped=self.is_stopped,
             score=self.score,
+            step_scores=copy.deepcopy(self.step_scores),
         )
 
 
@@ -46,10 +51,12 @@ class BeamSearch(AbstractScalingAlgorithm):
         sg: StepGeneration,
         prm: AbstractProcessRewardModel,
         beam_width: int,
+        aggregator: AbstractTrajectoryAggregator | None = None,
     ):
         self.sg = sg
         self.prm = prm
         self.beam_width = beam_width
+        self.aggregator: AbstractTrajectoryAggregator = aggregator or HardcodedAggregator("prod")
 
     async def _asearch_one_level(
         self,
@@ -107,6 +114,7 @@ class BeamSearch(AbstractScalingAlgorithm):
             if is_stopped:
                 continue
             c.score = scores[i]
+            c.step_scores.append(scores[i])
             i += 1
 
         return candidates
@@ -169,7 +177,7 @@ class BeamSearch(AbstractScalingAlgorithm):
                     new_candidates.append(c.deepcopy())
             candidates = new_candidates
 
-        scores = [c.score for c in candidates]
+        scores = [self.aggregator.aggregate(c.step_scores) for c in candidates]
         steps_used = [len(c.steps) for c in candidates]
         result = BeamSearchResult(
             responses=[
