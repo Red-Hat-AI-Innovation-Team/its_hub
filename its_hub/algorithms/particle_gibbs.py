@@ -1,5 +1,6 @@
 import copy
 import random
+from dataclasses import field
 from enum import Enum
 
 import numpy as np
@@ -47,7 +48,7 @@ class Particle:
     steps: list[str]
     is_stopped: bool
     partial_log_weights: list[float]  # Store aggregated log weights until each step
-    step_scores: list[float]  # Raw PRM scores per step for trajectory aggregation
+    step_scores: list[float] = field(default_factory=list)  # Raw PRM scores per step for trajectory aggregation
 
     @property
     def log_weight(self) -> float:
