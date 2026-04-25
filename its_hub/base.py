@@ -100,7 +100,6 @@ class AbstractOutcomeRewardModel(ABC):
         pass
 
 
-# TODO(GX) deal with aggregation of PRM scores somehow in a common place, e.g. here
 class AbstractProcessRewardModel(ABC):
     """abstract base class for process reward models"""
 
@@ -121,3 +120,20 @@ class AbstractProcessRewardModel(ABC):
     ) -> list[float]:
         """score steps synchronously"""
         pass
+
+
+class AbstractTrajectoryAggregator(ABC):
+    """abstract base class for trajectory aggregators
+
+    Reduces a sequence of per-step PRM scores to a single trajectory score.
+    Pluggable into ParticleFiltering and BeamSearch via the aggregator parameter.
+    """
+
+    @abstractmethod
+    def aggregate(self, step_scores: list[float]) -> float:
+        """reduce per-step scores to a single trajectory score"""
+        pass
+
+    async def aaggregate(self, step_scores: list[float]) -> float:
+        """async variant; delegates to sync by default"""
+        return self.aggregate(step_scores)
