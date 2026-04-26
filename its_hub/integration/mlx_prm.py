@@ -16,18 +16,21 @@ from its_hub.types import ChatMessage, ChatMessages
 class MLXProcessRewardModel(AbstractProcessRewardModel):
     """Process Reward Model backed by MLX with 4-bit quantized weights.
 
-    Scores step-by-step reasoning trajectories using Qwen2.5-Math-PRM-7B
-    (or any compatible model) loaded via mlx-lm on Apple Silicon.
+    **Intended for Math-Shepherd-style PRMs** that score by computing
+    P(correct) from the logits of generative "+"/"-" tokens at step-boundary
+    positions (e.g. models derived from Shepherd or PRM800K supervision).
 
-    For each trajectory, the model assigns a per-step quality score by
-    computing P(correct) = softmax([logit(good_token), logit(bad_token)])
-    at each step-boundary position.  The score returned for a given
-    (prompt, response) pair is the quality of the *last* step in the
-    response — matching how ParticleFiltering calls the PRM incrementally.
+    This implementation does **not** work with Qwen2.5-Math-PRM-7B, which
+    uses a 2-layer classifier score head (score.*) that mlx_lm rejects with
+    "Received N parameters not in model".  For Qwen2.5-Math-PRM-7B use
+    ``TransformersProcessRewardModel`` instead.
+
+    For each (prompt, response) pair, returns the probability of the *last*
+    step being correct — matching how ParticleFiltering calls the PRM
+    incrementally.
 
     Args:
-        model_name: HuggingFace model path or local directory.  Defaults to
-            the 4-bit quantised community upload of Qwen2.5-Math-PRM-7B.
+        model_name: HuggingFace model path or local directory.
         step_sep: Token string that separates reasoning steps.
         good_token: Vocabulary token representing a correct step.
         bad_token: Vocabulary token representing an incorrect step.
