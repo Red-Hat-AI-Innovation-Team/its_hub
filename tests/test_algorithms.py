@@ -978,6 +978,63 @@ class TestBeamSearch:
         assert isinstance(result, dict)
 
 
+class TestBeamSearchAggregatorIntegration:
+    """BeamSearch aggregator integration tests mirroring TestParticleFilteringAggregatorIntegration."""
+
+    def test_accepts_aggregator_parameter(self):
+        from its_hub.aggregators import HardcodedAggregator
+
+        sg = StepGeneration(step_token="\n", max_steps=1)
+        mock_prm = MockProcessRewardModel([0.5, 0.8])
+        agg = HardcodedAggregator("min")
+        bs = BeamSearch(sg, mock_prm, beam_width=2, aggregator=agg)
+        assert bs.aggregator is agg
+
+    def test_defaults_to_hardcoded_prod(self):
+        from its_hub.aggregators import HardcodedAggregator
+
+        sg = StepGeneration(step_token="\n", max_steps=1)
+        mock_prm = MockProcessRewardModel([0.5])
+        bs = BeamSearch(sg, mock_prm, beam_width=2)
+        assert isinstance(bs.aggregator, HardcodedAggregator)
+        assert bs.aggregator.reduction == "prod"
+
+    def test_uses_aggregator_for_selection(self):
+        from its_hub.base import AbstractTrajectoryAggregator
+
+        class ZeroAggregator(AbstractTrajectoryAggregator):
+            def aggregate(self, step_scores):
+                return 0.0
+
+        mock_lm = StepMockLanguageModel(["step1", "step2", "step3", "step4"])
+        mock_prm = MockProcessRewardModel([0.9, 0.1, 0.8, 0.2])
+        sg = StepGeneration(step_token="\n", max_steps=1)
+        bs = BeamSearch(sg, mock_prm, beam_width=2, aggregator=ZeroAggregator())
+        result = bs.infer(mock_lm, "test prompt", budget=2, return_response_only=True)
+        assert isinstance(result, dict)
+
+    def test_different_aggregators_produce_valid_results(self):
+        from its_hub.aggregators import HardcodedAggregator
+
+        sg = StepGeneration(step_token="\n", max_steps=1)
+        bs_prod = BeamSearch(
+            sg, MockProcessRewardModel([0.9, 0.1]),
+            beam_width=2, aggregator=HardcodedAggregator("prod"),
+        )
+        bs_min = BeamSearch(
+            sg, MockProcessRewardModel([0.9, 0.1]),
+            beam_width=2, aggregator=HardcodedAggregator("min"),
+        )
+        lm = StepMockLanguageModel(["step1", "step2"] * 4)
+        result_prod = bs_prod.infer(lm, "test", budget=2, return_response_only=True)
+        result_min = bs_min.infer(
+            StepMockLanguageModel(["step1", "step2"] * 4), "test",
+            budget=2, return_response_only=True,
+        )
+        assert isinstance(result_prod, dict)
+        assert isinstance(result_min, dict)
+
+
 class TestParticleGibbs:
     """Test the Particle Gibbs algorithm."""
 

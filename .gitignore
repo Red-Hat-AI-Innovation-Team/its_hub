@@ -186,3 +186,9 @@ cython_debug/
 # local dev
 notebooks/dev.ipynb
 results/
+
+# Gas City
+.beads/*
+!.beads/config.yaml
+!.beads/metadata.json
+.claude/
