@@ -6,7 +6,7 @@ import tempfile
 
 import pytest
 
-from its_hub.aggregators import HardcodedAggregator, LearnedMLPAggregator
+from its_hub.aggregators import HardcodedAggregator, LearnedGBDTAggregator, LearnedMLPAggregator
 from its_hub.algorithms.particle_gibbs import ParticleFiltering
 from its_hub.base import AbstractTrajectoryAggregator
 from its_hub.lms import StepGeneration
@@ -129,6 +129,53 @@ class TestLearnedMLPAggregator:
     @pytest.mark.asyncio
     async def test_aaggregate_delegates_to_sync(self, dummy_checkpoint):
         agg = LearnedMLPAggregator(dummy_checkpoint)
+        scores = [0.9, 0.7, 0.8]
+        assert await agg.aaggregate(scores) == pytest.approx(agg.aggregate(scores))
+
+
+class TestLearnedGBDTAggregator:
+    @pytest.fixture
+    def dummy_checkpoint(self, tmp_path):
+        """Create a minimal valid GBDT checkpoint."""
+        joblib = pytest.importorskip("joblib")
+        sklearn = pytest.importorskip("sklearn.ensemble")
+
+        from sklearn.ensemble import GradientBoostingClassifier
+        import numpy as np
+
+        clf = GradientBoostingClassifier(n_estimators=5, max_depth=2, random_state=0)
+        X = np.random.default_rng(0).random((20, 10)).astype(np.float32)
+        y = (X[:, 0] > 0.5).astype(int)
+        clf.fit(X, y)
+
+        checkpoint_path = str(tmp_path / "dummy_gbdt.pkl")
+        joblib.dump(clf, checkpoint_path)
+        return checkpoint_path
+
+    def test_loads_and_runs_forward(self, dummy_checkpoint):
+        agg = LearnedGBDTAggregator(dummy_checkpoint)
+        result = agg.aggregate([0.9, 0.8, 0.7])
+        assert isinstance(result, float)
+        assert 0.0 <= result <= 1.0
+
+    def test_empty_scores(self, dummy_checkpoint):
+        agg = LearnedGBDTAggregator(dummy_checkpoint)
+        result = agg.aggregate([])
+        assert isinstance(result, float)
+        assert 0.0 <= result <= 1.0
+
+    def test_single_step(self, dummy_checkpoint):
+        agg = LearnedGBDTAggregator(dummy_checkpoint)
+        result = agg.aggregate([0.5])
+        assert isinstance(result, float)
+
+    def test_is_abstract_aggregator(self, dummy_checkpoint):
+        agg = LearnedGBDTAggregator(dummy_checkpoint)
+        assert isinstance(agg, AbstractTrajectoryAggregator)
+
+    @pytest.mark.asyncio
+    async def test_aaggregate_delegates_to_sync(self, dummy_checkpoint):
+        agg = LearnedGBDTAggregator(dummy_checkpoint)
         scores = [0.9, 0.7, 0.8]
         assert await agg.aaggregate(scores) == pytest.approx(agg.aggregate(scores))
 

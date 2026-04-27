@@ -191,3 +191,4 @@ results/
 .beads/*
 !.beads/config.yaml
 !.beads/metadata.json
+.claude/

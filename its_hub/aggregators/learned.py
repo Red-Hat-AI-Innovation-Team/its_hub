@@ -113,3 +113,32 @@ class _TrajectoryMLP:
 
     def __call__(self, x):
         return self._net(x).squeeze(-1)
+
+
+class LearnedGBDTAggregator(AbstractTrajectoryAggregator):
+    """Trajectory aggregator backed by a trained GBDT checkpoint.
+
+    Maps a 10-dim feature vector (derived from per-step scores) to a trajectory
+    score via sklearn's GradientBoostingClassifier.predict_proba.  Checkpoint is
+    a joblib-serialised sklearn estimator:
+
+        import joblib
+        joblib.dump(clf, path)
+
+    Requires scikit-learn; raises ImportError with a clear message if absent.
+    """
+
+    def __init__(self, checkpoint_path: str):
+        try:
+            import joblib
+        except ImportError as exc:
+            raise ImportError(
+                "LearnedGBDTAggregator requires scikit-learn. "
+                "Install it with: pip install scikit-learn"
+            ) from exc
+
+        self._clf = joblib.load(checkpoint_path)
+
+    def aggregate(self, step_scores: list[float]) -> float:
+        features = _extract_features(step_scores)
+        return float(self._clf.predict_proba([features])[0, 1])
