@@ -2,6 +2,8 @@
 # Execute inference-time scaling via IaaS API or Python fallback
 set -euo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/_env.sh"
+
 CONFIG_PATH="${ITS_HUB_CONFIG:-.its-hub/config.json}"
 
 usage() {
@@ -39,10 +41,10 @@ done
 [ -f "$CONFIG_PATH" ] || die "Config not found at $CONFIG_PATH. Run /its-setup first."
 
 # Read config values via env vars to avoid shell injection
-IAAS_PORT=$(CONFIG_PATH="$CONFIG_PATH" python3 -c "import json,os; print(json.load(open(os.environ['CONFIG_PATH'])).get('iaas_port', 8108))")
-[ -z "$ALGORITHM" ] && ALGORITHM=$(CONFIG_PATH="$CONFIG_PATH" python3 -c "import json,os; print(json.load(open(os.environ['CONFIG_PATH'])).get('algorithm', 'self-consistency'))")
-[ -z "$BUDGET" ] && BUDGET=$(CONFIG_PATH="$CONFIG_PATH" python3 -c "import json,os; print(json.load(open(os.environ['CONFIG_PATH'])).get('budget', 8))")
-MODEL_NAME=$(CONFIG_PATH="$CONFIG_PATH" MODEL_KEY="$MODEL_KEY" python3 -c "import json,os; print(json.load(open(os.environ['CONFIG_PATH'])).get('models', {}).get(os.environ['MODEL_KEY'], {}).get('model', ''))")
+IAAS_PORT=$(CONFIG_PATH="$CONFIG_PATH" $PYTHON -c "import json,os; print(json.load(open(os.environ['CONFIG_PATH'])).get('iaas_port', 8108))")
+[ -z "$ALGORITHM" ] && ALGORITHM=$(CONFIG_PATH="$CONFIG_PATH" $PYTHON -c "import json,os; print(json.load(open(os.environ['CONFIG_PATH'])).get('algorithm', 'self-consistency'))")
+[ -z "$BUDGET" ] && BUDGET=$(CONFIG_PATH="$CONFIG_PATH" $PYTHON -c "import json,os; print(json.load(open(os.environ['CONFIG_PATH'])).get('budget', 8))")
+MODEL_NAME=$(CONFIG_PATH="$CONFIG_PATH" MODEL_KEY="$MODEL_KEY" $PYTHON -c "import json,os; print(json.load(open(os.environ['CONFIG_PATH'])).get('models', {}).get(os.environ['MODEL_KEY'], {}).get('model', ''))")
 
 [ -z "$MODEL_NAME" ] && die "Model '$MODEL_KEY' not found in config. Run /its-setup to add it."
 
@@ -53,7 +55,7 @@ $SHOW_METADATA && RETURN_RESPONSE_ONLY=false
 # Try IaaS server first
 if curl -s --connect-timeout 2 "http://localhost:${IAAS_PORT}/v1/models" > /dev/null 2>&1; then
     # IaaS path — use env vars to avoid shell injection
-    REQUEST=$(ITS_MODEL="$MODEL_NAME" ITS_PROMPT="$PROMPT" ITS_BUDGET="$BUDGET" ITS_RRO="$RETURN_RESPONSE_ONLY" python3 -c "
+    REQUEST=$(ITS_MODEL="$MODEL_NAME" ITS_PROMPT="$PROMPT" ITS_BUDGET="$BUDGET" ITS_RRO="$RETURN_RESPONSE_ONLY" $PYTHON -c "
 import json, sys, os
 req = {
     'model': os.environ['ITS_MODEL'],
@@ -69,7 +71,7 @@ json.dump(req, sys.stdout)
         -d "$REQUEST")
 
     # Check for errors
-    if echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if 'choices' in d else 1)" 2>/dev/null; then
+    if echo "$RESPONSE" | $PYTHON -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if 'choices' in d else 1)" 2>/dev/null; then
         echo "$RESPONSE"
     else
         echo "ERROR: $RESPONSE" >&2
@@ -81,14 +83,14 @@ else
         die "Particle filtering requires a running IaaS server. Run: scripts/its_server.sh start"
     fi
 
-    RM_NAME=$(CONFIG_PATH="$CONFIG_PATH" python3 -c "import json,os; print(json.load(open(os.environ['CONFIG_PATH'])).get('algorithm_config', {}).get('rm_name', ''))" 2>/dev/null || echo "")
+    RM_NAME=$(CONFIG_PATH="$CONFIG_PATH" $PYTHON -c "import json,os; print(json.load(open(os.environ['CONFIG_PATH'])).get('algorithm_config', {}).get('rm_name', ''))" 2>/dev/null || echo "")
     if [ "$ALGORITHM" = "best-of-n" ] && [ "$RM_NAME" != "llm-judge" ] && [ -n "$RM_NAME" ]; then
         die "Best-of-N with local reward model requires a running IaaS server. Run: scripts/its_server.sh start"
     fi
 
     ITS_CONFIG="$CONFIG_PATH" ITS_MODEL_KEY="$MODEL_KEY" ITS_ALGORITHM="$ALGORITHM" \
     ITS_PROMPT="$PROMPT" ITS_BUDGET="$BUDGET" ITS_METADATA="$SHOW_METADATA" \
-    python3 -c "
+    $PYTHON -c "
 import json, sys, os
 
 config = json.load(open(os.environ['ITS_CONFIG']))

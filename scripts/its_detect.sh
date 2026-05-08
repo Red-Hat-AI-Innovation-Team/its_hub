@@ -2,12 +2,14 @@
 # Detect its_hub environment: server, library, installer, config
 set -euo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/_env.sh"
+
 CONFIG_PATH="${ITS_HUB_CONFIG:-.its-hub/config.json}"
 IAAS_PORT=8108
 
 # Read port from config if available
 if [ -f "$CONFIG_PATH" ]; then
-    CONFIGURED_PORT=$(CONFIG_PATH="$CONFIG_PATH" python3 -c "import json,os; print(json.load(open(os.environ['CONFIG_PATH'])).get('iaas_port', 8108))" 2>/dev/null || echo 8108)
+    CONFIGURED_PORT=$(CONFIG_PATH="$CONFIG_PATH" $PYTHON -c "import json,os; print(json.load(open(os.environ['CONFIG_PATH'])).get('iaas_port', 8108))" 2>/dev/null || echo 8108)
     IAAS_PORT="$CONFIGURED_PORT"
 fi
 
@@ -19,7 +21,7 @@ else
 fi
 
 # Check library
-if python3 -c "import its_hub" 2>/dev/null; then
+if $PYTHON -c "import its_hub" 2>/dev/null; then
     echo "library=installed"
 else
     echo "library=missing"

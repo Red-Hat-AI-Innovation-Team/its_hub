@@ -2,6 +2,8 @@
 # Manage its_hub IaaS server lifecycle
 set -euo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/_env.sh"
+
 CONFIG_PATH="${ITS_HUB_CONFIG:-.its-hub/config.json}"
 PID_FILE=".its-hub/server.pid"
 ACTION="${1:-status}"
@@ -9,8 +11,11 @@ ACTION="${1:-status}"
 die() { echo "ERROR: $1" >&2; exit 1; }
 
 read_config() {
-    [ -f "$CONFIG_PATH" ] || die "Config not found at $CONFIG_PATH. Run /its-setup first."
-    CONFIG_PATH="$CONFIG_PATH" FIELD="$1" DEFAULT="${2:-}" python3 -c "
+    if [ ! -f "$CONFIG_PATH" ]; then
+        [ -n "${2:-}" ] && { echo "$2"; return 0; }
+        die "Config not found at $CONFIG_PATH. Run /its-setup first."
+    fi
+    CONFIG_PATH="$CONFIG_PATH" FIELD="$1" DEFAULT="${2:-}" $PYTHON -c "
 import json, os
 c = json.load(open(os.environ['CONFIG_PATH']))
 print(c.get(os.environ['FIELD'], os.environ['DEFAULT']))
@@ -18,7 +23,7 @@ print(c.get(os.environ['FIELD'], os.environ['DEFAULT']))
 }
 
 build_configure_payload() {
-    CONFIG_PATH="$CONFIG_PATH" MODEL_KEY="${1:-default}" python3 -c "
+    CONFIG_PATH="$CONFIG_PATH" MODEL_KEY="${1:-default}" $PYTHON -c "
 import json, sys, os
 
 config = json.load(open(os.environ['CONFIG_PATH']))
@@ -90,7 +95,7 @@ case "$ACTION" in
         mkdir -p .its-hub
 
         echo "Starting IaaS server on port $IAAS_PORT..."
-        nohup python3 -m its_hub.integration.iaas --host 0.0.0.0 --port "$IAAS_PORT" \
+        nohup $PYTHON -m its_hub.integration.iaas --host 0.0.0.0 --port "$IAAS_PORT" \
             > .its-hub/server.log 2>&1 &
         SERVER_PID=$!
         echo "$SERVER_PID" > "$PID_FILE"
@@ -107,8 +112,8 @@ case "$ACTION" in
                         -H "Content-Type: application/json" \
                         -d "$PAYLOAD")
 
-                    if echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('status')=='success'" 2>/dev/null; then
-                        echo "Server configured: $(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('message',''))")"
+                    if echo "$RESPONSE" | $PYTHON -c "import json,sys; d=json.load(sys.stdin); assert d.get('status')=='success'" 2>/dev/null; then
+                        echo "Server configured: $(echo "$RESPONSE" | $PYTHON -c "import json,sys; print(json.load(sys.stdin).get('message',''))")"
                     else
                         echo "WARNING: Server started but configuration failed: $RESPONSE"
                     fi
@@ -143,7 +148,7 @@ case "$ACTION" in
         ;;
 
     status)
-        IAAS_PORT=$(read_config iaas_port 8108 2>/dev/null || echo 8108)
+        IAAS_PORT=$(read_config iaas_port 8108)
 
         if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
             PID=$(cat "$PID_FILE")
@@ -152,7 +157,10 @@ case "$ACTION" in
             echo "models=$MODELS"
         else
             echo "server=stopped"
-            [ -f "$PID_FILE" ] && echo "(stale PID file found — cleaning up)" && rm -f "$PID_FILE"
+            if [ -f "$PID_FILE" ]; then
+                echo "(stale PID file found — cleaning up)"
+                rm -f "$PID_FILE"
+            fi
         fi
         ;;
 

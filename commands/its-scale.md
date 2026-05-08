@@ -1,6 +1,6 @@
 ---
 description: "Run inference-time scaling on a prompt"
-argument-hint: "<prompt> [--budget N] [--algorithm ALG] [--model KEY]"
+argument-hint: "<prompt> [--budget N] [--algorithm ALG] [--model KEY] [--metadata]"
 allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/its_scale.sh:*)", "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/its_detect.sh:*)", "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/its_server.sh:*)"]
 ---
 
