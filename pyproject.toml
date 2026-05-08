@@ -62,7 +62,6 @@ dev = [
     "ruff>=0.10.0",
     "jupytext>=1.15.0",
     "jupyter>=1.0.0",
-    "reward-hub[vllm]>=0.1.8",
 ]
 
 prm = [

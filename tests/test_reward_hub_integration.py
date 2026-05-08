@@ -7,6 +7,8 @@ from reward_hub.base import AggregationMethod
 
 from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
 
+pytest.importorskip("reward_hub.vllm.reward", reason="requires vllm")
+
 
 class TestLocalVllmProcessRewardModelIntegration:
     """Test the integration between its_hub and reward_hub."""

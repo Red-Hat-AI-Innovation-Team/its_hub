@@ -183,9 +183,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
         return self._process_responses(responses, return_response_only)
 
     def _process_responses(
-        self,
-        responses: list[dict],
-        return_response_only: bool = True
+        self, responses: list[dict], return_response_only: bool = True
     ) -> dict | SelfConsistencyResult:
         """Process responses and return result."""
         # Check if majority of responses have tool calls to decide voting method
@@ -215,7 +213,9 @@ class SelfConsistency(AbstractScalingAlgorithm):
                 i for i, r in enumerate(responses) if not r.get("tool_calls")
             ]
             responses_projected = [
-                self.consistency_space_projection_func(extract_content_from_lm_response(responses[i]))
+                self.consistency_space_projection_func(
+                    extract_content_from_lm_response(responses[i])
+                )
                 for i in eligible_indices
             ]
 
