@@ -55,7 +55,11 @@ Both `.claude-plugin/plugin.json` and `.cursor-plugin/plugin.json` share the sam
 
 ## Prerequisites
 
-Before the plugin ships, the IaaS `regex_patterns` Pydantic validator for self-consistency must be relaxed. Currently (`iaas.py` line 121-128), the validator rejects `regex_patterns=None` for self-consistency, but the handler (`iaas.py` line 322-328) already gracefully falls back to the default exact-match projection function when `regex_patterns` is `None`. Relaxing the validator to match the handler allows users to skip regex pattern configuration for the common case where exact-match voting is sufficient. Until this is done, the setup flow must always collect at least one regex pattern for self-consistency on the IaaS path.
+Before the plugin ships, two IaaS changes are required:
+
+1. **Relax `regex_patterns` validator for self-consistency.** Currently (`iaas.py` line 121-128), the Pydantic validator rejects `regex_patterns=None` for self-consistency, but the handler (`iaas.py` line 322-328) already gracefully falls back to the default exact-match projection function when `regex_patterns` is `None`. Relaxing the validator to match the handler allows users to skip regex pattern configuration for the common case where exact-match voting is sufficient. Until this is done, the setup flow must always collect at least one regex pattern for self-consistency on the IaaS path.
+
+2. **Add `ParticleFilteringResult` metadata extraction.** The `_extract_algorithm_metadata` function in `iaas.py` (line 410-443) has branches for `SelfConsistencyResult` and `BestOfNResult` but not for particle filtering results. When the plugin calls IaaS with `return_response_only: false`, particle filtering returns `metadata: null`. A metadata branch should be added to expose `log_weights`, `steps_used`, and `selected_index` — otherwise the user experience is degraded for one of the three advertised algorithms.
 
 ## Commands
 
@@ -223,7 +227,11 @@ The config schema varies by algorithm. Examples for each:
     "judge_base_url": "https://api.openai.com/v1",
     "judge_api_key": "...",
     "judge_criterion": "overall_quality",
-    "judge_mode": "groupwise"
+    "judge_mode": "groupwise",
+    "judge_top_n": 1,
+    "judge_temperature": 0.0,
+    "judge_max_tokens": 4096,
+    "enable_judge_logging": true
   }
 }
 ```
@@ -295,6 +303,10 @@ The plugin config uses a structured layout; the IaaS `/configure` endpoint uses 
 | `algorithm_config.judge_api_key` | `judge_api_key` |
 | `algorithm_config.judge_criterion` | `judge_criterion` |
 | `algorithm_config.judge_mode` | `judge_mode` |
+| `algorithm_config.judge_top_n` | `judge_top_n` |
+| `algorithm_config.judge_temperature` | `judge_temperature` |
+| `algorithm_config.judge_max_tokens` | `judge_max_tokens` |
+| `algorithm_config.enable_judge_logging` | `enable_judge_logging` |
 
 The `iaas_port` field is used only by `its_server.sh` (passed as `--port` to the `its-iaas` binary) and is not sent to `/configure`.
 
@@ -350,7 +362,7 @@ The plugin exposes the three algorithms supported by the IaaS server: **self-con
 |---|---|---|---|
 | Self-consistency | You want the most common/agreed-upon answer | Generates N responses, votes on the most frequent answer | Nothing extra (optionally regex patterns for answer extraction) |
 | Best-of-N | You want the highest-quality response | Generates N responses, scores each with a reward model, picks the best | Reward model (local vLLM model or LLM-as-judge) |
-| Particle filtering | You want careful step-by-step reasoning | Explores reasoning paths step by step, pruning weak paths as it goes | Process reward model (local vLLM) + step token config |
+| Particle filtering | You want careful step-by-step reasoning | Explores reasoning paths step by step, pruning weak paths as it goes (budget = number of particles, with `num_iterations=1`) | Process reward model (local vLLM) + step token config |
 
 ## Future Work
 
