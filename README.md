@@ -119,12 +119,27 @@ its_hub is available as a plugin for Claude Code and Cursor, bringing inference-
 
 ### Install
 
-**Claude Code** (from GitHub):
+There are two ways to install in Claude Code:
+
+**Option A: Direct install (recommended)** — installs the plugin in one step:
+
 ```bash
 claude plugin add --from github Red-Hat-AI-Innovation-Team/its_hub
 ```
 
-**Claude Code** (from a local clone):
+**Option B: Marketplace + install** — registers this repo as a plugin marketplace first, then installs from it. Useful if you want to browse available plugins before installing:
+
+```bash
+# Register the marketplace (makes it browsable in /plugin Discover tab)
+/plugin marketplace add Red-Hat-AI-Innovation-Team/its_hub
+
+# Install the plugin from the registered marketplace
+/plugin install its-hub@Red-Hat-AI-Innovation-Team/its_hub
+```
+
+The difference: Option A does everything at once. Option B separates discovery from installation — handy when a marketplace hosts multiple plugins and you want to pick which ones to install.
+
+**From a local clone:**
 ```bash
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 claude plugin add /path/to/its_hub
