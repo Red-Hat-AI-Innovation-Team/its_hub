@@ -53,6 +53,10 @@ Both `.claude-plugin/plugin.json` and `.cursor-plugin/plugin.json` share the sam
 }
 ```
 
+## Prerequisites
+
+Before the plugin ships, the IaaS `regex_patterns` Pydantic validator for self-consistency must be relaxed. Currently (`iaas.py` line 121-128), the validator rejects `regex_patterns=None` for self-consistency, but the handler (`iaas.py` line 322-328) already gracefully falls back to the default exact-match projection function when `regex_patterns` is `None`. Relaxing the validator to match the handler allows users to skip regex pattern configuration for the common case where exact-match voting is sufficient. Until this is done, the setup flow must always collect at least one regex pattern for self-consistency on the IaaS path.
+
 ## Commands
 
 ### `/its-setup` — First-run configuration
@@ -65,7 +69,7 @@ Both `.claude-plugin/plugin.json` and `.cursor-plugin/plugin.json` share the sam
 6. Ask for model name.
 7. Ask for preferred algorithm (self-consistency / best-of-n / particle-filtering) with brief explanations.
 8. **Algorithm-specific configuration** (branched by algorithm choice):
-   - **Self-consistency:** Ask whether the user needs regex patterns for answer extraction (e.g., `\\boxed{...}` for math). If yes, collect patterns. If no, use default exact-match voting. Optionally ask about tool voting strategy (`tool_name`, `tool_args`, `tool_hierarchical`) if the user's use case involves tool calls.
+   - **Self-consistency:** Ask whether the user needs regex patterns for answer extraction (e.g., `\\boxed{...}` for math). At least one pattern is required for the IaaS path (see Prerequisites). Optionally ask about tool voting strategy (`tool_name`, `tool_args`, `tool_hierarchical`) if the user's use case involves tool calls.
    - **Best-of-N:** Ask for reward model source — either a local model name (requires `its_hub[vllm]`) or `llm-judge` (uses an LLM as judge). If `llm-judge`: collect judge model name, judge endpoint (or `auto`), judge API key, and optionally judge criterion (defaults to `overall_quality`).
    - **Particle filtering:** Ask for step token (e.g., `"\n\n"`), stop token, and reward model name (requires `its_hub[vllm]`). Optionally ask about reward model device and aggregation method.
 9. Persist config to `.its-hub/config.json` in the project directory.
@@ -127,7 +131,7 @@ Trigger: *"Use when the user wants to improve LLM response quality by generating
 
 Behavior:
 - Runs `its_detect.sh` to check availability.
-- If IaaS running: construct `curl` call to `/v1/chat/completions` with prompt, algorithm, and budget.
+- If IaaS running: construct `curl` call to `/v1/chat/completions` with prompt, algorithm, budget, and `return_response_only: false` (so the agent can display metadata like scores and vote counts).
 - If no server but library installed: offer to start server or construct Python snippet using `its_hub` directly.
 - If nothing available: invoke `setup-guide` skill.
 - Includes algorithm decision guide: voting → self-consistency, scoring/ranking → best-of-n, step-by-step search → particle-filtering.
@@ -160,7 +164,7 @@ Outputs key-value pairs for skills/commands to parse.
 
 ### `its_server.sh`
 
-- `start` — Reads `.its-hub/config.json`, starts `its-iaas` in background, calls `/configure` with saved settings, writes PID.
+- `start` — Reads `.its-hub/config.json`, starts `its-iaas` in background with `--port` from `iaas_port` (must be passed explicitly — the `its-iaas` binary defaults to port 8000, but the plugin convention is 8108). Calls `/configure` with saved settings, writes PID.
 - `stop` — Reads PID file, kills process, cleans up.
 - `status` — Checks PID and hits `/v1/models`.
 
@@ -168,7 +172,7 @@ Outputs key-value pairs for skills/commands to parse.
 
 - Reads config, constructs `curl` call to IaaS `/v1/chat/completions`.
 - Accepts arguments: prompt (or stdin), algorithm override, budget override, model override.
-- Falls back to a Python script if no server available. The fallback is limited to **self-consistency** (no external reward model required). For best-of-n and particle-filtering, the fallback requires a running reward model, so the script will prompt the user to start the IaaS server instead.
+- Falls back to a Python script if no server available. The fallback is limited to **self-consistency** and **best-of-n with `llm-judge`** (neither requires a local reward model). For best-of-n with a local reward model and particle-filtering, the fallback requires a running vLLM reward model, so the script will prompt the user to start the IaaS server instead.
 - Outputs selected response and optionally full metadata.
 
 ## Configuration
@@ -247,6 +251,52 @@ The config schema varies by algorithm. Examples for each:
   }
 }
 ```
+
+LiteLLM users may need provider-specific arguments (e.g., AWS credentials for Bedrock). These are stored in an optional `extra_args` field:
+
+```json
+{
+  "provider": "litellm",
+  "models": { ... },
+  "algorithm": "best-of-n",
+  "budget": 8,
+  "iaas_port": 8108,
+  "extra_args": {
+    "aws_access_key_id": "...",
+    "aws_secret_access_key": "...",
+    "aws_region_name": "us-east-1"
+  },
+  "algorithm_config": { ... }
+}
+```
+
+### Config to IaaS `/configure` field mapping
+
+The plugin config uses a structured layout; the IaaS `/configure` endpoint uses a flat schema. Scripts translate between them:
+
+| Plugin config path | IaaS `/configure` field |
+|---|---|
+| `provider` | `provider` |
+| `models.<key>.endpoint` | `endpoint` |
+| `models.<key>.api_key` | `api_key` |
+| `models.<key>.model` | `model` |
+| `algorithm` | `alg` |
+| `extra_args` | `extra_args` |
+| `algorithm_config.regex_patterns` | `regex_patterns` |
+| `algorithm_config.tool_vote` | `tool_vote` |
+| `algorithm_config.exclude_tool_args` | `exclude_tool_args` |
+| `algorithm_config.rm_name` | `rm_name` |
+| `algorithm_config.rm_device` | `rm_device` |
+| `algorithm_config.rm_agg_method` | `rm_agg_method` |
+| `algorithm_config.step_token` | `step_token` |
+| `algorithm_config.stop_token` | `stop_token` |
+| `algorithm_config.judge_model` | `judge_model` |
+| `algorithm_config.judge_base_url` | `judge_base_url` |
+| `algorithm_config.judge_api_key` | `judge_api_key` |
+| `algorithm_config.judge_criterion` | `judge_criterion` |
+| `algorithm_config.judge_mode` | `judge_mode` |
+
+The `iaas_port` field is used only by `its_server.sh` (passed as `--port` to the `its-iaas` binary) and is not sent to `/configure`.
 
 Multi-model support: users can add models by running `/its-setup` again or by saying "add model X". The agent collects endpoint, API key, and model name, then adds a new entry to the `models` dict with the model name as key. Per-request model override is supported.
 
