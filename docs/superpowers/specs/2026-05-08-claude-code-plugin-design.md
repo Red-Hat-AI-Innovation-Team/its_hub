@@ -57,7 +57,7 @@ Both `.claude-plugin/plugin.json` and `.cursor-plugin/plugin.json` share the sam
 
 Before the plugin ships, two IaaS changes are required:
 
-1. **Relax `regex_patterns` validator for self-consistency.** Currently (`iaas.py` line 121-128), the Pydantic validator rejects `regex_patterns=None` for self-consistency, but the handler (`iaas.py` line 322-328) already gracefully falls back to the default exact-match projection function when `regex_patterns` is `None`. Relaxing the validator to match the handler allows users to skip regex pattern configuration for the common case where exact-match voting is sufficient. Until this is done, the setup flow must always collect at least one regex pattern for self-consistency on the IaaS path.
+1. **~~Relax `regex_patterns` validator for self-consistency.~~** Done — the Pydantic validator that rejected `regex_patterns=None` for self-consistency has been removed. The handler already falls back to default exact-match voting when no patterns are provided. Users can now skip regex pattern configuration during setup for the common case.
 
 2. **Add `ParticleFilteringResult` metadata extraction.** The `_extract_algorithm_metadata` function in `iaas.py` (line 410-443) has branches for `SelfConsistencyResult` and `BestOfNResult` but not for particle filtering results. When the plugin calls IaaS with `return_response_only: false`, particle filtering returns `metadata: null`. A metadata branch should be added to expose `log_weights`, `steps_used`, and `selected_index` — otherwise the user experience is degraded for one of the three advertised algorithms.
 
@@ -73,7 +73,7 @@ Before the plugin ships, two IaaS changes are required:
 6. Ask for model name.
 7. Ask for preferred algorithm (self-consistency / best-of-n / particle-filtering) with brief explanations.
 8. **Algorithm-specific configuration** (branched by algorithm choice):
-   - **Self-consistency:** Ask whether the user needs regex patterns for answer extraction (e.g., `\\boxed{...}` for math). At least one pattern is required for the IaaS path (see Prerequisites). Optionally ask about tool voting strategy (`tool_name`, `tool_args`, `tool_hierarchical`) if the user's use case involves tool calls.
+   - **Self-consistency:** Ask whether the user needs regex patterns for answer extraction (e.g., `\\boxed{...}` for math). If no, use default exact-match voting. Optionally ask about tool voting strategy (`tool_name`, `tool_args`, `tool_hierarchical`) if the user's use case involves tool calls.
    - **Best-of-N:** Ask for reward model source — either a local model name (requires `its_hub[vllm]`) or `llm-judge` (uses an LLM as judge). If `llm-judge`: collect judge model name, judge endpoint (or `auto`), judge API key, and optionally judge criterion (defaults to `overall_quality`).
    - **Particle filtering:** Ask for step token (e.g., `"\n\n"`), stop token, and reward model name (requires `its_hub[vllm]`). Optionally ask about reward model device and aggregation method.
 9. Persist config to `.its-hub/config.json` in the project directory.
@@ -369,4 +369,3 @@ The plugin exposes the three algorithms supported by the IaaS server: **self-con
 - Support for additional coding agents (Gemini CLI, Codex, OpenCode) — tracked in a separate issue.
 - Particle filtering may warrant its own skill if configuration complexity grows.
 - Streaming support for long-running batch jobs.
-- Relaxing the IaaS validator for `regex_patterns` in self-consistency — the handler already supports `None` (default exact-match voting), but the Pydantic validator currently rejects it. This would simplify setup for users who don't need regex-based answer extraction.

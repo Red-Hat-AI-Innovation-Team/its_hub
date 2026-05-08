@@ -118,16 +118,6 @@ class ConfigRequest(BaseModel):
             )
         return v
 
-    @field_validator("regex_patterns")
-    @classmethod
-    def validate_regex_patterns(cls, v, info):
-        """Validate regex patterns are provided when using self-consistency."""
-        if info.data.get("alg") == "self-consistency" and not v:
-            raise ValueError(
-                "regex_patterns are required when using self-consistency algorithm"
-            )
-        return v
-
     @field_validator("rm_name")
     @classmethod
     def validate_rm_name(cls, v, info):

@@ -155,6 +155,19 @@ class TestSelfConsistencyToolVote:
         assert response.status_code == 200
         assert "success" in response.json()["status"]
 
+    def test_self_consistency_without_regex_patterns(self, iaas_client, vllm_server):
+        """Test self-consistency works without regex_patterns (default exact-match voting)."""
+        config_data = {
+            "endpoint": vllm_server,
+            "api_key": TEST_CONSTANTS["DEFAULT_API_KEY"],
+            "model": TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            "alg": "self-consistency",
+        }
+
+        response = iaas_client.post("/configure", json=config_data)
+        assert response.status_code == 200
+        assert "success" in response.json()["status"]
+
     def test_self_consistency_with_tool_name_vote(self, iaas_client, vllm_server):
         """Test self-consistency configuration with tool_name voting."""
         config_data = {
