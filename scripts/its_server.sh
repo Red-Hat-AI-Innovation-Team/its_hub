@@ -74,7 +74,12 @@ json.dump(payload, sys.stdout)
 
 case "$ACTION" in
     start)
-        IAAS_PORT=$(read_config iaas_port 8108)
+        # Get port from config if available, otherwise use default
+        if [ -f "$CONFIG_PATH" ]; then
+            IAAS_PORT=$(read_config iaas_port 8108)
+        else
+            IAAS_PORT=8108
+        fi
 
         # Check if already running
         if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
@@ -95,16 +100,20 @@ case "$ACTION" in
             if curl -s --connect-timeout 1 "http://localhost:${IAAS_PORT}/v1/models" > /dev/null 2>&1; then
                 echo "Server started (PID $SERVER_PID)"
 
-                # Configure the server
-                PAYLOAD=$(build_configure_payload)
-                RESPONSE=$(curl -s -X POST "http://localhost:${IAAS_PORT}/configure" \
-                    -H "Content-Type: application/json" \
-                    -d "$PAYLOAD")
+                # Configure only if config exists
+                if [ -f "$CONFIG_PATH" ]; then
+                    PAYLOAD=$(build_configure_payload)
+                    RESPONSE=$(curl -s -X POST "http://localhost:${IAAS_PORT}/configure" \
+                        -H "Content-Type: application/json" \
+                        -d "$PAYLOAD")
 
-                if echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('status')=='success'" 2>/dev/null; then
-                    echo "Server configured: $(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('message',''))")"
+                    if echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('status')=='success'" 2>/dev/null; then
+                        echo "Server configured: $(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('message',''))")"
+                    else
+                        echo "WARNING: Server started but configuration failed: $RESPONSE"
+                    fi
                 else
-                    echo "WARNING: Server started but configuration failed: $RESPONSE"
+                    echo "Server started (unconfigured). Run /its-setup to configure."
                 fi
                 exit 0
             fi

@@ -81,7 +81,11 @@ Write the config to `.its-hub/config.json`. Use this structure:
 
 Add `.its-hub/` to `.gitignore` if not already present.
 
-## Step 6: Start Server (Optional)
+## Step 6: Verify Config
+
+Before proceeding, confirm the config file was written by checking that `.its-hub/config.json` exists and contains valid JSON. If the file is missing or invalid, re-run Step 5.
+
+## Step 7: Start Server (Optional)
 
 Ask: "Want me to start the IaaS server now?"
 
