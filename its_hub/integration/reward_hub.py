@@ -209,7 +209,7 @@ class LLMJudgeRewardModel(AbstractOutcomeRewardModel):
 
         # Build complete conversations (base + each response)
         conversations = [
-            base_messages + [{"role": "assistant", "content": resp}]
+            [*base_messages, {"role": "assistant", "content": resp}]
             for resp in responses
         ]
 

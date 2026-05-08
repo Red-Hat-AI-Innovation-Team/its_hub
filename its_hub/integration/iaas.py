@@ -144,12 +144,10 @@ class ConfigRequest(BaseModel):
     @classmethod
     def validate_judge_base_url(cls, v, info):
         """Validate judge base URL - requires 'auto' or a valid URL when using LLM judge."""
-        if info.data.get("rm_name") == "llm-judge":
-            if not v:
-                raise ValueError(
-                    "judge_base_url is required when rm_name='llm-judge' (use 'auto' for default endpoint)"
-                )
-            # Accept "auto" or any other string (assumed to be a valid URL)
+        if info.data.get("rm_name") == "llm-judge" and not v:
+            raise ValueError(
+                "judge_base_url is required when rm_name='llm-judge' (use 'auto' for default endpoint)"
+            )
         return v
 
     @field_validator("api_key")

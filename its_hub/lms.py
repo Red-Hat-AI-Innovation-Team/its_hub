@@ -7,11 +7,6 @@ import backoff
 import certifi
 import litellm
 
-## set litellm logging level to WARNING
-logging.getLogger("litellm").setLevel(logging.WARNING)
-logging.getLogger("litellm.proxy").setLevel(logging.WARNING)
-logging.getLogger("litellm.logging").setLevel(logging.WARNING)
-
 from .base import AbstractLanguageModel
 from .error_handling import (
     RETRYABLE_ERRORS,
@@ -23,6 +18,11 @@ from .error_handling import (
 )
 from .types import ChatMessage
 from .utils import extract_content_from_lm_response
+
+## set litellm logging level to WARNING
+logging.getLogger("litellm").setLevel(logging.WARNING)
+logging.getLogger("litellm.proxy").setLevel(logging.WARNING)
+logging.getLogger("litellm.logging").setLevel(logging.WARNING)
 
 
 def rstrip_iff_entire(s: str, subs: str) -> str:
@@ -388,9 +388,6 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             len(messages_lst) if self.max_concurrency == -1 else self.max_concurrency
         )
 
-        # create SSL context with certifi certificates (same as requests library)
-        ssl_context = ssl.create_default_context(cafile=certifi.where())
-
         # create a single session for all requests in this call
         # Use the same SSL behavior as requests library
         connector = aiohttp.TCPConnector(ssl=self.ssl_context)
@@ -664,10 +661,6 @@ class LiteLLMLanguageModel(AbstractLanguageModel):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
     ) -> list[dict]:
-        import time
-
-        start_time = time.time()
-
         # limit concurrency to max_concurrency using a semaphore
         semaphore = asyncio.Semaphore(
             len(messages_lst) if self.max_concurrency == -1 else self.max_concurrency
