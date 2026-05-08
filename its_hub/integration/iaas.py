@@ -400,6 +400,7 @@ class ChatCompletionUsage(BaseModel):
 def _extract_algorithm_metadata(algorithm_result: Any) -> dict[str, Any] | None:
     """Extract metadata from algorithm results for API response."""
     from its_hub.algorithms.bon import BestOfNResult
+    from its_hub.algorithms.particle_gibbs import ParticleFilteringResult
     from its_hub.algorithms.self_consistency import SelfConsistencyResult
 
     if isinstance(algorithm_result, SelfConsistencyResult):
@@ -417,18 +418,15 @@ def _extract_algorithm_metadata(algorithm_result: Any) -> dict[str, Any] | None:
             "scores": algorithm_result.scores,
             "selected_index": algorithm_result.selected_index,
         }
-    # TODO: Add metadata extraction for other algorithm result types
-    # elif isinstance(algorithm_result, BestOfNResult):
-    #     return {
-    #         "algorithm": "best-of-n",
-    #         "scores": algorithm_result.scores,
-    #         "selected_index": algorithm_result.selected_index,
-    #         ...
-    #     }
-    # elif isinstance(algorithm_result, BeamSearchResult):
-    #     return {...}
-    # elif isinstance(algorithm_result, ParticleGibbsResult):
-    #     return {...}
+
+    elif isinstance(algorithm_result, ParticleFilteringResult):
+        return {
+            "algorithm": "particle-filtering",
+            "responses": algorithm_result.responses,
+            "log_weights_lst": algorithm_result.log_weights_lst,
+            "selected_index": algorithm_result.selected_index,
+            "steps_used_lst": algorithm_result.steps_used_lst,
+        }
 
     return None
 

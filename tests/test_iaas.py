@@ -608,3 +608,32 @@ class TestPydanticModels:
         )
 
         assert request.return_response_only is True  # Default value
+
+
+class TestAlgorithmMetadata:
+    """Test algorithm metadata extraction."""
+
+    def test_particle_filtering_metadata_extraction(self):
+        """Test that ParticleFilteringResult produces metadata."""
+        from its_hub.algorithms.particle_gibbs import ParticleFilteringResult
+        from its_hub.integration.iaas import _extract_algorithm_metadata
+
+        result = ParticleFilteringResult(
+            responses=[
+                {"role": "assistant", "content": "response1"},
+                {"role": "assistant", "content": "response2"},
+                {"role": "assistant", "content": "response3"},
+            ],
+            log_weights_lst=[-0.5, -1.2, -0.3],
+            selected_index=2,
+            steps_used_lst=[5, 3, 7],
+        )
+
+        metadata = _extract_algorithm_metadata(result)
+
+        assert metadata is not None
+        assert metadata["algorithm"] == "particle-filtering"
+        assert metadata["log_weights_lst"] == [-0.5, -1.2, -0.3]
+        assert metadata["selected_index"] == 2
+        assert metadata["steps_used_lst"] == [5, 3, 7]
+        assert len(metadata["responses"]) == 3
