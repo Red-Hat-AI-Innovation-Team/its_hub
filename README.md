@@ -113,6 +113,44 @@ print(result)
 - ⚡ **Async Support**: Concurrent generation with limits and error handling
 
 
+## Coding Agent Plugin
+
+its_hub is available as a plugin for Claude Code and Cursor, bringing inference-time scaling directly into your coding workflow.
+
+### Install
+
+**Claude Code:**
+```bash
+claude plugin add /path/to/its_hub
+```
+
+**Cursor:**
+Point Cursor at this repository — it discovers the plugin via `.cursor-plugin/plugin.json`.
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `/its-setup` | Guided first-time configuration (installs library, collects endpoint/model/algorithm) |
+| `/its-scale <prompt>` | Run inference-time scaling on a single prompt |
+| `/its-scale-batch <file>` | Batch scaling from a JSONL/CSV/TXT file |
+| `/its-server start\|stop\|status` | Manage the IaaS server lifecycle |
+
+### Skills
+
+The plugin also includes contextual skills that fire automatically:
+
+- **inference-scaling** — Detects when you want to scale LLM output and handles it (algorithm selection, server detection, result presentation)
+- **setup-guide** — Walks through installation and configuration when its_hub isn't set up yet
+
+### Quick Example
+
+```
+> /its-scale "Explain the difference between supervised and unsupervised learning"
+```
+
+The plugin generates multiple candidates using your configured algorithm and returns the best response.
+
 ## Demo
 
 See the library in action with a walkthrough of inference-time scaling algorithms:

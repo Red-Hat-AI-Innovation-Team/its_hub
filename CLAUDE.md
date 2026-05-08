@@ -6,145 +6,139 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Installation and Setup
 ```bash
-# Development installation with uv (recommended)
-uv sync --extra dev
-
-# Alternative: pip installation
-pip install -e ".[dev]"
-
-# Production installation
-pip install its_hub
+uv sync --extra dev                # Development installation (recommended)
+pip install -e ".[dev]"            # Alternative: pip installation
 ```
-
-### Contribution
-When commit or raising PR, never mention it is by ClaudeCode.
-never say 🤖 Generated with [Claude Code](https://claude.ai/code)" in the commit statment, don't mention claude!
 
 ### Testing
 ```bash
-# Run all tests
-uv run pytest tests/
-
-# Run specific test file
-uv run pytest tests/test_algorithms.py
-
-# Run tests with coverage
-uv run pytest tests/ --cov=its_hub
-
-# Run tests with verbose output
-uv run pytest tests/ -v
+uv run pytest tests/                              # Run all tests
+uv run pytest tests/test_algorithms.py             # Run a specific test file
+uv run pytest tests/test_algorithms.py -k "test_self_consistency"  # Run a single test by name
+uv run pytest tests/ --cov=its_hub                 # With coverage
+uv run pytest tests/ -v                            # Verbose output
 ```
 
 ### Code Quality
 ```bash
-# Run linter checks
-uv run ruff check its_hub/
+uv run ruff check its_hub/                         # Lint
+uv run ruff check its_hub/ --fix                   # Lint with auto-fix
+uv run ruff format its_hub/                        # Format
+uv run ruff format --check its_hub/                # Check formatting without modifying
+```
 
-# Fix auto-fixable linting issues
-uv run ruff check its_hub/ --fix
-
-# Format code with ruff
-uv run ruff format its_hub/
+### IaaS Service
+```bash
+uv run its-iaas --host 0.0.0.0 --port 8108        # Start service
+just iaas-start                                    # Same, via justfile
+curl -s http://localhost:8108/v1/models | jq .      # Health check
 ```
 
 ### Git Workflow
 ```bash
-# Create commits with sign-off
-git commit -s -m "commit message"
-
-# For any git commits, always use the sign-off flag (-s)
+git commit -s -m "commit message"   # Always use sign-off (-s)
 ```
 
-### Running Examples
-```bash
-# Test basic functionality
-python scripts/test_math_example.py
+## Contribution Rules
 
-# Benchmark algorithms (see script help for full options)
-python scripts/benchmark.py --help
-```
+- Always use the sign-off flag (`-s`) on git commits.
+- Never mention Claude Code in commits or PRs. No `Co-Authored-By` lines referencing Claude.
+- Prefer `rg` over `grep` when available.
+- Use `uv` for all Python operations: `uv sync` to init, `uv run` to execute.
 
-### IaaS Service (Inference-as-a-Service)
-```bash
-# Start IaaS service
-uv run its-iaas --host 0.0.0.0 --port 8108
+## CI Expectations
 
-# Or using justfile (if available)
-just iaas-start
+CI runs on Python 3.10, 3.11, and 3.12. It checks:
+- `ruff check its_hub/` (linting)
+- `ruff format --check its_hub/` (formatting)
+- `pytest tests/ --cov=its_hub` (tests with coverage)
 
-# Check service health
-curl -s http://localhost:8108/v1/models | jq .
-
-# Configure the service (example: self-consistency algorithm)
-curl -X POST http://localhost:8108/configure \
-  -H "Content-Type: application/json" \
-  -d '{"endpoint": "http://localhost:8100/v1", "api_key": "NO_API_KEY", "model": "your-model-name", "alg": "self-consistency"}'
-
-# For comprehensive IaaS setup (multi-GPU, reward models, etc.), see docs/iaas-service.md
-```
-
-## Additional Tips
-- Use `rg` in favor of `grep` whenever it's available
-- Use `uv` for Python environment management: always start with `uv sync --extra dev` to init the env and run stuff with `uv run`
-- In case of dependency issues during testing, try commenting out `reward_hub` and `vllm` temporarily in @pyproject.toml and retry.
+Ruff config: line-length 88, target py311, double quotes, space indent. See `ruff.toml` for full rule set.
 
 ## Architecture Overview
 
-**its_hub** is a library for inference-time scaling of LLMs, focusing on mathematical reasoning tasks. The core architecture uses abstract base classes to define clean interfaces between components.
+**its_hub** is a library for inference-time scaling of LLMs. It generates multiple candidate responses and uses scoring/voting to select the best one.
 
-### Key Base Classes (`its_hub/base.py`)
-- `AbstractLanguageModel`: Interface for LM generation and evaluation
-- `AbstractScalingAlgorithm`: Base for all scaling algorithms with unified `infer()` method
-- `AbstractScalingResult`: Base for algorithm results with `the_one` property
-- `AbstractOutcomeRewardModel`: Interface for outcome-based reward models
-- `AbstractProcessRewardModel`: Interface for process-based reward models (step-by-step scoring)
+### Core Design
 
-### Main Components
+All components are built on abstract base classes in `its_hub/base.py`:
+- `AbstractLanguageModel` — async-first: subclasses implement `agenerate()`, and `generate()` is a sync wrapper via `asyncio.run()`
+- `AbstractScalingAlgorithm` — same pattern: implement `ainfer()`, get `infer()` for free
+- `AbstractOutcomeRewardModel` / `AbstractProcessRewardModel` — score full responses or individual reasoning steps, respectively
+- `AbstractScalingResult` — wraps algorithm output; `.the_one` returns the selected response
 
-#### Language Models (`its_hub/lms.py`)
-- `OpenAICompatibleLanguageModel`: Primary LM implementation supporting vLLM and OpenAI APIs
-- `StepGeneration`: Handles incremental generation with configurable step tokens and stop conditions
-- Supports async generation with concurrency limits and backoff strategies
+### Algorithms (`its_hub/algorithms/`)
 
-#### Algorithms (`its_hub/algorithms/`)
-All algorithms follow the same interface: `infer(lm, prompt, budget, return_response_only=True)`
+All share the same interface: `ainfer(lm, prompt, budget, return_response_only=True, tools=None, tool_choice=None)`
 
-- **Self-Consistency**: Generate multiple responses, select most common answer
-- **Best-of-N**: Generate N responses, select highest scoring via outcome reward model  
-- **Beam Search**: Step-by-step generation with beam width, uses process reward models
-- **Particle Filtering/Gibbs**: Probabilistic resampling with process reward models
+| Algorithm | Strategy | Budget meaning | Reward model |
+|---|---|---|---|
+| Self-Consistency | Generate N, majority vote | N parallel generations | None (voting) |
+| Best-of-N | Generate N, rank by score | N parallel generations | Outcome RM |
+| Beam Search | Step-by-step with beam width | depth = budget / beam_width | Process RM |
+| Particle Filtering/Gibbs | Probabilistic resampling | Number of particles | Process RM |
 
-#### Integration (`its_hub/integration/`)
-- `LocalVllmProcessRewardModel`: Integrates with reward_hub library for process-based scoring
-- `iaas.py`: Inference-as-a-Service FastAPI server providing OpenAI-compatible chat completions API with budget parameter for inference-time scaling
+**Planning Wrapper** (`planning_wrapper.py`) wraps any algorithm to add multi-step planning.
 
-### Budget Interpretation
-The budget parameter controls computational resources allocated to each algorithm. Different algorithms interpret budget as follows:
-- **Self-Consistency/Best-of-N**: Number of parallel generations to create
-- **Beam Search**: Total generations divided by beam width (controls search depth)
-- **Particle Filtering**: Number of particles maintained during sampling
+### Language Models (`its_hub/lms.py`)
 
-### Step Generation Pattern
-The `StepGeneration` class enables incremental text generation:
-- Configure step tokens (e.g., "\n\n" for reasoning steps)
-- Set max steps and stop conditions
-- Post-processing for clean output formatting
+- `OpenAICompatibleLanguageModel` — primary implementation, works with vLLM and OpenAI-compatible APIs
+- `LiteLLMLanguageModel` — multi-provider support (AWS Bedrock, Google Vertex, etc.)
+- `StepGeneration` — incremental generation with configurable step tokens (e.g., `"\n\n"`) and stop conditions; used by beam search and particle filtering
 
-### Typical Workflow
-1. Start vLLM server with instruction model
-2. Initialize `OpenAICompatibleLanguageModel` pointing to server
-3. Create `StepGeneration` with step/stop tokens appropriate for the task
-4. Initialize reward model (e.g., `LocalVllmProcessRewardModel`)
-5. Create scaling algorithm with step generation and reward model
-6. Call `infer()` with prompt and budget
+### Integration (`its_hub/integration/`)
 
-### Mathematical Focus
-The library is optimized for mathematical reasoning:
-- Predefined system prompts in `its_hub/utils.py` (SAL_STEP_BY_STEP_SYSTEM_PROMPT, QWEN_SYSTEM_PROMPT)
-- Regex patterns for mathematical notation (e.g., `r"\boxed"` for final answers)
-- Integration with math_verify for evaluation
-- Benchmarking on MATH500 and AIME-2024 datasets
+- `reward_hub.py` — wraps `reward_hub` library for process reward models
+- `iaas.py` — FastAPI server providing an OpenAI-compatible chat completions API with an added `budget` parameter for inference-time scaling. Supports tool/function calling and configurable voting strategies (`tool_vote`: `tool_name`, `tool_hierarchical`)
 
-## Inference-as-a-Service (IaaS)
+### Type System (`its_hub/types.py`)
 
-The its_hub library includes an IaaS service that provides OpenAI-compatible API with inference-time scaling capabilities. For comprehensive setup instructions, usage examples, and troubleshooting, see [docs/iaas-service.md](./docs/iaas-service.md).
+`ChatMessage` and `ChatMessages` handle both string prompts and structured conversation history. `ChatMessages.from_prompt_or_messages()` is the standard entry point for normalizing input across the codebase.
+
+### Error Handling (`its_hub/error_handling.py`)
+
+API errors are classified as retryable (`RateLimitError`, `APIConnectionError`, `InternalServerError`) or non-retryable (`ContextLengthError`, `AuthenticationError`, `BadRequestError`). The `backoff` library handles retry logic with `should_retry()` as the gating function.
+
+## Coding Agent Plugin
+
+This repo also serves as a plugin for Claude Code and Cursor. The plugin files are at the repo root:
+
+### Plugin Structure
+
+```
+commands/                     # Slash commands (markdown files)
+├── its-setup.md              # /its-setup — guided first-run configuration
+├── its-scale.md              # /its-scale — single prompt scaling
+├── its-scale-batch.md        # /its-scale-batch — batch scaling from file
+└── its-server.md             # /its-server — IaaS server lifecycle
+
+skills/                       # Contextual skills (fire automatically)
+├── inference-scaling/
+│   └── SKILL.md              # Detects scaling intent, routes to commands
+└── setup-guide/
+    └── SKILL.md              # First-time setup walkthrough
+
+scripts/                      # Shell scripts used by commands/skills
+├── its_detect.sh             # Environment detection (server, library, config)
+├── its_server.sh             # IaaS server start/stop/status
+└── its_scale.sh              # Execute scaling requests
+
+.claude-plugin/plugin.json    # Claude Code manifest
+.cursor-plugin/plugin.json    # Cursor manifest
+```
+
+### Plugin Config
+
+User config is stored at `.its-hub/config.json` (auto-generated by `/its-setup`, gitignored). See `docs/superpowers/specs/2026-05-08-claude-code-plugin-design.md` for the full config schema and IaaS field mapping.
+
+### Plugin Development
+
+- Skills are markdown files — edit `skills/*/SKILL.md` directly
+- Commands are markdown files — edit `commands/*.md` directly
+- Scripts are bash — edit `scripts/*.sh`
+- Test plugin changes by running commands in Claude Code or Cursor
+- Plugin manifests (`.claude-plugin/`, `.cursor-plugin/`) rarely change
+
+## Dependency Notes
+
+If `reward_hub` or `vllm` cause dependency conflicts during development, comment them out in `pyproject.toml` temporarily and retry `uv sync --extra dev`.
