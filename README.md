@@ -119,22 +119,19 @@ its_hub is available as a plugin for five major coding agents, bringing inferenc
 
 ### Claude Code
 
-Register this repo as a plugin marketplace and install:
+Add the Red Hat AI Innovation Team marketplace and install:
 
 ```
-/plugin marketplace add Red-Hat-AI-Innovation-Team/its_hub
+/plugin marketplace add Red-Hat-AI-Innovation-Team/plugins
+/plugin install its-hub@Red-Hat-AI-Innovation-Team/plugins
 ```
 
-Then install from the Discover tab, or directly:
-
-```
-/plugin install its-hub@Red-Hat-AI-Innovation-Team/its_hub
-```
+Or browse the **Discover** tab after adding the marketplace.
 
 **From a local clone:**
 ```bash
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
-# In Claude Code, add the local path as a marketplace:
+# In Claude Code:
 /plugin marketplace add /path/to/its_hub
 ```
 
