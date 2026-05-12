@@ -115,11 +115,11 @@ print(result)
 
 ## Coding Agent Plugin
 
-its_hub is available as a plugin for Claude Code and Cursor, bringing inference-time scaling directly into your coding workflow.
+its_hub is available as a plugin for five major coding agents, bringing inference-time scaling directly into your coding workflow.
 
-### Install
+### Claude Code
 
-In Claude Code, register this repo as a plugin marketplace and install:
+Register this repo as a plugin marketplace and install:
 
 ```
 /plugin marketplace add Red-Hat-AI-Innovation-Team/its_hub
@@ -138,10 +138,47 @@ git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 /plugin marketplace add /path/to/its_hub
 ```
 
-**Cursor:**
+### Cursor
+
 Clone the repo and open it — Cursor discovers the plugin via `.cursor-plugin/plugin.json` automatically.
 
-After installing, run `/its-setup` in the coding agent to configure your model endpoint and algorithm. The setup wizard will install the `its_hub` Python library if needed.
+### Gemini CLI
+
+Install as a Gemini CLI extension:
+
+```bash
+gemini extensions install https://github.com/Red-Hat-AI-Innovation-Team/its_hub
+```
+
+This registers the extension and makes its-hub skills available in Gemini CLI conversations. See `GEMINI.md` for details.
+
+### Codex CLI
+
+Install via native skill discovery:
+
+```bash
+git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git ~/.codex/its-hub
+mkdir -p ~/.agents/skills
+ln -s ~/.codex/its-hub/skills ~/.agents/skills/its-hub
+```
+
+Restart Codex to discover the skills. See `.codex/INSTALL.md` for full instructions.
+
+### OpenCode
+
+Add to your `opencode.json`:
+
+```json
+{
+  "plugin": ["its-hub@git+https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git"]
+}
+```
+
+Restart OpenCode. See `.opencode/INSTALL.md` for full instructions.
+
+### Setup
+
+After installing in any agent, run `/its-setup` (or invoke the `setup-guide` skill) to configure your model endpoint and algorithm. The setup wizard will install the `its_hub` Python library if needed.
 
 ### Commands
 
