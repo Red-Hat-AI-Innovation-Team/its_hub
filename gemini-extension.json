@@ -1,0 +1,6 @@
+{
+  "name": "its-hub",
+  "description": "Inference-time scaling for LLMs — generate multiple candidates and select the best using voting, scoring, or search",
+  "version": "1.0.0",
+  "contextFileName": "GEMINI.md"
+}
