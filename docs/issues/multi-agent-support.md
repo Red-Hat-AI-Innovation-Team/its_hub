@@ -8,9 +8,9 @@ The its-hub plugin initially supported Claude Code and Cursor via `.claude-plugi
 
 ## Implemented
 
-- **Gemini CLI** — `gemini-extension.json` + `GEMINI.md` context file
-- **Codex CLI** — `.codex/INSTALL.md` with symlink-based skill discovery
-- **OpenCode** — `.opencode/plugins/its-hub.js` plugin module + `.opencode/INSTALL.md`
+- **Gemini CLI** — `gemini-extension.json` + `.gemini-plugin/GEMINI.md` context file
+- **Codex CLI** — `.codex-plugin/plugin.json` manifest + `.codex-plugin/INSTALL.md`
+- **OpenCode** — `.opencode-plugin/plugins/its-hub.js` plugin module + `.opencode-plugin/INSTALL.md`
 
 ## Supported Agents
 
@@ -18,12 +18,13 @@ The its-hub plugin initially supported Claude Code and Cursor via `.claude-plugi
 |---|---|---|
 | Claude Code | `.claude-plugin/plugin.json` | `/plugin install` or marketplace |
 | Cursor | `.cursor-plugin/plugin.json` | Plugin marketplace |
-| Gemini CLI | `gemini-extension.json` | `gemini extensions install <url>` |
-| Codex CLI | Symlink to `~/.agents/skills/` | Clone + symlink |
-| OpenCode | `.opencode/plugins/its-hub.js` | Add to `opencode.json` plugins array |
+| Gemini CLI | `gemini-extension.json` + `.gemini-plugin/GEMINI.md` | `gemini extensions install <url>` |
+| Codex CLI | `.codex-plugin/plugin.json` | Clone + symlink or marketplace |
+| OpenCode | `.opencode-plugin/plugins/its-hub.js` | Add to `opencode.json` plugins array |
 
 ## Notes
 
 - Core content (commands/, skills/, scripts/) is shared across all agents — only discovery/adapter files differ per platform.
 - Commands (slash commands) are Claude Code/Cursor specific. Other agents access the same functionality via skills, which invoke the scripts directly.
-- Skills reference `${CLAUDE_PLUGIN_ROOT}` for script paths. Each platform resolves this differently: Claude Code/Cursor expand it natively, Gemini CLI maps it via GEMINI.md to `${extensionPath}`, Codex resolves via clone path, OpenCode injects absolute paths via plugin JS.
+- Skills reference `${CLAUDE_PLUGIN_ROOT}` for script paths. Each platform resolves this differently: Claude Code/Cursor expand it natively, Gemini CLI maps it via GEMINI.md to `${extensionPath}`, Codex resolves via plugin manifest, OpenCode injects absolute paths via plugin JS.
+- All agent adapters follow the `.<agent>-plugin/` naming convention except `gemini-extension.json` which must be at the repo root per Gemini CLI requirements.

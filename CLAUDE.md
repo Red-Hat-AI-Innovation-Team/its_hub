@@ -101,7 +101,7 @@ API errors are classified as retryable (`RateLimitError`, `APIConnectionError`, 
 
 ## Coding Agent Plugin
 
-This repo also serves as a plugin for Claude Code and Cursor. The plugin files are at the repo root:
+This repo also serves as a plugin for five coding agents. The plugin files are at the repo root:
 
 ### Plugin Structure
 
@@ -123,8 +123,12 @@ scripts/                      # Shell scripts used by commands/skills
 ├── its_server.sh             # IaaS server start/stop/status
 └── its_scale.sh              # Execute scaling requests
 
-.claude-plugin/plugin.json    # Claude Code manifest
-.cursor-plugin/plugin.json    # Cursor manifest
+.claude-plugin/               # Claude Code manifest
+.cursor-plugin/               # Cursor manifest
+.gemini-plugin/               # Gemini CLI context (GEMINI.md)
+.codex-plugin/                # Codex CLI manifest + install guide
+.opencode-plugin/             # OpenCode JS plugin module + install guide
+gemini-extension.json         # Gemini CLI manifest (must be at root)
 ```
 
 ### Plugin Config
@@ -139,9 +143,9 @@ The plugin supports five coding agents. Core content is shared; only discovery f
 |---|---|
 | Claude Code | `.claude-plugin/plugin.json` |
 | Cursor | `.cursor-plugin/plugin.json` |
-| Gemini CLI | `gemini-extension.json` + `GEMINI.md` |
-| Codex CLI | `.codex/INSTALL.md` (symlink-based) |
-| OpenCode | `.opencode/plugins/its-hub.js` |
+| Gemini CLI | `gemini-extension.json` + `.gemini-plugin/GEMINI.md` |
+| Codex CLI | `.codex-plugin/plugin.json` |
+| OpenCode | `.opencode-plugin/plugins/its-hub.js` |
 
 ### Plugin Development
 

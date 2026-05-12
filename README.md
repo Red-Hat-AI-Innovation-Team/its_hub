@@ -150,7 +150,7 @@ Install as a Gemini CLI extension:
 gemini extensions install https://github.com/Red-Hat-AI-Innovation-Team/its_hub
 ```
 
-This registers the extension and makes its-hub skills available in Gemini CLI conversations. See `GEMINI.md` for details.
+This registers the extension and makes its-hub skills available in Gemini CLI conversations.
 
 ### Codex CLI
 
@@ -162,7 +162,7 @@ mkdir -p ~/.agents/skills
 ln -s ~/.codex/its-hub/skills ~/.agents/skills/its-hub
 ```
 
-Restart Codex to discover the skills. See `.codex/INSTALL.md` for full instructions.
+Restart Codex to discover the skills. See `.codex-plugin/INSTALL.md` for full instructions.
 
 ### OpenCode
 
@@ -174,7 +174,7 @@ Add to your `opencode.json`:
 }
 ```
 
-Restart OpenCode. See `.opencode/INSTALL.md` for full instructions.
+Restart OpenCode. See `.opencode-plugin/INSTALL.md` for full instructions.
 
 ### Setup
 
