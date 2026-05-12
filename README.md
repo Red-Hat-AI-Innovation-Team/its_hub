@@ -119,14 +119,17 @@ its_hub is available as a plugin for five major coding agents, bringing inferenc
 
 ### Claude Code
 
-Add the Red Hat AI Innovation Team marketplace and install:
-
+**Via org marketplace** (recommended — includes all Red Hat AI plugins):
 ```
 /plugin marketplace add Red-Hat-AI-Innovation-Team/plugins
 /plugin install its-hub@Red-Hat-AI-Innovation-Team/plugins
 ```
 
-Or browse the **Discover** tab after adding the marketplace.
+**Via this repo directly:**
+```
+/plugin marketplace add Red-Hat-AI-Innovation-Team/its_hub
+/plugin install its-hub@Red-Hat-AI-Innovation-Team/its_hub
+```
 
 **From a local clone:**
 ```bash
