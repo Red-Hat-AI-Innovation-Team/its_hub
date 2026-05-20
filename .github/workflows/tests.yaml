@@ -1,10 +1,25 @@
 name: Unit Tests
 
+run-name: Run the unit test suite
+
 on:
   push:
-    branches: [ v1 ]
+    branches:
+      - "main"
+      - "v1"
+      - "release-**"
   pull_request:
-    branches: [ v1 ]
+    branches:
+      - "main"
+      - "v1"
+      - "release-**"
+    paths:
+      - "its_hub/**"
+      - "tests/**"
+      - "!tests/e2e/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/tests.yaml"  # This workflow
 
 jobs:
   test:

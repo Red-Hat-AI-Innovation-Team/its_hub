@@ -2,9 +2,18 @@ name: Lint
 
 on:
   push:
-    branches: [ v1 ]
+    branches:
+      - "main"
+      - "v1"
+      - "release-**"
   pull_request:
-    branches: [ v1 ]
+    branches:
+      - "main"
+      - "v1"
+      - "release-**"
+    paths:
+      - "its_hub/**"
+      - ".github/workflows/lint.yaml"  # This workflow
 
 jobs:
   lint:
