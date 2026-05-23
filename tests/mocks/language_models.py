@@ -1,5 +1,7 @@
 """Mock language models for testing."""
 
+import asyncio
+
 from its_hub import AbstractLanguageModel
 
 
@@ -46,12 +48,23 @@ class StepMockLanguageModel(AbstractLanguageModel):
     def __init__(self, step_responses: list[str]):
         self.step_responses = step_responses
         self.call_count = 0
+        self._lock = asyncio.Lock()
+        self._base_task_seq: int | None = None
 
     async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None):
         """Single message generation used by the orchestrator."""
-        content = self.step_responses[self.call_count % len(self.step_responses)]
-        self.call_count += 1
-        return {"role": "assistant", "content": content}
+        async with self._lock:
+            task = asyncio.current_task()
+            if task and "-" in task.get_name():
+                task_seq = int(task.get_name().rsplit("-", 1)[-1])
+                if self._base_task_seq is None:
+                    self._base_task_seq = task_seq
+                idx = task_seq - self._base_task_seq
+            else:
+                idx = self.call_count
+            self.call_count += 1
+            content = self.step_responses[idx % len(self.step_responses)]
+            return {"role": "assistant", "content": content}
 
     async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None):
         return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
@@ -88,14 +101,25 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
         self.responses = responses
         self.error_on_calls = error_on_calls or []
         self.call_count = 0
+        self._lock = asyncio.Lock()
+        self._base_task_seq: int | None = None
 
     async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None):
         """Single message generation used by the orchestrator."""
-        if self.call_count in self.error_on_calls:
+        async with self._lock:
+            task = asyncio.current_task()
+            if task and "-" in task.get_name():
+                task_seq = int(task.get_name().rsplit("-", 1)[-1])
+                if self._base_task_seq is None:
+                    self._base_task_seq = task_seq
+                idx = task_seq - self._base_task_seq
+            else:
+                idx = self.call_count
+            if idx in self.error_on_calls:
+                self.call_count += 1
+                raise Exception("Simulated LM error")
+            content = self.responses[idx % len(self.responses)]
             self.call_count += 1
-            raise Exception("Simulated LM error")
-        content = self.responses[self.call_count % len(self.responses)]
-        self.call_count += 1
         return {"role": "assistant", "content": content}
 
     async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None):
