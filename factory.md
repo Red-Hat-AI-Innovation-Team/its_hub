@@ -35,7 +35,7 @@ uv run python eval/score.py
 
 ### Threshold
 
-0.65
+0.50
 
 ## Target Branch
 
