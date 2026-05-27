@@ -1,25 +1,27 @@
 # Installing its-hub for Codex
 
-Enable its-hub inference-time scaling skills in Codex via native skill discovery.
+## Via Marketplace (Recommended)
 
-## Prerequisites
+```bash
+codex plugin marketplace add Red-Hat-AI-Innovation-Team/plugins
+```
 
-- Git
-- Python 3.11+ with uv or pip
-- [Codex CLI](https://github.com/openai/codex) installed
+Then install the plugin from the marketplace. The Python library will need to be installed separately:
 
-## Installation
+```bash
+pip install "its_hub[lm]"
+```
 
-1. **Clone the its-hub repository:**
+## Manual Installation
+
+If you prefer to install manually:
+
+1. **Clone the repository:**
    ```bash
-   git clone https://github.com/redhat-ai-innovation/its_hub.git ~/.codex/its-hub
+   git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git ~/.codex/its-hub
    ```
 
 2. **Install the Python library:**
-   ```bash
-   cd ~/.codex/its-hub && uv sync --extra lm
-   ```
-   Or with pip:
    ```bash
    pip install "its_hub[lm]"
    ```
@@ -30,39 +32,18 @@ Enable its-hub inference-time scaling skills in Codex via native skill discovery
    ln -s ~/.codex/its-hub/.claude/skills ~/.agents/skills/its-hub
    ```
 
-   **Windows (PowerShell):**
-   ```powershell
-   New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.agents\skills"
-   cmd /c mklink /J "$env:USERPROFILE\.agents\skills\its-hub" "$env:USERPROFILE\.codex\its-hub\.claude\skills"
-   ```
-
 4. **Restart Codex** to discover the skills.
-
-## Path Resolution
-
-When skills reference `${CLAUDE_PLUGIN_ROOT}/scripts/...`, use the clone path instead:
-```bash
-~/.codex/its-hub/scripts/
-```
-
-## Verify
-
-```bash
-ls -la ~/.agents/skills/its-hub
-```
-
-You should see a symlink pointing to the its-hub skills directory.
 
 ## Updating
 
+Marketplace installs update automatically. For manual installs:
 ```bash
 cd ~/.codex/its-hub && git pull
 ```
 
-Skills update instantly through the symlink.
-
 ## Uninstalling
 
+For manual installs:
 ```bash
 rm ~/.agents/skills/its-hub
 rm -rf ~/.codex/its-hub
