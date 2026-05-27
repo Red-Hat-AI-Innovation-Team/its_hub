@@ -30,9 +30,9 @@ Ask these questions **one at a time**:
 1. **Endpoint**: "What's your model endpoint URL?" — e.g., `http://localhost:8000/v1` for vLLM, `https://api.openai.com/v1` for OpenAI
 2. **API key**: "What's your API key?" (may be optional for local vLLM)
 3. **Model name**: "What's the model identifier?" — e.g., `gpt-4o`, `Qwen/Qwen2.5-32B-Instruct`
-4. **Algorithm**: "Which scaling algorithm do you want to use?"
-   - **Self-consistency** — Generates N responses, votes on the most common answer. Best for: getting the agreed-upon answer. No extra setup needed.
-   - **Best-of-N** — Generates N responses, scores each with an LLM judge. Best for: highest quality response. Requires a judge model.
+4. **Algorithm**: "Which scaling algorithm do you want to use?" — consult the `inference-scaling-guide` skill for detailed algorithm selection guidance if the user is unsure.
+   - **Self-consistency** — Votes on the most common answer. No extra setup needed.
+   - **Best-of-N** — Scores each with an LLM judge. Requires a judge model.
 
 ## Step 4: Algorithm-Specific Config
 
