@@ -24,7 +24,7 @@ Enable its-hub inference-time scaling skills in Codex via native skill discovery
    pip install "its_hub[lm]"
    ```
 
-3. **Create the skills symlink:**
+3. **Create the skills symlink** (skills are in `.claude/skills/` — shared between Claude Code and Codex):
    ```bash
    mkdir -p ~/.agents/skills
    ln -s ~/.codex/its-hub/.claude/skills ~/.agents/skills/its-hub
