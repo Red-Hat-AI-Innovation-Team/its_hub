@@ -42,8 +42,7 @@ Enable its-hub inference-time scaling skills in Codex via native skill discovery
 
 When skills reference `${CLAUDE_PLUGIN_ROOT}/scripts/...`, use the clone path instead:
 ```bash
-~/.codex/its-hub/scripts/its_detect.sh
-~/.codex/its-hub/scripts/its_scale.sh
+~/.codex/its-hub/scripts/
 ```
 
 ## Verify
