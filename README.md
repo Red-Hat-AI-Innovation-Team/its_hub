@@ -188,7 +188,7 @@ git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 ```bash
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git ~/.codex/its-hub
 mkdir -p ~/.agents/skills
-ln -s ~/.codex/its-hub/skills ~/.agents/skills/its-hub
+ln -s ~/.codex/its-hub/.claude/skills ~/.agents/skills/its-hub
 ```
 
 Restart Codex to discover the skills. See `.codex-plugin/INSTALL.md` for full instructions.

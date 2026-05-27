@@ -27,13 +27,13 @@ Enable its-hub inference-time scaling skills in Codex via native skill discovery
 3. **Create the skills symlink:**
    ```bash
    mkdir -p ~/.agents/skills
-   ln -s ~/.codex/its-hub/skills ~/.agents/skills/its-hub
+   ln -s ~/.codex/its-hub/.claude/skills ~/.agents/skills/its-hub
    ```
 
    **Windows (PowerShell):**
    ```powershell
    New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.agents\skills"
-   cmd /c mklink /J "$env:USERPROFILE\.agents\skills\its-hub" "$env:USERPROFILE\.codex\its-hub\skills"
+   cmd /c mklink /J "$env:USERPROFILE\.agents\skills\its-hub" "$env:USERPROFILE\.codex\its-hub\.claude\skills"
    ```
 
 4. **Restart Codex** to discover the skills.
