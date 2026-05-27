@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
-# Execute inference-time scaling via Python library
+# Execute inference-time scaling via Python library.
+#
+# Usage: its_scale.sh [OPTIONS] <prompt>
+# Options:
+#   --algorithm ALG   Override algorithm (self-consistency|best-of-n)
+#   --budget N        Override budget (default: from config)
+#   --model KEY       Override model (key from config models dict)
+#   --metadata        Include full algorithm metadata in output
+# Output: JSON with selected response and optional metadata.
+#
+# Reads config from .its-hub/config.json (override via ITS_HUB_CONFIG).
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/_env.sh"

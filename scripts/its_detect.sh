@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
-# Detect its_hub environment: library, installer, config
+# Detect its_hub environment: library, installer, config.
+#
+# Usage: its_detect.sh
+# Output: key=value pairs, one per line:
+#   library=installed|missing
+#   installer=uv|pip|none
+#   config=found|missing
+#
+# Config path can be overridden via ITS_HUB_CONFIG env var.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/_env.sh"
