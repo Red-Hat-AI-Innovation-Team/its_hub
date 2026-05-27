@@ -1,7 +1,8 @@
 {
-  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "its-hub",
-  "description": "Inference-time scaling for LLMs — generate multiple candidates and select the best using voting, scoring, or search",
+  "metadata": {
+    "description": "Inference-time scaling for LLMs — generate multiple candidates and select the best using voting, scoring, or search"
+  },
   "owner": {
     "name": "Red Hat AI Innovation Team"
   },
