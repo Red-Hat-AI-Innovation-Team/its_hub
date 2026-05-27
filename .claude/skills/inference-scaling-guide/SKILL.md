@@ -184,3 +184,13 @@ asyncio.run(lm.close())
 4. **Try Entropic Particle Filtering** if standard PF converges too early
 5. **Monitor GPU memory** when using local reward models — PRMs are 7B+ parameters
 6. **Benchmark** with `scripts/benchmark.py` on MATH500 or AIME-2024 to compare algorithms for your model
+
+## Reference Documentation
+
+Detailed documentation for specific topics lives in the `docs/` directory:
+
+- `docs/algorithms.md` — Full code examples for every algorithm (Self-Consistency, Best-of-N, Beam Search, Particle Filtering, Entropic PF), tool-calling integration, step generation config, and reward model setup
+- `docs/orchestration.md` — Concurrency control, custom orchestrator implementation for gateway deployments, async/sync usage patterns
+- `docs/benchmarking.md` — How to benchmark algorithms on MATH500 and AIME-2024, budget scaling analysis
+- `docs/iaas-service.md` — Running the Inference-as-a-Service HTTP server
+- `docs/quick-start.md` — Getting started from zero
