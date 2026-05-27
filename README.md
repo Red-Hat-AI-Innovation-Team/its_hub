@@ -158,7 +158,7 @@ asyncio.run(lm.close())
 
 ## Coding Agent Plugin
 
-its-hub is available as a plugin for four major coding agents, bringing inference-time scaling directly into your coding workflow.
+its-hub is available as a plugin for two coding agents, bringing inference-time scaling directly into your coding workflow.
 
 <details>
 <summary><strong>Claude Code</strong></summary>
@@ -183,12 +183,6 @@ git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 </details>
 
 <details>
-<summary><strong>Cursor</strong></summary>
-
-Clone the repo and open it — Cursor discovers the plugin via `.cursor-plugin/plugin.json` automatically.
-</details>
-
-<details>
 <summary><strong>Codex CLI</strong></summary>
 
 ```bash
@@ -200,28 +194,14 @@ ln -s ~/.codex/its-hub/skills ~/.agents/skills/its-hub
 Restart Codex to discover the skills. See `.codex-plugin/INSTALL.md` for full instructions.
 </details>
 
-<details>
-<summary><strong>OpenCode</strong></summary>
-
-Add to your `opencode.json`:
-
-```json
-{
-  "plugin": ["its-hub@git+https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git"]
-}
-```
-
-Restart OpenCode. See `.opencode-plugin/INSTALL.md` for full instructions.
-</details>
-
 ### After Installing
 
-Run `/its-setup` (or invoke the `setup-guide` skill) to configure your model endpoint and algorithm.
+Invoke the `setup-guide` skill to configure your model endpoint and algorithm.
 
-| Command | Description |
+| Skill | Description |
 |---|---|
-| `/its-setup` | Guided first-time configuration |
-| `/its-scale <prompt>` | Run inference-time scaling on a single prompt |
-| `/its-scale-batch <file>` | Batch scaling from a JSONL/CSV/TXT file |
+| `setup-guide` | Guided first-time configuration |
+| `inference-scaling` | Run inference-time scaling on a single prompt |
+| `batch-scaling` | Batch scaling from a JSONL/CSV/TXT file |
 
 For detailed documentation, visit: [https://ai-innovation.team/its_hub](https://ai-innovation.team/its_hub)

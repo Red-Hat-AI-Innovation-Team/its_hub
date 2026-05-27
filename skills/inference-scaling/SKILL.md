@@ -1,38 +1,37 @@
 ---
 name: inference-scaling
 description: "Use when the user wants to improve LLM response quality by generating multiple candidates and selecting the best one. Applies to tasks like: scaling a prompt, running self-consistency, best-of-n selection, or comparing multiple LLM outputs."
+allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/its_scale.sh:*)", "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/its_detect.sh:*)"]
 ---
 
 # Inference-Time Scaling
 
 Help the user apply inference-time scaling to get better LLM responses.
 
-## Detection
-
-First, check the environment:
+## Step 1: Check Environment
 
 ```!
 "${CLAUDE_PLUGIN_ROOT}/scripts/its_detect.sh"
 ```
 
-## Routing
+### If not ready
 
-Based on detection results:
+- `library=missing` and `config=missing`: invoke the `setup-guide` skill.
+- `library=installed` and `config=missing`: tell the user to run the `setup-guide` skill to configure.
 
-### Nothing available (`library=missing`, `config=missing`)
-Invoke the `setup-guide` skill to walk through installation and configuration.
+### If ready (`library=installed`, `config=found`)
 
-### Config missing but library installed (`library=installed`, `config=missing`)
-Ask the user to run `/its-setup` to configure, or invoke the `setup-guide` skill.
+Proceed to Step 2.
 
-### Ready to scale (`library=installed`, `config=found`)
-Run scaling directly:
+## Step 2: Execute Scaling
+
+Run the scaling script with the user's prompt and any overrides:
 
 ```!
-"${CLAUDE_PLUGIN_ROOT}/scripts/its_scale.sh" --metadata "<user's prompt>"
+"${CLAUDE_PLUGIN_ROOT}/scripts/its_scale.sh" --metadata $ARGUMENTS
 ```
 
-## Algorithm Selection
+### Algorithm Selection
 
 If the user hasn't specified an algorithm, use the one from their config. If they mention preferences, guide them:
 
@@ -41,16 +40,18 @@ If the user hasn't specified an algorithm, use the one from their config. If the
 | "vote", "consensus", "most common" | self-consistency | Finds the majority answer |
 | "best", "highest quality", "score", "rank" | best-of-n | Ranks by quality via LLM judge |
 
-## Batch Detection
+### Batch Detection
 
-If the user provides a file path (e.g., "scale all prompts in data/eval.jsonl"), route to `/its-scale-batch` instead.
+If the user provides a file path (e.g., "scale all prompts in data/eval.jsonl"), invoke the `batch-scaling` skill instead.
 
-## Presenting Results
+## Step 3: Present Results
 
-Parse the JSON response from the scaling script:
+Parse the JSON response and present it clearly:
 
-1. **Show the selected response** prominently
-2. **Show metadata** if available:
-   - Self-consistency: "Selected by majority vote (5/8 responses agreed)"
-   - Best-of-N: "Selected as highest scoring (score: 0.92 out of 8 candidates)"
-3. Keep it concise — the user wants the answer, not a wall of JSON
+1. **Selected response** — Show the winning response prominently
+2. **Metadata** (if available):
+   - Self-consistency: show vote counts ("Selected by majority vote — 5/8 responses agreed")
+   - Best-of-N: show scores ("Selected as highest scoring — score: 0.92 out of 8 candidates")
+3. **Configuration used** — algorithm, budget, model (briefly)
+
+If the scaling failed, show the error and suggest troubleshooting steps.

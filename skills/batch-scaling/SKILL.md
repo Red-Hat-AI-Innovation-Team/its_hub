@@ -1,10 +1,10 @@
 ---
-description: "Run inference-time scaling on a batch of prompts from a file"
-argument-hint: "<file> [--output <file>]"
+name: batch-scaling
+description: "Use when the user wants to run inference-time scaling on multiple prompts from a file (JSONL, CSV, or TXT). Applies to batch processing, evaluation runs, or dataset-level scaling."
 allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/its_scale.sh:*)", "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/its_detect.sh:*)"]
 ---
 
-# its-hub Batch Scale
+# Batch Scaling
 
 Run inference-time scaling on multiple prompts from a file.
 
@@ -20,11 +20,11 @@ Run inference-time scaling on multiple prompts from a file.
 "${CLAUDE_PLUGIN_ROOT}/scripts/its_detect.sh"
 ```
 
-If `config=missing`, tell the user to run `/its-setup` first.
+If `config=missing`, tell the user to run the `setup-guide` skill first.
 
 ## Step 2: Parse Arguments
 
-Extract from `$ARGUMENTS`:
+Extract:
 - `file` — the input file path (required)
 - `--output` — output file path (default: `<input_name>_scaled.jsonl`)
 
