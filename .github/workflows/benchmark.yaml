@@ -3,16 +3,15 @@ name: Benchmark
 on:
   workflow_dispatch:
     inputs:
-      model:
-        description: "HuggingFace model to serve"
-        required: false
-        default: "Qwen/Qwen2.5-Math-1.5B-Instruct"
-        type: string
       budgets:
         description: "Comma-separated list of budgets"
         required: true
         default: "1,2,4,8"
         type: string
+
+env:
+  VLLM_ENDPOINT: http://vllm-its-hub-svc.vllm.svc:8100/v1
+  VLLM_MODEL: Qwen/Qwen2.5-Math-7B-Instruct
 
 jobs:
   benchmark:
@@ -33,17 +32,11 @@ jobs:
     - name: Install dependencies
       run: uv sync --extra dev --extra research --extra experimental
 
-    - name: Start vLLM server
-      id: vllm
-      uses: ./.github/actions/setup-vllm
-      with:
-        model: ${{ inputs.model }}
-
     - name: Run benchmark
       run: |
         nohup uv run python benchmarking/benchmark.py \
-          --endpoint ${{ steps.vllm.outputs.endpoint }} \
-          --model_name ${{ steps.vllm.outputs.model }} \
+          --endpoint ${{ env.VLLM_ENDPOINT }} \
+          --model_name ${{ env.VLLM_MODEL }} \
           --alg ${{ matrix.algorithm }} \
           --benchmark ${{ matrix.dataset }} \
           --budgets ${{ inputs.budgets }} \
@@ -58,10 +51,3 @@ jobs:
         path: |
           results/
           benchmark-${{ matrix.algorithm }}-${{ matrix.dataset }}.log
-
-    - name: Stop vLLM server
-      if: always()
-      run: |
-        if [ -f /tmp/vllm.pid ]; then
-          kill $(cat /tmp/vllm.pid) 2>/dev/null || true
-        fi

@@ -2,12 +2,10 @@ name: E2E Tests
 
 on:
   workflow_dispatch:
-    inputs:
-      model:
-        description: "HuggingFace model to serve"
-        required: false
-        default: "Qwen/Qwen2.5-Math-1.5B-Instruct"
-        type: string
+
+env:
+  VLLM_ENDPOINT: http://vllm-its-hub-svc.vllm.svc:8100/v1
+  VLLM_MODEL: Qwen/Qwen2.5-Math-7B-Instruct
 
 jobs:
   e2e:
@@ -24,22 +22,9 @@ jobs:
     - name: Install dependencies
       run: uv sync --extra dev
 
-    - name: Start vLLM server
-      id: vllm
-      uses: ./.github/actions/setup-vllm
-      with:
-        model: ${{ inputs.model }}
-
     - name: Run e2e tests
-      env:
-        OPENAI_API_KEY: NO_API_KEY
-        OPENAI_ENDPOINT: ${{ steps.vllm.outputs.endpoint }}
-        OPENAI_MODEL: ${{ steps.vllm.outputs.model }}
-      run: uv run pytest tests/e2e/ -v
-
-    - name: Stop vLLM server
-      if: always()
       run: |
-        if [ -f /tmp/vllm.pid ]; then
-          kill $(cat /tmp/vllm.pid) 2>/dev/null || true
-        fi
+        uv run python tests/e2e/test_e2e.py \
+          --endpoint ${{ env.VLLM_ENDPOINT }} \
+          --model_name ${{ env.VLLM_MODEL }} \
+          --algorithms self-consistency
