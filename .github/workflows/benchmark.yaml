@@ -15,7 +15,7 @@ env:
 
 jobs:
   benchmark:
-    runs-on: self-hosted
+    runs-on: arc-runner
     strategy:
       matrix:
         algorithm: [self-consistency, beam-search]
