@@ -4,13 +4,13 @@ from common import *
 class BestOfNScene(Scene):
     def construct(self):
         title = Text("Best-of-N", font_size=30)
-        title.set_fill(TEXT_COLOR)
+        title.set_color(TEXT_COLOR)
         title.to_edge(UP, buff=0.3)
-        self.play(FadeIn(title), run_time=0.4)
+        self.play(FadeIn(title), run_time=0.8)
 
         prompt = labeled_box("Prompt", color=ACCENT_BLUE, width=1.8, height=0.6)
         prompt.move_to(LEFT * 5 + DOWN * 0.2)
-        self.play(FadeIn(prompt), run_time=0.4)
+        self.play(FadeIn(prompt), run_time=0.8)
 
         responses = VGroup()
         for i in range(4):
@@ -26,12 +26,12 @@ class BestOfNScene(Scene):
         self.play(
             LaggedStart(*[ShowCreation(a) for a in arrows_in], lag_ratio=0.08),
             LaggedStart(*[FadeIn(r, shift=RIGHT * 0.2) for r in responses], lag_ratio=0.08),
-            run_time=0.8,
+            run_time=1.5,
         )
 
         orm_box = labeled_box("ORM", color=ACCENT_ORANGE, width=1.4, height=0.6, font_size=20)
         orm_box.move_to(RIGHT * 1.5 + UP * 1.8)
-        self.play(FadeIn(orm_box, shift=DOWN * 0.3), run_time=0.5)
+        self.play(FadeIn(orm_box, shift=DOWN * 0.3), run_time=1.0)
 
         scores = [0.3, 0.8, 0.5, 0.6]
         score_labels = VGroup()
@@ -40,7 +40,7 @@ class BestOfNScene(Scene):
         for i, (resp, score) in enumerate(zip(responses, scores)):
             s_fill = ACCENT_GREEN if score == max(scores) else TEXT_COLOR
             s_label = Text(f"{score}", font_size=18)
-            s_label.set_fill(s_fill)
+            s_label.set_color(s_fill)
             s_label.next_to(resp, RIGHT, buff=0.8)
             score_labels.add(s_label)
 
@@ -62,12 +62,12 @@ class BestOfNScene(Scene):
         ])
         self.play(
             LaggedStart(*[ShowCreation(a) for a in orm_arrows], lag_ratio=0.1),
-            run_time=0.6,
+            run_time=1.2,
         )
         self.play(
             LaggedStart(*[FadeIn(s) for s in score_labels], lag_ratio=0.1),
             LaggedStart(*[GrowFromEdge(b, LEFT) for b in score_bars], lag_ratio=0.1),
-            run_time=0.8,
+            run_time=1.5,
         )
 
         best_idx = scores.index(max(scores))
@@ -80,12 +80,12 @@ class BestOfNScene(Scene):
                 fade_anims.append(score_labels[i].animate.set_opacity(0.3))
                 fade_anims.append(score_bars[i].animate.set_opacity(0.3))
 
-        self.play(*fade_anims, run_time=0.8)
+        self.play(*fade_anims, run_time=1.5)
 
         winner = labeled_box("✓ Best Response", color=ACCENT_GREEN, width=2.4, height=0.6, font_size=20)
         winner[0].set_fill(ACCENT_GREEN, opacity=0.15)
         winner.next_to(responses[best_idx], DOWN, buff=0.6)
         winner.shift(RIGHT * 1.5)
 
-        self.play(FadeIn(winner, shift=UP * 0.2), run_time=0.5)
-        self.wait(1.5)
+        self.play(FadeIn(winner, shift=UP * 0.2), run_time=1.0)
+        self.wait(3.0)

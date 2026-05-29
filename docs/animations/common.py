@@ -18,7 +18,7 @@ def labeled_box(label, color=BORDER_COLOR, width=2.0, height=0.7, font_size=22):
         fill_color=BOX_FILL, fill_opacity=0.95,
     )
     txt = Text(str(label), font_size=font_size)
-    txt.set_fill(TEXT_COLOR)
+    txt.set_color(TEXT_COLOR)
     txt.set_max_width(width - 0.2)
     txt.move_to(box.get_center())
     return VGroup(box, txt)

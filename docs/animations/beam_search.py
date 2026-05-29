@@ -4,25 +4,26 @@ from common import *
 class BeamSearchScene(Scene):
     def construct(self):
         title = Text("Beam Search", font_size=30)
-        title.set_fill(TEXT_COLOR)
+        title.set_color(TEXT_COLOR)
         title.to_edge(UP, buff=0.3)
-        self.play(FadeIn(title), run_time=0.4)
+        self.play(FadeIn(title), run_time=0.8)
 
-        level_y = [2.0, 0.0, -2.0]
+        # Horizontal layout: left-to-right across 3 steps
+        step_x = [-4.5, -0.5, 3.5]
 
         prompt = labeled_box("Prompt", color=ACCENT_BLUE, width=1.6, height=0.55)
-        prompt.move_to(UP * 3.0)
-        self.play(FadeIn(prompt), run_time=0.4)
+        prompt.move_to(LEFT * 6.5)
+        self.play(FadeIn(prompt), run_time=0.8)
 
         prm_label = labeled_box("PRM", color=ACCENT_ORANGE, width=1.2, height=0.5, font_size=18)
-        prm_label.move_to(RIGHT * 5.5 + UP * 3.0)
-        self.play(FadeIn(prm_label), run_time=0.3)
+        prm_label.move_to(UP * 3.2 + RIGHT * 5)
+        self.play(FadeIn(prm_label), run_time=0.6)
 
         prev_nodes = [prompt]
         children_per_level = [4, 2, 2]
 
         for level in range(3):
-            y = level_y[level]
+            x = step_x[level]
             cpp = children_per_level[level]
             candidates = []
             all_arrows = VGroup()
@@ -32,21 +33,21 @@ class BeamSearchScene(Scene):
                     candidates.append(node)
 
             n = len(candidates)
-            spacing = min(2.5, 10.0 / max(n, 1))
+            spacing = min(1.8, 6.0 / max(n, 1))
             for i, node in enumerate(candidates):
-                x = (i - (n - 1) / 2) * spacing
+                y = (i - (n - 1) / 2) * spacing
                 node.move_to(RIGHT * x + UP * y)
 
             for pi, parent in enumerate(prev_nodes):
                 for ci in range(cpp):
                     child = candidates[pi * cpp + ci]
-                    arr = thin_arrow(parent.get_bottom(), child.get_top())
+                    arr = thin_arrow(parent.get_right(), child.get_left())
                     all_arrows.add(arr)
 
             self.play(
                 LaggedStart(*[ShowCreation(a) for a in all_arrows], lag_ratio=0.05),
                 LaggedStart(*[FadeIn(c) for c in candidates], lag_ratio=0.05),
-                run_time=0.6,
+                run_time=1.2,
             )
 
             scores = []
@@ -55,13 +56,13 @@ class BeamSearchScene(Scene):
                 s = [0.7, 0.3, 0.8, 0.4][i % 4] if level < 2 else [0.9, 0.5, 0.6, 0.2][i % 4]
                 scores.append(s)
                 sl = Text(f"{s}", font_size=14)
-                sl.set_fill(TEXT_COLOR)
-                sl.next_to(node, DOWN, buff=0.1)
+                sl.set_color(TEXT_COLOR)
+                sl.next_to(node, RIGHT, buff=0.1)
                 score_labels.add(sl)
 
             self.play(
                 LaggedStart(*[FadeIn(s) for s in score_labels], lag_ratio=0.05),
-                run_time=0.4,
+                run_time=0.8,
             )
 
             beam_width = 2
@@ -80,20 +81,20 @@ class BeamSearchScene(Scene):
                     fade_anims.append(candidates[i].animate.set_fill(ACCENT_GREEN))
 
             if fade_anims:
-                self.play(*fade_anims, run_time=0.5)
+                self.play(*fade_anims, run_time=1.0)
 
             if level < 2:
                 dup_text = Text("duplicate", font_size=14)
-                dup_text.set_fill(ACCENT_ORANGE)
-                dup_text.move_to(RIGHT * 5.5 + UP * y)
-                self.play(FadeIn(dup_text), run_time=0.2)
-                self.play(FadeOut(dup_text), run_time=0.2)
+                dup_text.set_color(ACCENT_ORANGE)
+                dup_text.move_to(RIGHT * x + DOWN * 3.0)
+                self.play(FadeIn(dup_text), run_time=0.4)
+                self.play(FadeOut(dup_text), run_time=0.4)
 
             prev_nodes = [candidates[i] for i in ranked[:beam_width]]
 
         winner = labeled_box("✓ Best Path", color=ACCENT_GREEN, width=2.0, height=0.5, font_size=18)
         winner[0].set_fill(ACCENT_GREEN, opacity=0.15)
-        winner.move_to(DOWN * 3.2)
+        winner.move_to(RIGHT * 5.5)
 
-        self.play(FadeIn(winner, shift=UP * 0.2), run_time=0.5)
-        self.wait(1.5)
+        self.play(FadeIn(winner, shift=LEFT * 0.2), run_time=1.0)
+        self.wait(3.0)
