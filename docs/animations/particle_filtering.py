@@ -27,7 +27,7 @@ class ParticleFilteringScene(Scene):
         self.play(ShowCreation(prompt_to_llm), FadeIn(llm), run_time=0.6)
 
         prm_label = labeled_box("PRM", color=ACCENT_ORANGE, width=1.2, height=0.45, font_size=16)
-        prm_label.move_to(UP * 3.0)
+        prm_label.move_to(UP * 2.5)
         self.play(FadeIn(prm_label), run_time=0.5)
 
         step_x = [-2.5, 0.3, 3.0]
