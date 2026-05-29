@@ -42,11 +42,11 @@ class ParticleFilteringScene(Scene):
         n_particles = 5
         particle_y = np.linspace(1.5, -2.5, n_particles)
 
-        # Initial particles from LLM (more space from LLM)
+        # Initial particles placed directly at Step 1 position
         particles = VGroup()
         for idx, y in enumerate(particle_y):
             p = labeled_box(f"P{idx+1}", color=PARTICLE_COLORS[idx], width=0.9, height=0.38, font_size=13)
-            p.move_to(LEFT * 3.3 + UP * y)
+            p.move_to(RIGHT * step_x[0] + UP * y)
             particles.add(p)
 
         init_arrows = VGroup(*[
@@ -79,20 +79,25 @@ class ParticleFilteringScene(Scene):
             x_target = step_x[step]
             weights = weights_per_step[step]
 
-            new_particles = VGroup()
-            move_arrows = VGroup()
-            for i, p in enumerate(current_particles):
-                new_p = labeled_box(f"P{i+1}", color=current_colors[i], width=0.9, height=0.38, font_size=13)
-                new_p.move_to(RIGHT * x_target + UP * particle_y[i])
-                new_particles.add(new_p)
-                arr = thin_arrow(p.get_right(), new_p.get_left())
-                move_arrows.add(arr)
+            if step == 0:
+                # Step 1: particles already at this position from initial spawn
+                new_particles = particles
+            else:
+                # Steps 2-3: generate new particles from previous step's output
+                new_particles = VGroup()
+                move_arrows = VGroup()
+                for i, p in enumerate(current_particles):
+                    new_p = labeled_box(f"P{i+1}", color=current_colors[i], width=0.9, height=0.38, font_size=13)
+                    new_p.move_to(RIGHT * x_target + UP * particle_y[i])
+                    new_particles.add(new_p)
+                    arr = thin_arrow(p.get_right(), new_p.get_left())
+                    move_arrows.add(arr)
 
-            self.play(
-                LaggedStart(*[ShowCreation(a) for a in move_arrows], lag_ratio=0.04),
-                LaggedStart(*[FadeIn(p) for p in new_particles], lag_ratio=0.04),
-                run_time=0.8,
-            )
+                self.play(
+                    LaggedStart(*[ShowCreation(a) for a in move_arrows], lag_ratio=0.04),
+                    LaggedStart(*[FadeIn(p) for p in new_particles], lag_ratio=0.04),
+                    run_time=0.8,
+                )
 
             # PRM scoring arrows + score labels
             prm_arrows = VGroup(*[
