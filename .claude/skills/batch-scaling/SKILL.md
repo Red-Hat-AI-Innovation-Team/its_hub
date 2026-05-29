@@ -1,7 +1,7 @@
 ---
 name: batch-scaling
 description: "Use when the user wants to run inference-time scaling on multiple prompts from a file (JSONL, CSV, or TXT). Applies to batch processing, evaluation runs, or dataset-level scaling."
-allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/its_scale.sh:*)", "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/its_detect.sh:*)"]
+allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/its_batch_scale.sh:*)", "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/its_detect.sh:*)"]
 ---
 
 # Batch Scaling
@@ -22,42 +22,19 @@ Run inference-time scaling on multiple prompts from a file.
 
 If `config=missing`, tell the user to run the `setup-guide` skill first.
 
-## Step 2: Parse Arguments
+## Step 2: Run Batch Scaling
 
-Extract:
-- `file` — the input file path (required)
-- `--output` — output file path (default: `<input_name>_scaled.jsonl`)
-
-Validate the input file exists and detect its format from the extension.
-
-## Step 3: Read and Validate Input
-
-Read the file and extract prompts based on format:
-- JSONL: parse each line, extract `prompt` or `messages` field
-- CSV: read with Python csv module, extract `prompt` column
-- TXT: each line is a prompt
-
-Report: "Found N prompts in <filename>"
-
-## Step 4: Process Prompts
-
-For each prompt, call the scaling script:
+Call the batch scaling script with the input file and any overrides:
 
 ```!
-"${CLAUDE_PLUGIN_ROOT}/scripts/its_scale.sh" "<prompt>"
+"${CLAUDE_PLUGIN_ROOT}/scripts/its_batch_scale.sh" [--algorithm ALG] [--budget N] [--model KEY] [--output FILE] <input-file>
 ```
 
-Write each result to the output file as a JSONL line:
-```json
-{"prompt": "...", "selected_response": "...", "algorithm": "...", "budget": N, "metadata": {...}}
-```
+The script loads config once and processes all prompts in a single process. Default output path is `results/<input_name>_scaled.jsonl`.
 
-If a prompt fails, write an error entry and continue:
-```json
-{"prompt": "...", "error": "error message", "algorithm": "...", "budget": N}
-```
+## Step 3: Report Summary
 
-## Step 5: Report Summary
+The script outputs a JSON summary with `total`, `succeeded`, `failed`, `failures`, and `output_file`.
 
 Report: "N/M prompts completed successfully. K failed. Results written to <output_file>"
 

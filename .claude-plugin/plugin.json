@@ -1,5 +1,6 @@
 {
   "name": "its-hub",
+  "version": "1.0.0",
   "description": "Inference-time scaling for LLMs — generate multiple candidates and select the best using voting, scoring, or search",
   "author": {
     "name": "Red Hat AI Innovation Team"

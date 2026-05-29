@@ -43,7 +43,7 @@ cd ~/.codex/its-hub && git pull
 
 ## Uninstalling
 
-For manual installs:
+For manual uninstalls:
 ```bash
 rm ~/.agents/skills/its-hub
 rm -rf ~/.codex/its-hub

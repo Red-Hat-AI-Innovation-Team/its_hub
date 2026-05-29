@@ -41,9 +41,9 @@ If `library=missing`:
 
 If the user accepts, skip to Step 5 using:
 - `endpoint`: `https://api.openai.com/v1` (or `OPENAI_BASE_URL` if set)
-- `api_key`: from `OPENAI_API_KEY`
 - `model`: `gpt-4o-mini`
 - `algorithm`: `self-consistency`
+- `budget`: `8`
 
 **If no API key was detected**, or the user wants to customize, proceed to Step 4.
 
@@ -52,11 +52,11 @@ If the user accepts, skip to Step 5 using:
 Ask these questions **one at a time**:
 
 1. **Endpoint**: "What's your model endpoint URL?" — e.g., `http://localhost:8000/v1` for vLLM, `https://api.openai.com/v1` for OpenAI
-2. **API key**: "What's your API key?" (may be optional for local vLLM)
-3. **Model name**: "What's the model identifier?" — e.g., `gpt-4o`, `Qwen/Qwen2.5-32B-Instruct`
-4. **Algorithm**: "Which scaling algorithm do you want to use?" — consult the `inference-scaling-guide` skill for guidance if the user is unsure.
+2. **Model name**: "What's the model identifier?" — e.g., `gpt-4o`, `Qwen/Qwen2.5-32B-Instruct`
+3. **Algorithm**: "Which scaling algorithm do you want to use?" — consult the `inference-scaling-guide` skill for guidance if the user is unsure.
    - **Self-consistency** — Votes on the most common answer. No extra setup needed.
    - **Best-of-N** — Scores each with an LLM judge. Requires a judge model.
+4. **Budget**: "Which budget do you want to use?" — consult the `inference-scaling-guide` skill for guidance if the user is unsure.
 
 ### Algorithm-Specific Config
 
@@ -66,9 +66,22 @@ Ask these questions **one at a time**:
 
 **Best-of-N:**
 - Ask: "Which model should be the judge? (This can be the same model or a different one)"
-- Collect: judge model name, judge endpoint (default: same), judge API key (default: same)
+- Collect: judge model name, judge endpoint (default: same as generation model)
 
-## Step 5: Save Config
+## Step 5: Ensure API Key
+
+API keys are read from environment variables — **never store them in the config file**.
+
+If no API key was detected in Step 1, tell the user to set the appropriate environment variable:
+
+> "Set your API key as an environment variable before running scaling:
+> ```bash
+> export OPENAI_API_KEY="sk-..."        # OpenAI or OpenAI-compatible endpoints
+> export ANTHROPIC_API_KEY="sk-ant-..."  # Anthropic endpoints
+> ```
+> For local vLLM endpoints that don't require authentication, no API key is needed."
+
+## Step 6: Save Config
 
 Write the config to `.its-hub/config.json`:
 
@@ -77,22 +90,30 @@ Write the config to `.its-hub/config.json`:
   "models": {
     "default": {
       "endpoint": "<endpoint>",
-      "api_key": "<api_key>",
       "model": "<model_name>"
     }
   },
   "algorithm": "<algorithm>",
-  "budget": 8,
+  "budget": "<budget>",
   "algorithm_config": {}
 }
 ```
 
 Add `.its-hub/` to `.gitignore` if not already present.
 
-Confirm the config file was written, then report success and remind the user they can now use the `inference-scaling` skill to run scaling.
+Confirm the config file was written, then report success:
+
+> "Setup complete! To run scaling, use the `inference-scaling` skill.
+>
+> **API keys** are read from environment variables, not the config file. Make sure the appropriate variable is set in your shell:
+> ```bash
+> export OPENAI_API_KEY="sk-..."        # OpenAI or OpenAI-compatible endpoints (including vLLM with auth)
+> export ANTHROPIC_API_KEY="sk-ant-..."  # Anthropic endpoints
+> ```
+> Local endpoints (e.g., vLLM without auth) don't need an API key."
 
 ## Adding More Models
 
 If this skill is invoked again and a config already exists, ask: "You already have a configuration. Do you want to update it or add another model?"
 
-If adding a model: collect endpoint, API key, and model name. Add a new entry to the `models` dict using the model name as key.
+If adding a model: collect endpoint and model name. Add a new entry to the `models` dict using the model name as key.

@@ -53,7 +53,7 @@ from its_hub import LLMJudge, OpenAICompatibleLanguageModel
 
 judge_lm = OpenAICompatibleLanguageModel(
     endpoint="https://api.openai.com/v1",
-    api_key="your-key",
+    api_key=os.environ["OPENAI_API_KEY"],
     model_name="gpt-4o-mini"
 )
 judge = LLMJudge(lm=judge_lm, fallback_score=5.0)
