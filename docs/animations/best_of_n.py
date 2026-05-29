@@ -83,12 +83,11 @@ class BestOfNScene(Scene):
                 fade_anims.append(score_bars[i].animate.set_opacity(0.3))
 
         self.play(*fade_anims, run_time=1.5)
-        self.wait(1.0)
 
         winner = labeled_box("✓ Best Response", color=ACCENT_GREEN, width=2.4, height=0.6, font_size=20)
         winner[0].set_fill(ACCENT_GREEN, opacity=0.15)
-        winner.next_to(responses[best_idx], DOWN, buff=0.6)
-        winner.shift(RIGHT * 1.5)
+        winner.move_to(RIGHT * 5 + responses[best_idx].get_center()[1] * UP)
 
-        self.play(FadeIn(winner, shift=UP * 0.2), run_time=1.0)
+        winner_arrow = thin_arrow(score_bars[best_idx].get_right() + RIGHT * 0.2, winner.get_left(), color=ACCENT_GREEN)
+        self.play(ShowCreation(winner_arrow), FadeIn(winner, shift=LEFT * 0.2), run_time=1.0)
         self.wait(4.0)
