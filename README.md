@@ -156,4 +156,50 @@ asyncio.run(lm.close())
 - ⚡ **Async-First**: `ainfer()` is the primary method; `infer()` is a sync wrapper. Concurrent generation with limits and error handling
 - 🎯 **Minimal Core**: Only 2 dependencies (numpy, typing-extensions) for core install
 
+## Coding Agent Plugin
+
+its-hub is available as a plugin for two coding agents, bringing inference-time scaling directly into your coding workflow.
+
+<details>
+<summary><strong>Claude Code</strong></summary>
+
+**Via org marketplace** (recommended — includes all Red Hat AI plugins):
+```
+/plugin marketplace add Red-Hat-AI-Innovation-Team/plugins
+/plugin install its-hub@Red-Hat-AI-Innovation-Team/plugins
+```
+
+**Via this repo directly:**
+```
+/plugin marketplace add Red-Hat-AI-Innovation-Team/its_hub
+/plugin install its-hub@Red-Hat-AI-Innovation-Team/its_hub
+```
+
+**From a local clone:**
+```bash
+git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
+/plugin marketplace add /path/to/its_hub
+```
+</details>
+
+<details>
+<summary><strong>Codex CLI</strong></summary>
+
+```bash
+codex plugin marketplace add Red-Hat-AI-Innovation-Team/plugins
+```
+
+Then install the plugin from the marketplace. See `.codex-plugin/INSTALL.md` for manual installation.
+</details>
+
+### After Installing
+
+Invoke the `setup-guide` skill to configure your model endpoint and algorithm.
+
+| Skill | Description |
+|---|---|
+| `setup-guide` | Guided first-time configuration |
+| `inference-scaling` | Run inference-time scaling on a single prompt |
+| `batch-scaling` | Batch scaling from a JSONL/CSV/TXT file |
+
 For detailed documentation, visit: [https://ai-innovation.team/its_hub](https://ai-innovation.team/its_hub)
