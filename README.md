@@ -7,11 +7,7 @@
 **its_hub** is a Python library for inference-time scaling of LLMs, focusing on mathematical reasoning tasks.
 
 <p align="center">
-  <img src="docs/animations/gifs/self_consistency.gif" width="32%" alt="Self-Consistency algorithm animation" />
-  &nbsp;&nbsp;
-  <img src="docs/animations/gifs/best_of_n.gif" width="32%" alt="Best-of-N algorithm animation" />
-  &nbsp;&nbsp;
-  <img src="docs/animations/gifs/particle_filtering.gif" width="32%" alt="Particle Filtering algorithm animation" />
+  <img src="docs/animations/gifs/its_hub_algorithms.gif" width="80%" alt="ITS Hub algorithms: Self-Consistency, Best-of-N, and Particle Filtering" />
 </p>
 
 ## 📚 Documentation
