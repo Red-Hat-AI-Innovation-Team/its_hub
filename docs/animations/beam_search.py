@@ -8,7 +8,6 @@ class BeamSearchScene(Scene):
         title.to_edge(UP, buff=0.3)
         self.play(FadeIn(title), run_time=0.8)
 
-        # Horizontal layout: left-to-right across 3 steps
         step_x = [-4.5, -0.5, 3.5]
 
         prompt = labeled_box("Prompt", color=ACCENT_BLUE, width=1.6, height=0.55)
@@ -18,6 +17,7 @@ class BeamSearchScene(Scene):
         prm_label = labeled_box("PRM", color=ACCENT_ORANGE, width=1.2, height=0.5, font_size=18)
         prm_label.move_to(UP * 3.2 + RIGHT * 5)
         self.play(FadeIn(prm_label), run_time=0.6)
+        self.wait(0.5)
 
         prev_nodes = [prompt]
         children_per_level = [4, 2, 2]
@@ -47,7 +47,7 @@ class BeamSearchScene(Scene):
             self.play(
                 LaggedStart(*[ShowCreation(a) for a in all_arrows], lag_ratio=0.05),
                 LaggedStart(*[FadeIn(c) for c in candidates], lag_ratio=0.05),
-                run_time=1.2,
+                run_time=1.0,
             )
 
             scores = []
@@ -64,6 +64,7 @@ class BeamSearchScene(Scene):
                 LaggedStart(*[FadeIn(s) for s in score_labels], lag_ratio=0.05),
                 run_time=0.8,
             )
+            self.wait(0.8)
 
             beam_width = 2
             ranked = sorted(range(n), key=lambda i: scores[i], reverse=True)
@@ -92,9 +93,10 @@ class BeamSearchScene(Scene):
 
             prev_nodes = [candidates[i] for i in ranked[:beam_width]]
 
+        self.wait(0.5)
         winner = labeled_box("✓ Best Path", color=ACCENT_GREEN, width=2.0, height=0.5, font_size=18)
         winner[0].set_fill(ACCENT_GREEN, opacity=0.15)
         winner.move_to(RIGHT * 5.5)
 
         self.play(FadeIn(winner, shift=LEFT * 0.2), run_time=1.0)
-        self.wait(3.0)
+        self.wait(4.0)

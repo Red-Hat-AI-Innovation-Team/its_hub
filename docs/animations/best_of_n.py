@@ -26,8 +26,9 @@ class BestOfNScene(Scene):
         self.play(
             LaggedStart(*[ShowCreation(a) for a in arrows_in], lag_ratio=0.08),
             LaggedStart(*[FadeIn(r, shift=RIGHT * 0.2) for r in responses], lag_ratio=0.08),
-            run_time=1.5,
+            run_time=1.2,
         )
+        self.wait(0.8)
 
         orm_box = labeled_box("ORM", color=ACCENT_ORANGE, width=1.4, height=0.6, font_size=20)
         orm_box.move_to(RIGHT * 1.5 + UP * 1.8)
@@ -62,13 +63,14 @@ class BestOfNScene(Scene):
         ])
         self.play(
             LaggedStart(*[ShowCreation(a) for a in orm_arrows], lag_ratio=0.1),
-            run_time=1.2,
+            run_time=1.0,
         )
         self.play(
             LaggedStart(*[FadeIn(s) for s in score_labels], lag_ratio=0.1),
             LaggedStart(*[GrowFromEdge(b, LEFT) for b in score_bars], lag_ratio=0.1),
             run_time=1.5,
         )
+        self.wait(1.5)
 
         best_idx = scores.index(max(scores))
         fade_anims = []
@@ -81,6 +83,7 @@ class BestOfNScene(Scene):
                 fade_anims.append(score_bars[i].animate.set_opacity(0.3))
 
         self.play(*fade_anims, run_time=1.5)
+        self.wait(1.0)
 
         winner = labeled_box("✓ Best Response", color=ACCENT_GREEN, width=2.4, height=0.6, font_size=20)
         winner[0].set_fill(ACCENT_GREEN, opacity=0.15)
@@ -88,4 +91,4 @@ class BestOfNScene(Scene):
         winner.shift(RIGHT * 1.5)
 
         self.play(FadeIn(winner, shift=UP * 0.2), run_time=1.0)
-        self.wait(3.0)
+        self.wait(4.0)
