@@ -6,6 +6,12 @@
 
 **its_hub** is a Python library for inference-time scaling of LLMs, focusing on mathematical reasoning tasks.
 
+<p align="center">
+  <img src="docs/animations/gifs/self_consistency.gif" width="45%" alt="Self-Consistency algorithm animation" />
+  &nbsp;&nbsp;
+  <img src="docs/animations/gifs/best_of_n.gif" width="45%" alt="Best-of-N algorithm animation" />
+</p>
+
 ## 📚 Documentation
 
 For comprehensive documentation, including installation guides, tutorials, and API reference, visit:
