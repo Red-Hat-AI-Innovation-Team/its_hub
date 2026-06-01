@@ -39,6 +39,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         # SSL configuration
         verify_ssl: bool = True,
         ssl_context: ssl.SSLContext | None = None,
+        # Raw response preservation
+        include_raw_choices: bool = False,
     ):
         assert max_concurrency == -1 or max_concurrency > 0, (
             "max_concurrency must be -1 (unlimited concurrency) or a positive integer"
@@ -88,6 +90,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
+
+        # raw response preservation
+        self.include_raw_choices = include_raw_choices
 
         # endpoint type
         self.endpoint_type = "openai" if "openai" in self.endpoint else "vllm"
@@ -288,8 +293,11 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                                 logging.error(format_non_retryable_error(api_error))
                             raise api_error
                         response_json = await response.json()
-                        # Return the full message object to preserve tool calls
-                        return response_json["choices"][0]["message"]
+                        choice = response_json["choices"][0]
+                        message = choice["message"]
+                        if self.include_raw_choices:
+                            message["_raw_choice"] = choice
+                        return message
 
             async def safe_fetch_response(
                 messages: list[ChatMessage], _temperature: float | None
@@ -417,8 +425,11 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         logging.error(format_non_retryable_error(api_error))
                     raise api_error
                 response_json = await response.json()
-                # Return the full message object to preserve tool calls
-                return response_json["choices"][0]["message"]
+                choice = response_json["choices"][0]
+                message = choice["message"]
+                if self.include_raw_choices:
+                    message["_raw_choice"] = choice
+                return message
 
         async def safe_fetch_response(
             messages: list[ChatMessage], _temperature: float | None
