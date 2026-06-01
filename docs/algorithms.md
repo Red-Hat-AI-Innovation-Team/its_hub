@@ -20,6 +20,8 @@ The `budget` parameter controls computational resources allocated to each algori
 
 ## Self-Consistency
 
+<video src="animations/videos/SelfConsistencyScene.mp4" width="100%" controls muted playsinline></video>
+
 Generates multiple responses and selects the most common answer through voting. **Especially powerful for tool-calling** where you want consistent tool usage patterns.
 
 ### Tool Calling Example (Recommended)
@@ -112,6 +114,8 @@ result = sc.infer(lm, "Solve x^2 + 5x + 6 = 0", budget=4)
 
 ## Best-of-N
 
+<video src="animations/videos/BestOfNScene.mp4" width="100%" controls muted playsinline></video>
+
 Generates N candidate responses and selects the highest-scoring one using a reward model. **Works with both text and tool-calling responses.**
 
 ### With LLM Judge (Cloud APIs)
@@ -200,6 +204,8 @@ result = beam_search.infer(lm, prompt, budget=32)  # 32 total generations
 - Mathematical proofs or derivations
 
 ## Particle Filtering
+
+<video src="animations/videos/ParticleFilteringScene.mp4" width="100%" controls muted playsinline></video>
 
 Uses probabilistic resampling to maintain diverse reasoning paths while focusing on promising directions.
 
