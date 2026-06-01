@@ -294,9 +294,12 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                             raise api_error
                         response_json = await response.json()
                         choice = response_json["choices"][0]
-                        message = choice["message"]
+                        message = dict(choice["message"])
                         if self.include_raw_choices:
-                            message["_raw_choice"] = choice
+                            message["_raw_choice"] = {
+                                **choice,
+                                "message": dict(choice["message"]),
+                            }
                         return message
 
             async def safe_fetch_response(
@@ -426,9 +429,12 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                     raise api_error
                 response_json = await response.json()
                 choice = response_json["choices"][0]
-                message = choice["message"]
+                message = dict(choice["message"])
                 if self.include_raw_choices:
-                    message["_raw_choice"] = choice
+                    message["_raw_choice"] = {
+                        **choice,
+                        "message": dict(choice["message"]),
+                    }
                 return message
 
         async def safe_fetch_response(
