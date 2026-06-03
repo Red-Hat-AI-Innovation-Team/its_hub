@@ -2,7 +2,7 @@ name: Sync Notebooks
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ v1 ]
     paths: [ 'notebooks/**/*.py', 'notebooks/**/*.ipynb' ]
 
 jobs:

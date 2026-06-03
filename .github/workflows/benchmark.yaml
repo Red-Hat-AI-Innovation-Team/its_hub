@@ -1,0 +1,57 @@
+name: Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      budgets:
+        description: "Comma-separated list of budgets"
+        required: true
+        default: "1,2,4,8"
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VLLM_ENDPOINT: http://vllm-its-hub-svc.vllm.svc:8100/v1
+  VLLM_MODEL: Qwen/Qwen2.5-Math-7B-Instruct
+
+jobs:
+  benchmark:
+    runs-on: arc-runner
+    strategy:
+      matrix:
+        algorithm: [self-consistency]
+        dataset: [math500, aime-2024]
+    steps:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+    - name: Install uv and setup python version
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      with:
+        python-version: "3.11"
+        enable-cache: true
+
+    - name: Install dependencies
+      run: uv sync --extra dev --extra research --extra experimental
+
+    - name: Run benchmark
+      run: |
+        nohup uv run python benchmarking/benchmark.py \
+          --endpoint ${{ env.VLLM_ENDPOINT }} \
+          --model_name ${{ env.VLLM_MODEL }} \
+          --alg ${{ matrix.algorithm }} \
+          --benchmark ${{ matrix.dataset }} \
+          --budgets ${{ inputs.budgets }} \
+          --does_eval \
+          2>&1 | tee benchmark-${{ matrix.algorithm }}-${{ matrix.dataset }}.log
+
+    - name: Upload benchmark results
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: benchmark-${{ matrix.algorithm }}-${{ matrix.dataset }}
+        path: |
+          results/
+          benchmark-${{ matrix.algorithm }}-${{ matrix.dataset }}.log
