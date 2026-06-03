@@ -426,24 +426,31 @@ class TestErrorHandling:
     async def test_single_error_propagates(self):
         orch = LMOrchestrator(max_concurrency=4)
         lm = ErrorMockLM(error_indices={2})
-        with pytest.raises(ExceptionGroup) as exc_info:
+        with pytest.raises(RuntimeError, match=r"1/5 generation\(s\) failed"):
             await orch.agenerate(lm, _make_batch(5))
-        assert any("Simulated error" in str(e) for e in exc_info.value.exceptions)
 
     @pytest.mark.asyncio
     async def test_all_errors_propagate(self):
         orch = LMOrchestrator(max_concurrency=4)
         lm = ErrorMockLM(error_indices={0, 1, 2})
-        with pytest.raises(ExceptionGroup) as exc_info:
+        with pytest.raises(RuntimeError, match=r"3/3 generation\(s\) failed"):
             await orch.agenerate(lm, _make_batch(3))
-        assert len(exc_info.value.exceptions) == 3
+
+    @pytest.mark.asyncio
+    async def test_error_message_includes_count(self):
+        orch = LMOrchestrator(max_concurrency=4)
+        lm = ErrorMockLM(error_indices={0, 2})
+        with pytest.raises(RuntimeError) as exc_info:
+            await orch.agenerate(lm, _make_batch(4))
+        assert "2/4" in str(exc_info.value)
+        assert exc_info.value.__cause__ is not None
 
     @pytest.mark.asyncio
     async def test_semaphore_released_after_error(self):
         orch = LMOrchestrator(max_concurrency=4)
         lm = ErrorMockLM(error_indices={1})
 
-        with pytest.raises(ExceptionGroup):
+        with pytest.raises(RuntimeError):
             await orch.agenerate(lm, _make_batch(3))
 
         # Semaphore should be fully released
@@ -455,7 +462,7 @@ class TestErrorHandling:
 
         # First batch: errors
         error_lm = ErrorMockLM(error_indices={0})
-        with pytest.raises(ExceptionGroup):
+        with pytest.raises(RuntimeError):
             await orch.agenerate(error_lm, _make_batch(2))
 
         # Second batch: should work fine
@@ -485,7 +492,7 @@ class TestSemaphoreSafety:
         lm = ErrorMockLM(error_indices={0, 1, 2, 3, 4})
 
         initial = _sem_value(orch)
-        with pytest.raises(ExceptionGroup):
+        with pytest.raises(RuntimeError):
             await orch.agenerate(lm, _make_batch(5))
         assert _sem_value(orch) == initial
 
