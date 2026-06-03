@@ -3,6 +3,10 @@ name: E2E Tests
 on:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   VLLM_ENDPOINT: http://vllm-its-hub-svc.vllm.svc:8100/v1
   VLLM_MODEL: Qwen/Qwen2.5-Math-7B-Instruct

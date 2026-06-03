@@ -9,6 +9,10 @@ on:
         default: "1,2,4,8"
         type: string
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   VLLM_ENDPOINT: http://vllm-its-hub-svc.vllm.svc:8100/v1
   VLLM_MODEL: Qwen/Qwen2.5-Math-7B-Instruct
@@ -18,7 +22,7 @@ jobs:
     runs-on: arc-runner
     strategy:
       matrix:
-        algorithm: [self-consistency, beam-search]
+        algorithm: [self-consistency]
         dataset: [math500, aime-2024]
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
