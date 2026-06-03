@@ -24,7 +24,7 @@ jobs:
         enable-cache: true
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --extra dev --extra research
 
     - name: Run e2e tests
       run: |
