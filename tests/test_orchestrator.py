@@ -426,14 +426,20 @@ class TestErrorHandling:
     async def test_single_error_propagates(self):
         orch = LMOrchestrator(max_concurrency=4)
         lm = ErrorMockLM(error_indices={2})
-        with pytest.raises(RuntimeError, match=r"1/5 generation\(s\) failed"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"LMOrchestrator:.*error\(s\).*out of 5 generation\(s\).*RuntimeError",
+        ):
             await orch.agenerate(lm, _make_batch(5))
 
     @pytest.mark.asyncio
     async def test_all_errors_propagate(self):
         orch = LMOrchestrator(max_concurrency=4)
         lm = ErrorMockLM(error_indices={0, 1, 2})
-        with pytest.raises(RuntimeError, match=r"3/3 generation\(s\) failed"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"LMOrchestrator:.*error\(s\).*out of 3 generation\(s\).*RuntimeError",
+        ):
             await orch.agenerate(lm, _make_batch(3))
 
     @pytest.mark.asyncio
@@ -442,7 +448,9 @@ class TestErrorHandling:
         lm = ErrorMockLM(error_indices={0, 2})
         with pytest.raises(RuntimeError) as exc_info:
             await orch.agenerate(lm, _make_batch(4))
-        assert "2/4" in str(exc_info.value)
+        msg = str(exc_info.value)
+        assert "out of 4 generation(s)" in msg
+        assert "RuntimeError" in msg
         assert exc_info.value.__cause__ is not None
 
     @pytest.mark.asyncio
