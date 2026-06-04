@@ -33,7 +33,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         stop: str | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
-        max_tries: int = 8,
+        max_tries: int = 3,
         max_concurrency: int = -1,
         replace_error_with_message: str | None = None,
         # SSL configuration
