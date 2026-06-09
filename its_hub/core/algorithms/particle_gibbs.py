@@ -92,6 +92,18 @@ class TemperatureMethod(Enum):
     BASE = "base"
 
 
+class WeightSource(Enum):
+    """Where each particle's log-weight comes from.
+
+    - PRM: a separate process reward model scores the partial trajectory (default).
+    - SELF_CERTAINTY: the weight is derived from the *generator* model's own token
+      logprobs/entropy for the step it just produced (no separate reward model).
+    """
+
+    PRM = "prm"
+    SELF_CERTAINTY = "self_certainty"
+
+
 class ParticleGibbs(AbstractScalingAlgorithm):
     """
     Particle-based Monte Carlo methods for inference time scaling.
@@ -105,7 +117,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
     def __init__(
         self,
         sg: StepGeneration,
-        prm: AbstractProcessRewardModel,
+        prm: AbstractProcessRewardModel | None = None,
         num_iterations: int = 1,
         final_response_selection: str | SelectionMethod = SelectionMethod.ARGMAX,
         num_ref_particles: int = 1,
@@ -116,6 +128,10 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         early_phase: float = 0.5,
         resampling_method: str | ResamplingMethod = ResamplingMethod.MULTINOMIAL,
         temperature_method: str | TemperatureMethod = TemperatureMethod.ESS,
+        weight_source: str | WeightSource = WeightSource.PRM,
+        self_certainty_signal: str = "mean_logprob",
+        self_certainty_style: str = "logit",
+        top_logprobs: int | None = None,
     ):
         if isinstance(final_response_selection, str):
             final_response_selection = SelectionMethod(final_response_selection)
@@ -125,6 +141,31 @@ class ParticleGibbs(AbstractScalingAlgorithm):
 
         if isinstance(temperature_method, str):
             temperature_method = TemperatureMethod(temperature_method)
+
+        if isinstance(weight_source, str):
+            weight_source = WeightSource(weight_source)
+
+        if weight_source == WeightSource.PRM and prm is None:
+            raise ValueError(
+                "prm must be provided when weight_source is 'prm'. "
+                "Use weight_source='self_certainty' to weight particles from the "
+                "generator's own logprobs instead."
+            )
+        if self_certainty_signal not in ("mean_logprob", "entropy"):
+            raise ValueError(
+                f"self_certainty_signal must be 'mean_logprob' or 'entropy', got {self_certainty_signal!r}"
+            )
+        if self_certainty_style not in ("logit", "raw"):
+            raise ValueError(
+                f"self_certainty_style must be 'logit' or 'raw', got {self_certainty_style!r}"
+            )
+        # entropy needs the per-token top-k distribution from the API
+        if (
+            weight_source == WeightSource.SELF_CERTAINTY
+            and self_certainty_signal == "entropy"
+            and top_logprobs is None
+        ):
+            top_logprobs = 20
 
         self.sg = sg
         self.prm = prm
@@ -139,6 +180,38 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         self.early_phase = early_phase
         self.resampling_method = resampling_method
         self.temperature_method = temperature_method
+        self.weight_source = weight_source
+        self.self_certainty_signal = self_certainty_signal
+        self.self_certainty_style = self_certainty_style
+        self.top_logprobs = top_logprobs
+
+    def _self_certainty_logweight(self, summary: dict) -> float:
+        """Convert a generated step's logprob summary into a particle log-weight.
+
+        Both signals reduce to a confidence in log-space, ``c <= 0``, where
+        ``exp(c)`` in ``(0, 1]`` is a per-token confidence:
+          - ``'mean_logprob'``: ``c`` = mean per-token logprob.
+          - ``'entropy'``:      ``c`` = -mean per-token entropy (falls back to
+            ``mean_logprob`` if top_logprobs were unavailable).
+        Styles:
+          - ``'raw'``:   use ``c`` directly as the log-weight.
+          - ``'logit'``: ``s = exp(c)`` in ``(0, 1]``, log-weight = ``_inv_sigmoid(s)``
+            (reuses the same transform as the PRM path, so EPF annealing is identical).
+        """
+        if self.self_certainty_signal == "entropy":
+            entropy = summary.get("entropy")
+            c = (
+                -float(entropy)
+                if entropy is not None
+                else float(summary.get("mean_logprob", 0.0))
+            )
+        else:
+            c = float(summary.get("mean_logprob", 0.0))
+
+        if self.self_certainty_style == "raw":
+            return c
+        s = float(np.exp(min(c, 0.0)))  # in (0, 1]
+        return _inv_sigmoid(s)
 
     async def _apropagate(
         self,
@@ -159,29 +232,46 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             prompts.append(prompt)
             steps_so_far.append(p.steps)
 
-        # collect batch outputs
+        use_self_certainty = self.weight_source == WeightSource.SELF_CERTAINTY
+
+        # generate the next step for each active particle (optionally with logprobs)
         sg_forward_results = await self.sg.aforward(
-            lm, prompts, steps_so_far, tools=tools, tool_choice=tool_choice
+            lm,
+            prompts,
+            steps_so_far,
+            tools=tools,
+            tool_choice=tool_choice,
+            return_logprobs=use_self_certainty,
+            top_logprobs=self.top_logprobs,
         )
 
-        # update particles
+        # update particles; for self-certainty, weight directly from the
+        # generator's own step logprobs (no separate reward model)
         i = 0
         for p, is_stopped in zip(particles, is_stopped_in_the_beginning):
             if is_stopped:
                 continue
-            next_step, is_stopped = sg_forward_results[i]
-            p.steps.append(next_step)
-            p.is_stopped = is_stopped
+            if use_self_certainty:
+                next_step, step_is_stopped, summary = sg_forward_results[i]
+                p.steps.append(next_step)
+                p.is_stopped = step_is_stopped
+                p.partial_log_weights.append(self._self_certainty_logweight(summary))
+            else:
+                next_step, step_is_stopped = sg_forward_results[i]
+                p.steps.append(next_step)
+                p.is_stopped = step_is_stopped
             i += 1
 
-        # collect batch inputs for scoring
+        if use_self_certainty:
+            return particles
+
+        # PRM path: re-score the whole partial trajectory, convert to log-weight
         steps_so_far = []
         for p, is_stopped in zip(particles, is_stopped_in_the_beginning):
             if is_stopped:
                 continue
             steps_so_far.append(p.steps)
 
-        # collect batch outputs for scoring
         scores = await self.prm.ascore(
             prompt,
             [
@@ -190,7 +280,6 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             ],
         )
 
-        # update particles
         i = 0
         for p, is_stopped in zip(particles, is_stopped_in_the_beginning):
             if is_stopped:
@@ -508,9 +597,13 @@ class ParticleFiltering(ParticleGibbs):
     def __init__(
         self,
         sg: StepGeneration,
-        prm: AbstractProcessRewardModel,
+        prm: AbstractProcessRewardModel | None = None,
         final_response_selection: str | SelectionMethod = SelectionMethod.ARGMAX,
         resampling_method: str | ResamplingMethod = ResamplingMethod.MULTINOMIAL,
+        weight_source: str | WeightSource = WeightSource.PRM,
+        self_certainty_signal: str = "mean_logprob",
+        self_certainty_style: str = "logit",
+        top_logprobs: int | None = None,
     ):
         # initialize with num_iterations=1
         super().__init__(
@@ -522,6 +615,10 @@ class ParticleFiltering(ParticleGibbs):
             does_ancestor_sampling=False,
             does_entropic_annealing=False,
             does_lookahead_modulation=False,
+            weight_source=weight_source,
+            self_certainty_signal=self_certainty_signal,
+            self_certainty_style=self_certainty_style,
+            top_logprobs=top_logprobs,
         )
 
     async def ainfer(
@@ -563,12 +660,16 @@ class EntropicParticleFiltering(ParticleGibbs):
     def __init__(
         self,
         sg: StepGeneration,
-        prm: AbstractProcessRewardModel,
+        prm: AbstractProcessRewardModel | None = None,
         final_response_selection: str | SelectionMethod = SelectionMethod.ARGMAX,
         resampling_method: str | ResamplingMethod = ResamplingMethod.SYSTEMATIC,
         temperature_method: str | TemperatureMethod = TemperatureMethod.ESS,
         ess_threshold: float = 0.5,
         early_phase: float = 0.5,
+        weight_source: str | WeightSource = WeightSource.PRM,
+        self_certainty_signal: str = "mean_logprob",
+        self_certainty_style: str = "logit",
+        top_logprobs: int | None = None,
     ):
         # initialize with num_iterations=1
         super().__init__(
@@ -584,6 +685,10 @@ class EntropicParticleFiltering(ParticleGibbs):
             early_phase=early_phase,
             resampling_method=resampling_method,
             temperature_method=temperature_method,
+            weight_source=weight_source,
+            self_certainty_signal=self_certainty_signal,
+            self_certainty_style=self_certainty_style,
+            top_logprobs=top_logprobs,
         )
 
     def infer(

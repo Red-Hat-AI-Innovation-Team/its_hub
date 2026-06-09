@@ -2,7 +2,10 @@ import asyncio
 import logging
 
 from its_hub.api import AbstractLanguageModel, ChatMessage
-from its_hub.core.utils import extract_content_from_lm_response
+from its_hub.core.utils import (
+    extract_content_from_lm_response,
+    summarize_step_logprobs,
+)
 
 
 def rstrip_iff_entire(s: str, subs: str) -> str:
@@ -110,10 +113,25 @@ class StepGeneration:
         steps_so_far: list[str] | list[list[str]] | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        return_logprobs: bool = False,
+        top_logprobs: int | None = None,
     ) -> tuple[str, bool] | list[tuple[str, bool]]:
-        """generate next step(s) asynchronously"""
+        """generate next step(s) asynchronously.
+
+        If ``return_logprobs`` is True, requests token logprobs from the LM and
+        returns an extra per-step summary dict (from ``summarize_step_logprobs``)
+        appended to each tuple: ``(next_step, is_stopped, logprob_summary)``.
+        This powers self-certainty particle weights (no separate reward model).
+        """
         if steps_so_far is None:
             steps_so_far = []
+        # Only forward logprob kwargs when requested, so LMs that predate logprob
+        # support (and existing mocks/gateways) keep working unchanged.
+        logprob_kwargs: dict = {}
+        if return_logprobs:
+            logprob_kwargs["logprobs"] = True
+            if top_logprobs is not None:
+                logprob_kwargs["top_logprobs"] = top_logprobs
         is_single_prompt = isinstance(prompt_or_prompts, str)
         if is_single_prompt:
             prompt = prompt_or_prompts
@@ -137,11 +155,15 @@ class StepGeneration:
                 include_stop_str_in_output=self.include_stop_str_in_output,
                 tools=tools,
                 tool_choice=tool_choice,
+                **logprob_kwargs,
             )
             next_step = extract_content_from_lm_response(next_step_response)
             is_stopped = len(steps_so_far) >= self.max_steps
             if self.stop_token:
                 is_stopped = is_stopped or self.stop_token in next_step
+            if return_logprobs:
+                summary = summarize_step_logprobs(next_step_response.get("_logprobs"))
+                return next_step, is_stopped, summary
             return next_step, is_stopped
         else:
             prompts = prompt_or_prompts
@@ -174,6 +196,7 @@ class StepGeneration:
                 include_stop_str_in_output=self.include_stop_str_in_output,
                 tools=tools,
                 tool_choice=tool_choice,
+                **logprob_kwargs,
             )
             next_steps = [
                 extract_content_from_lm_response(r) for r in next_steps_responses
@@ -187,6 +210,12 @@ class StepGeneration:
                     is_stopped_per_prompt or self.stop_token in next_step
                     for is_stopped_per_prompt, next_step in zip(is_stopped, next_steps)
                 ]
+            if return_logprobs:
+                summaries = [
+                    summarize_step_logprobs(r.get("_logprobs"))
+                    for r in next_steps_responses
+                ]
+                return list(zip(next_steps, is_stopped, summaries))
             return list(zip(next_steps, is_stopped))
 
     def forward(
