@@ -131,11 +131,25 @@ class LMOrchestrator(AbstractOrchestrator):
                     loop=current_loop,
                 )
 
-        async with asyncio.TaskGroup() as tg:
-            tasks = [
-                tg.create_task(_gen_coro(msgs, temp))
-                for msgs, temp in zip(messages_lst, temperature_list)
-            ]
+        try:
+            async with asyncio.TaskGroup() as tg:
+                tasks = [
+                    tg.create_task(_gen_coro(msgs, temp))
+                    for msgs, temp in zip(messages_lst, temperature_list)
+                ]
+        except ExceptionGroup as eg:
+            cancelled = sum(1 for t in tasks if t.cancelled())
+            error_types = {}
+            for exc in eg.exceptions:
+                name = type(exc).__name__
+                error_types[name] = error_types.get(name, 0) + 1
+            summary = ", ".join(f"{v}x {k}" for k, v in error_types.items())
+            msg = (
+                f"LMOrchestrator: {len(eg.exceptions)} error(s), "
+                f"{cancelled} cancelled out of {len(messages_lst)} "
+                f"generation(s) ({summary})"
+            )
+            raise RuntimeError(msg) from eg
 
         # Collect results in order
         responses = [task.result() for task in tasks]

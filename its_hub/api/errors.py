@@ -9,6 +9,11 @@ error messages.
 import json
 from typing import Any
 
+try:
+    from aiohttp import ClientError as AiohttpClientError
+except ImportError:
+    AiohttpClientError = None
+
 
 class APIError(Exception):
     """Base class for API-related errors."""
@@ -61,8 +66,23 @@ class InternalServerError(APIError):
     pass
 
 
-# Retryable error types
-RETRYABLE_ERRORS = (RateLimitError, APIConnectionError, InternalServerError)
+# Retryable error types — includes both API-level and transport-level exceptions.
+# ConnectionError covers socket resets and refused connections.
+# TimeoutError covers asyncio.TimeoutError and socket timeouts.
+# OSError covers low-level network failures (DNS, broken pipe, etc.).
+_RETRYABLE_BASE = (
+    RateLimitError,
+    APIConnectionError,
+    InternalServerError,
+    ConnectionError,
+    TimeoutError,
+    OSError,
+)
+RETRYABLE_ERRORS = (
+    (*_RETRYABLE_BASE, AiohttpClientError)
+    if AiohttpClientError is not None
+    else _RETRYABLE_BASE
+)
 
 
 def parse_api_error(status_code: int, error_text: str) -> APIError:
