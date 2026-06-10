@@ -1,0 +1,40 @@
+pull_request_rules:
+  - name: auto-approve dependabot github-deps PRs
+    conditions:
+      - author=dependabot[bot]
+      - title~=^chore\(github-deps\)
+      - -conflict
+      - -draft
+      - -closed
+    actions:
+      review:
+        type: APPROVE
+
+  - name: add label ci-failure if any checks fail
+    conditions:
+      - "#check-failure>0"
+    actions:
+      label:
+        add:
+          - ci-failure
+
+  - name: remove label ci-failure on success
+    conditions:
+      - "#check-failure=0"
+    actions:
+      label:
+        remove:
+          - ci-failure
+
+  - name: ping author on conflicts and add 'needs-rebase' label
+    conditions:
+      - conflict
+      - -closed
+    actions:
+      label:
+        add:
+          - needs-rebase
+      comment:
+        message: >
+          This pull request has merge conflicts that must be resolved before it can be
+          merged. @{{author}} please rebase it. https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork

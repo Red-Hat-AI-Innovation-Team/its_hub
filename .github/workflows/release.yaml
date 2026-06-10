@@ -5,13 +5,13 @@ name: Build, test, and upload PyPI package
 on:
     push:
         branches:
-            - "main"
+            - "v1"
             - "release-**"
         tags:
             - "v*"
     pull_request:
         branches:
-            - "main"
+            - "v1"
             - "release-**"
     release:
         types:
@@ -53,11 +53,11 @@ jobs:
 
     # push to Test PyPI on
     # - a new GitHub release is published
-    # - a PR is merged into main branch
+    # - a PR is merged into v1 branch
     publish-test-pypi:
         name: Publish packages to test.pypi.org
         # environment: publish-test-pypi
-        if: ${{ (github.repository_owner == 'Red-Hat-AI-Innovation-Team') && ((github.event.action == 'published') || ((github.event_name == 'push') && (github.ref == 'refs/heads/main'))) }}
+        if: ${{ (github.repository_owner == 'Red-Hat-AI-Innovation-Team') && ((github.event.action == 'published') || ((github.event_name == 'push') && (github.ref == 'refs/heads/v1'))) }}
         permissions:
             contents: read
             # see https://docs.pypi.org/trusted-publishers/

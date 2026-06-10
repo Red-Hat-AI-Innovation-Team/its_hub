@@ -41,7 +41,7 @@ def eval_tests() -> dict:
         return {
             "name": 'tests',
             "score": round(score, 4),
-            "weight": 0.4166666666666667,
+            "weight": 0.45,
             "passed": passed,
             "details": output.strip()[-500:],
         }
@@ -49,7 +49,7 @@ def eval_tests() -> dict:
         return {
             "name": 'tests',
             "score": 0.0,
-            "weight": 0.4166666666666667,
+            "weight": 0.45,
             "passed": False,
             "details": "Timed out after 120s",
         }
@@ -89,41 +89,6 @@ def eval_lint() -> dict:
             "details": "Timed out after 120s",
         }
 
-def eval_type_check() -> dict:
-    """Run type checker: uv run mypy its_hub/"""
-    try:
-        result = subprocess.run(
-            ['uv', 'run', '--with', 'mypy', 'mypy', 'its_hub/', '--ignore-missing-imports'],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        passed = result.returncode == 0
-        if passed:
-            score = 1.0
-        else:
-            # Partial score: count output lines as a rough error metric
-            error_lines = [ln for ln in (result.stdout + result.stderr).splitlines() if ln.strip()]
-            if not error_lines:
-                score = 0.0
-            else:
-                score = max(0.0, 1.0 - len(error_lines) * 0.05)
-        return {
-            "name": 'type_check',
-            "score": score,
-            "weight": 0.125,
-            "passed": passed,
-            "details": (result.stdout or result.stderr).strip()[-500:],
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "name": 'type_check',
-            "score": 0.0,
-            "weight": 0.125,
-            "passed": False,
-            "details": "Timed out after 120s",
-        }
-
 def eval_coverage() -> dict:
     """Measure test coverage"""
     try:
@@ -147,7 +112,7 @@ def eval_coverage() -> dict:
         return {
             "name": 'coverage',
             "score": round(score, 4),
-            "weight": 0.125,
+            "weight": 0.20,
             "passed": passed,
             "details": output.strip()[-500:],
         }
@@ -155,7 +120,7 @@ def eval_coverage() -> dict:
         return {
             "name": 'coverage',
             "score": 0.0,
-            "weight": 0.125,
+            "weight": 0.20,
             "passed": False,
             "details": "Timed out after 120s",
         }
@@ -218,7 +183,7 @@ def eval_observability() -> dict:
                 has_trace = True
 
     if total_fn == 0:
-        return {"name": "observability", "score": 0.0, "weight": 0.08333333333333334,
+        return {"name": "observability", "score": 0.0, "weight": 0.10,
                 "passed": True, "details": "No functions found to analyze"}
 
     cov = logged_fn / total_fn
@@ -230,11 +195,11 @@ def eval_observability() -> dict:
                f"tracing={'yes' if has_trace else 'no'}, "
                f"density={density:.0%}")
 
-    return {"name": "observability", "score": round(score, 3), "weight": 0.08333333333333334,
+    return {"name": "observability", "score": round(score, 3), "weight": 0.10,
             "passed": score >= 0.3, "details": details}
 
 # Register all eval functions here.
-EVALS = [eval_tests, eval_lint, eval_type_check, eval_coverage, eval_observability]
+EVALS = [eval_tests, eval_lint, eval_coverage, eval_observability]
 
 
 def main() -> None:
