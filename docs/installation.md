@@ -2,33 +2,33 @@
 
 ## Prerequisites
 
-- Python 3.10+ (3.11+ recommended)
+- Python 3.11+
 - pip or uv package manager
-- GPU with CUDA 11.8+ (only for `[prm]` installation)
+- GPU with CUDA 11.8+ (only for `[experimental]` installation)
 
 ## Installation Options
 
 | Option | Command | Use Case |
 |--------|---------|----------|
-| **Core** | `pip install its_hub` | Best-of-N, Self-Consistency, cloud APIs |
-| **PRM** | `pip install its_hub[prm]` | Particle Filtering, Beam Search, local reward models |
-| **Cloud** | `pip install its_hub[cloud]` | AWS Bedrock, Google Vertex AI |
+| **Core** | `pip install its_hub` | Algorithms and interfaces only (2 dependencies) |
+| **LM** | `pip install its_hub[lm]` | OpenAI-compatible LM, LLMJudge, StepGeneration |
+| **IaaS** | `pip install its_hub[iaas]` | FastAPI Inference-as-a-Service server |
+| **Experimental** | `pip install its_hub[experimental]` | Particle Filtering, Beam Search, reward-hub integration |
 | **Research** | `pip install its_hub[research]` | Benchmarks, evaluation tools |
 | **Dev** | `pip install -e ".[dev]"` | Contributing, testing |
 
 ---
 
-## Core Installation
+## Core + LM Installation
 
 ```bash
-pip install its_hub
+pip install its_hub[lm]
 ```
 
 ### What's Included
 
 **Algorithms**: Best-of-N, Self-Consistency, LLM Judge
-**Language Models**: OpenAI-compatible, LiteLLM (100+ providers)
-**Key Dependencies**: `openai`, `litellm`, `reward-hub`, `transformers`, `fastapi`
+**Language Models**: OpenAI-compatible
 
 ### When to Use
 
@@ -44,23 +44,23 @@ pip install its_hub
 
 ```python
 # Verify installation
-from its_hub.algorithms import BestOfN, SelfConsistency
-from its_hub.integration.reward_hub import LLMJudgeRewardModel
+from its_hub import BestOfN, LLMJudge, SelfConsistency
+from its_hub import OpenAICompatibleLanguageModel, StepGeneration
 ```
 
 ---
 
-## Process Reward Model (PRM) Installation
+## Experimental Installation (Reward-Hub Integration)
 
 ```bash
-pip install its_hub[prm]
+pip install its_hub[experimental]
 ```
 
 ### What's Added
 
 **Algorithms**: Particle Filtering, Beam Search (+ all core algorithms)
 **Reward Models**: `LocalVllmProcessRewardModel` for step-by-step scoring
-**Additional Dependencies**: `reward-hub[prm]` (includes vLLM with pinned versions)
+**Additional Dependencies**: `reward-hub`, `transformers`
 
 ### When to Use
 
@@ -76,24 +76,14 @@ pip install its_hub[prm]
 
 ```python
 # Verify installation
-from its_hub.algorithms import ParticleFiltering, BeamSearch
-from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
+from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
+from its_hub.core.algorithms.beam_search import BeamSearch
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 
 # Check GPU
 import torch
 print(f'CUDA available: {torch.cuda.is_available()}')
 ```
-
----
-
-## Cloud Installation
-
-```bash
-pip install its_hub[cloud]
-```
-
-**Adds**: AWS Bedrock (`boto3`) and Google Vertex AI (`google-cloud-aiplatform`) SDKs
-**Use if**: Need direct SDK access to Bedrock or Vertex AI (most cloud providers work with core via LiteLLM)
 
 ---
 
@@ -122,7 +112,7 @@ uv sync --extra dev
 pip install -e ".[dev]"
 ```
 
-**Includes**: All core + PRM + `pytest`, `ruff`, `jupyter`, notebooks
+**Includes**: All core + experimental + `pytest`, `ruff`, `jupyter`, notebooks
 **Use if**: Contributing, testing, or developing new features
 
 ```bash
@@ -140,9 +130,9 @@ uv run ruff format its_hub/
 ## Combining Extras
 
 ```bash
-pip install its_hub[prm,research]           # PRM + benchmarking
-pip install its_hub[cloud,research]          # Cloud + benchmarking
-pip install -e ".[dev,research,cloud]"       # Everything
+pip install its_hub[experimental,research]  # Experimental + benchmarking
+pip install its_hub[lm,research]            # LM + benchmarking
+pip install -e ".[dev,research]"            # Everything
 ```
 
 ---
@@ -151,10 +141,13 @@ pip install -e ".[dev,research,cloud]"       # Everything
 
 ```bash
 # Core
-python -c "from its_hub.algorithms import BestOfN; print('✅ Core OK')"
+python -c "from its_hub import BestOfN, SelfConsistency; print('Core OK')"
 
-# PRM
-python -c "from its_hub.algorithms import ParticleFiltering; print('✅ PRM OK')"
+# LM
+python -c "from its_hub import OpenAICompatibleLanguageModel, LLMJudge; print('LM OK')"
+
+# Experimental
+python -c "from its_hub.core.algorithms.particle_gibbs import ParticleFiltering; print('Experimental OK')"
 python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}')"
 ```
 

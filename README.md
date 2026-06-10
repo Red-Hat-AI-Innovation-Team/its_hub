@@ -6,6 +6,12 @@
 
 **its_hub** is a Python library for inference-time scaling of LLMs, focusing on mathematical reasoning tasks.
 
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/f92de395-f3c0-49a7-b1a9-caa265ffe2c2" width="80%" controls autoplay loop muted playsinline>
+    ITS Hub algorithms: Self-Consistency, Best-of-N, and Particle Filtering
+  </video>
+</p>
+
 ## 📚 Documentation
 
 For comprehensive documentation, including installation guides, tutorials, and API reference, visit:
@@ -65,34 +71,49 @@ uv sync --extra dev
 
 **Installation required:** `pip install its_hub` (core only, minimal dependencies)
 
-Gateway integration is simple: implement the `AbstractLanguageModel` interface with your existing LM client.
+Gateway integration requires implementing two interfaces: `AbstractLanguageModel` for LM calls and `AbstractOrchestrator` for managing parallel execution with concurrency control and rate limiting.
 
 ```python
-from its_hub import AbstractLanguageModel, SelfConsistency
+import asyncio
 
-# Implement AbstractLanguageModel interface - this is the ONLY integration work required
+from its_hub import AbstractLanguageModel, AbstractOrchestrator, SelfConsistency
+
+# Step 1: Implement AbstractLanguageModel with your gateway's LM client
 class MyGatewayLM(AbstractLanguageModel):
     def __init__(self, gateway_client):
         self.client = gateway_client
 
-    async def agenerate(self, messages, stop=None, **kwargs):
+    async def agenerate_single(self, messages, stop=None, **kwargs):
         response = await self.client.generate(messages, stop=stop, **kwargs)
         return {"role": "assistant", "content": response}
 
-# Use its_hub algorithms with your gateway's LM
-lm = MyGatewayLM(your_gateway_client)
-algorithm = SelfConsistency()
-result = await algorithm.ainfer(lm, "What is 2+2?", budget=5)
-print(result)  # {"role": "assistant", "content": "4", ...}
+# Step 2: Implement AbstractOrchestrator for concurrency control
+# (or use the built-in LMOrchestrator from its_hub[lm])
+class MyGatewayOrchestrator(AbstractOrchestrator):
+    async def agenerate(self, lm, messages_lst, **kwargs):
+        # Manage parallel calls with your gateway's rate limits
+        ...
+
+async def main():
+    lm = MyGatewayLM(your_gateway_client)
+    orchestrator = MyGatewayOrchestrator()
+    algorithm = SelfConsistency(orchestrator=orchestrator)
+    result = await algorithm.ainfer(lm, "What is 2+2?", budget=5)
+    print(result)  # {"role": "assistant", "content": "4", ...}
+
+asyncio.run(main())
 ```
+
+The `AbstractOrchestrator` is the central coordination point — it controls how algorithms fan out parallel LM calls, enforces rate limits, and provides structured error handling. See [Orchestration](docs/orchestration.md) for details.
 
 ### Example 2: Standalone Use with OpenAI-Compatible LM
 
 **Installation required:** `pip install its_hub[lm]`
 
 ```python
-from its_hub import SelfConsistency
-from its_hub.lms import OpenAICompatibleLanguageModel
+import asyncio
+
+from its_hub import OpenAICompatibleLanguageModel, SelfConsistency
 
 lm = OpenAICompatibleLanguageModel(
     endpoint="https://api.openai.com/v1",
@@ -103,6 +124,9 @@ lm = OpenAICompatibleLanguageModel(
 algorithm = SelfConsistency()
 result = algorithm.infer(lm, "What is the capital of France?", budget=3)
 print(result)  # Most common answer from 3 generations
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 ### Example 3: Best-of-N with LLM Judge
@@ -110,9 +134,9 @@ print(result)  # Most common answer from 3 generations
 **Installation required:** `pip install its_hub[lm]`
 
 ```python
-from its_hub import BestOfN
-from its_hub.lms import OpenAICompatibleLanguageModel
-from its_hub.reward_models import LLMJudge
+import asyncio
+
+from its_hub import BestOfN, LLMJudge, OpenAICompatibleLanguageModel
 
 lm = OpenAICompatibleLanguageModel(
     endpoint="https://api.openai.com/v1",
@@ -121,17 +145,67 @@ lm = OpenAICompatibleLanguageModel(
 )
 
 judge = LLMJudge(lm=lm, fallback_score=5.0)
-algorithm = BestOfN(reward_model=judge)
+algorithm = BestOfN(orm=judge)
 result = algorithm.infer(lm, "Write a sorting function", budget=5)
 print(result)  # Best response as judged by LLM
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 ## Key Features
 
 - 🔬 **Multiple Algorithms**: Self-Consistency, Best-of-N, Beam Search (experimental), Particle Filtering (experimental)
-- 🚀 **Gateway Integration**: Clean abstractions for easy integration with AI gateways
+- 🚀 **Gateway Integration**: Clean abstractions (`AbstractLanguageModel`, `AbstractOrchestrator`) for easy integration with AI gateways
+- 🔄 **Orchestration**: `AbstractOrchestrator` provides structured concurrency, rate limiting, and error propagation for parallel LM calls — essential for production gateway deployments
 - 🧮 **Math-Optimized**: Built for mathematical reasoning tasks
-- ⚡ **Async Support**: Concurrent generation with limits and error handling
+- ⚡ **Async-First**: `ainfer()` is the primary method; `infer()` is a sync wrapper. Concurrent generation with limits and error handling
 - 🎯 **Minimal Core**: Only 2 dependencies (numpy, typing-extensions) for core install
+
+## Coding Agent Plugin
+
+its-hub is available as a plugin for two coding agents, bringing inference-time scaling directly into your coding workflow.
+
+<details>
+<summary><strong>Claude Code</strong></summary>
+
+**Via org marketplace** (recommended — includes all Red Hat AI plugins):
+```
+/plugin marketplace add Red-Hat-AI-Innovation-Team/plugins
+/plugin install its-hub@Red-Hat-AI-Innovation-Team/plugins
+```
+
+**Via this repo directly:**
+```
+/plugin marketplace add Red-Hat-AI-Innovation-Team/its_hub
+/plugin install its-hub@Red-Hat-AI-Innovation-Team/its_hub
+```
+
+**From a local clone:**
+```bash
+git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
+/plugin marketplace add /path/to/its_hub
+```
+</details>
+
+<details>
+<summary><strong>Codex CLI</strong></summary>
+
+```bash
+codex plugin marketplace add Red-Hat-AI-Innovation-Team/plugins
+```
+
+Then install the plugin from the marketplace. See `.codex-plugin/INSTALL.md` for manual installation.
+</details>
+
+### After Installing
+
+Invoke the `setup-guide` skill to configure your model endpoint and algorithm.
+
+| Skill | Description |
+|---|---|
+| `setup-guide` | Guided first-time configuration |
+| `inference-scaling` | Run inference-time scaling on a single prompt |
+| `batch-scaling` | Batch scaling from a JSONL/CSV/TXT file |
 
 For detailed documentation, visit: [https://ai-innovation.team/its_hub](https://ai-innovation.team/its_hub)

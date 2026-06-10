@@ -4,14 +4,13 @@ import random
 
 import numpy as np
 
-from its_hub.algorithms.particle_gibbs import (
+from its_hub.core.algorithms.particle_gibbs import (
     Particle,
     ParticleGibbs,
     ParticleGibbsResult,
     SelectionMethod,
 )
-from its_hub.base import AbstractLanguageModel, AbstractProcessRewardModel
-from its_hub.lms import StepGeneration
+from its_hub import AbstractLanguageModel, AbstractProcessRewardModel, StepGeneration
 
 
 class MockLanguageModelForResampling(AbstractLanguageModel):
@@ -19,6 +18,11 @@ class MockLanguageModelForResampling(AbstractLanguageModel):
 
     def __init__(self):
         self.step_counter = 0
+
+    async def agenerate_single(self, messages, **kwargs):
+        step = f"step{self.step_counter}"
+        self.step_counter += 1
+        return {"role": "assistant", "content": step}
 
     async def agenerate(self, messages, **kwargs):
         return self.generate(messages, **kwargs)

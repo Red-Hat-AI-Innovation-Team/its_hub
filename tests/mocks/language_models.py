@@ -1,6 +1,8 @@
 """Mock language models for testing."""
 
-from its_hub.base import AbstractLanguageModel
+import asyncio
+
+from its_hub import AbstractLanguageModel
 
 
 class SimpleMockLanguageModel:
@@ -9,6 +11,15 @@ class SimpleMockLanguageModel:
     def __init__(self, responses: list[str]):
         self.responses = responses
         self.call_count = 0
+
+    async def agenerate_single(self, messages, **kwargs):
+        """Single message generation used by the orchestrator.
+
+        Delegates to generate() with a batch of one and unwraps the result.
+        Subclasses that override generate() for batch mode get this for free.
+        """
+        result = self.generate([messages], **kwargs)
+        return result[0] if isinstance(result, list) else result
 
     async def agenerate(self, messages, **kwargs):
         return self.generate(messages, **kwargs)
@@ -37,8 +48,25 @@ class StepMockLanguageModel(AbstractLanguageModel):
     def __init__(self, step_responses: list[str]):
         self.step_responses = step_responses
         self.call_count = 0
+        self._lock = asyncio.Lock()
+        self._base_task_seq: int | None = None
 
-    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
+    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None):
+        """Single message generation used by the orchestrator."""
+        async with self._lock:
+            task = asyncio.current_task()
+            if task and "-" in task.get_name():
+                task_seq = int(task.get_name().rsplit("-", 1)[-1])
+                if self._base_task_seq is None:
+                    self._base_task_seq = task_seq
+                idx = task_seq - self._base_task_seq
+            else:
+                idx = self.call_count
+            self.call_count += 1
+            content = self.step_responses[idx % len(self.step_responses)]
+            return {"role": "assistant", "content": content}
+
+    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None):
         return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
 
     def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
@@ -73,8 +101,28 @@ class ErrorMockLanguageModel(AbstractLanguageModel):
         self.responses = responses
         self.error_on_calls = error_on_calls or []
         self.call_count = 0
+        self._lock = asyncio.Lock()
+        self._base_task_seq: int | None = None
 
-    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
+    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None):
+        """Single message generation used by the orchestrator."""
+        async with self._lock:
+            task = asyncio.current_task()
+            if task and "-" in task.get_name():
+                task_seq = int(task.get_name().rsplit("-", 1)[-1])
+                if self._base_task_seq is None:
+                    self._base_task_seq = task_seq
+                idx = task_seq - self._base_task_seq
+            else:
+                idx = self.call_count
+            if idx in self.error_on_calls:
+                self.call_count += 1
+                raise Exception("Simulated LM error")
+            content = self.responses[idx % len(self.responses)]
+            self.call_count += 1
+        return {"role": "assistant", "content": content}
+
+    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None):
         return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
 
     def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):

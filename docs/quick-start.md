@@ -2,16 +2,19 @@
 
 This guide shows examples of inference-time scaling. **Tool calling is the primary use case** for production applications.
 
+> **Note:** All algorithms provide both `ainfer()` (async, primary) and `infer()` (sync wrapper via `asyncio.run()`). The examples below use `infer()` for simplicity. For production async code, use `ainfer()` directly within an `async def`.
+
 ## Example 1: Self-Consistency with Tool Calling (Recommended)
 
-**Installation required:** `pip install its_hub`
+**Installation required:** `pip install its_hub[lm]`
 
 This example shows how to use Self-Consistency for reliable tool calling in agent applications.
 
 ```python
-from its_hub.lms import OpenAICompatibleLanguageModel
-from its_hub.algorithms import SelfConsistency
-from its_hub.types import ChatMessage, ChatMessages
+import asyncio
+
+from its_hub import OpenAICompatibleLanguageModel, SelfConsistency
+from its_hub.api import ChatMessage, ChatMessages
 
 # Initialize language model
 lm = OpenAICompatibleLanguageModel(
@@ -63,6 +66,9 @@ result = sc.infer(
     tool_choice="auto"
 )
 print(result)
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 **What happens:**
@@ -73,16 +79,16 @@ print(result)
 
 ---
 
-## Example 2: Best-of-N with LLM Judge (Core Installation)
+## Example 2: Best-of-N with LLM Judge
 
-**Installation required:** `pip install its_hub`
+**Installation required:** `pip install its_hub[lm]`
 
 This example uses Best-of-N algorithm with an LLM judge for response selection. Works with any OpenAI-compatible API and requires no GPU.
 
 ```python
-from its_hub.lms import OpenAICompatibleLanguageModel
-from its_hub.algorithms import BestOfN
-from its_hub.integration.reward_hub import LLMJudgeRewardModel
+import asyncio
+
+from its_hub import BestOfN, LLMJudge, OpenAICompatibleLanguageModel
 
 # Initialize language model
 lm = OpenAICompatibleLanguageModel(
@@ -92,12 +98,7 @@ lm = OpenAICompatibleLanguageModel(
 )
 
 # Set up LLM judge for scoring
-judge = LLMJudgeRewardModel(
-    model="gpt-4o-mini",
-    criterion="overall_quality",
-    judge_type="groupwise",
-    api_key="your-api-key",
-)
+judge = LLMJudge(lm=lm)
 scaling_alg = BestOfN(judge)
 
 # Generate multiple responses and select the best
@@ -107,6 +108,9 @@ result = scaling_alg.infer(
     budget=4
 )
 print(result)
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 **What happens:**
@@ -118,7 +122,7 @@ print(result)
 
 ## Example 3: Particle Filtering with Process Reward Model
 
-**Installation required:** `pip install its_hub[prm]`
+**Installation required:** `pip install its_hub[experimental]`
 
 This example uses Particle Filtering for step-by-step mathematical reasoning with a local process reward model. Requires GPU.
 
@@ -142,10 +146,12 @@ CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen2.5-Math-1.5B-Instruct \
 ### Step 2: Run Particle Filtering
 
 ```python
-from its_hub.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
-from its_hub.lms import OpenAICompatibleLanguageModel, StepGeneration
-from its_hub.algorithms import ParticleFiltering
-from its_hub.integration.reward_hub import LocalVllmProcessRewardModel
+import asyncio
+
+from its_hub import OpenAICompatibleLanguageModel, StepGeneration
+from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
+from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
+from its_hub.core.utils import SAL_STEP_BY_STEP_SYSTEM_PROMPT
 
 # Initialize language model (points to vLLM server)
 lm = OpenAICompatibleLanguageModel(
@@ -167,6 +173,9 @@ scaling_alg = ParticleFiltering(sg, prm)
 # Solve with step-by-step reasoning
 result = scaling_alg.infer(lm, "Solve x^2 + 5x + 6 = 0", budget=8)
 print(result)
+
+# Close lm for resource cleanup
+asyncio.run(lm.close())
 ```
 
 **What happens:**

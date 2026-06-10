@@ -11,7 +11,7 @@ authors = [
     {name = "Kai Xu and the Red Hat AI Innovation Team", email = "xuk@redhat.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "Apache-2.0"
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -43,6 +43,7 @@ lm = [
     "openai>=1.68.2",
     "aiohttp>=3.9.0",
     "backoff>=2.2.0",
+    "certifi>=2026.2.25",
     "requests",
 ]
 
@@ -69,7 +70,7 @@ dev = [
 experimental = [
     "its_hub[lm]",
     "transformers>=4.53.2",
-    "reward-hub>=0.1.8",
+    "reward-hub[prm]>=0.1.10",
 ]
 
 research = [
@@ -86,5 +87,8 @@ where = ["."]
 include = [
     "its_hub",
     "its_hub.algorithms",
-    # NOTE: "its_hub.integration" REMOVED
+    "its_hub.api",
+    "its_hub.api.*",
+    "its_hub.core",
+    "its_hub.core.*",
 ]

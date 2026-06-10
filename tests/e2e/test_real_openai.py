@@ -6,8 +6,7 @@ Use budget=2 to minimize API costs while still validating functionality.
 
 import pytest
 
-from its_hub import BestOfN, SelfConsistency
-from its_hub.reward_models import LLMJudge
+from its_hub import BestOfN, LLMJudge, SelfConsistency
 
 
 class TestSelfConsistencyE2E:
@@ -235,8 +234,7 @@ class TestCoreInterfaceE2E:
 
     def test_lm_extra_imports(self):
         """Test that [lm] extra imports work."""
-        from its_hub import OpenAICompatibleLanguageModel, StepGeneration
-        from its_hub.reward_models import LLMJudge
+        from its_hub import LLMJudge, OpenAICompatibleLanguageModel, StepGeneration
 
         assert OpenAICompatibleLanguageModel is not None
         assert StepGeneration is not None

@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 from fastapi.testclient import TestClient
 
-from its_hub.base import AbstractLanguageModel, AbstractOutcomeRewardModel
+from its_hub import AbstractLanguageModel, AbstractOutcomeRewardModel
 from its_hub.integration.iaas import app
 
 

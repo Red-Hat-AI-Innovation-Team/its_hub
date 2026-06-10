@@ -1,60 +1,50 @@
-name: Tests
+name: Unit Tests
+
+run-name: Run the unit test suite
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - "main"
+      - "v1"
+      - "release-**"
   pull_request:
-    branches: [ main ]
+    branches:
+      - "main"
+      - "v1"
+      - "release-**"
+    paths:
+      - "its_hub/**"
+      - "tests/**"
+      - "!tests/e2e/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/tests.yaml"  # This workflow
 
 jobs:
-  code-quality:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install uv
-      uses: astral-sh/setup-uv@v4
-      with:
-        version: "latest"
-        
-    - name: Set up Python
-      run: uv python install 3.11
-        
-    - name: Install dependencies
-      run: uv sync --extra dev
-        
-    - name: Run linting checks
-      run: uv run ruff check its_hub/
-        
-    - name: Run formatting checks
-      run: uv run ruff format --check its_hub/
-
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
     
-    - name: Install uv
-      uses: astral-sh/setup-uv@v4
+    - name: Install uv and setup python version
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       with:
-        version: "latest"
-        
-    - name: Set up Python
-      run: uv python install ${{ matrix.python-version }}
+        python-version: ${{ matrix.python-version }}
+        enable-cache: true
         
     - name: Install dependencies
       run: uv sync --extra dev
         
-    - name: Run tests
-      run: uv run pytest tests/ --cov=its_hub --cov-report=xml
+    - name: Run unit tests with python ${{ matrix.python-version }}
+      run: uv run pytest tests/ --ignore=tests/e2e --cov=its_hub --cov-report=xml
         
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         file: ./coverage.xml

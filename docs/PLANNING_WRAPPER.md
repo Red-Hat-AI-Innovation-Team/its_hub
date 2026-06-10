@@ -32,8 +32,8 @@ The `PlanningWrapper` is a generic enhancement that adds a planning phase to any
 
 ### Manual Wrapping
 ```python
-from its_hub.algorithms.planning_wrapper import PlanningWrapper
-from its_hub.algorithms import SelfConsistency
+from its_hub import SelfConsistency
+from its_hub.core.algorithms.planning_wrapper import PlanningWrapper
 
 base_algorithm = SelfConsistency(extract_fn)
 planning_algorithm = PlanningWrapper(base_algorithm)
@@ -43,7 +43,7 @@ result = planning_algorithm.infer(lm, prompt, budget=16, return_response_only=Fa
 
 ### Convenience Functions
 ```python
-from its_hub.algorithms.planning_wrapper import (
+from its_hub.core.algorithms.planning_wrapper import (
     create_planning_self_consistency,
     create_planning_particle_filtering, 
     create_planning_best_of_n,
