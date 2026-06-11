@@ -220,8 +220,14 @@ class ParticleGibbs(AbstractScalingAlgorithm):
         prompt: str,
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        base_messages: list[ChatMessage] | None = None,
     ) -> list[Particle]:
-        """propagate particles asynchronously (batched)"""
+        """propagate particles asynchronously (batched).
+
+        ``base_messages`` (when set) carries structured/multimodal conversation
+        content (e.g. an audio user turn) verbatim to the model; ``prompt`` is the
+        flattened text used for the PRM path and logging.
+        """
         is_stopped_in_the_beginning = [p.is_stopped for p in particles]
 
         # collect batch inputs
@@ -243,6 +249,7 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             tool_choice=tool_choice,
             return_logprobs=use_self_certainty,
             top_logprobs=self.top_logprobs,
+            base_messages=base_messages,
         )
 
         # update particles; for self-certainty, weight directly from the
@@ -465,6 +472,13 @@ class ParticleGibbs(AbstractScalingAlgorithm):
     ) -> dict | ParticleGibbsResult:
         """run inference asynchronously with particle gibbs"""
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
+        # Carry structured (e.g. audio) messages through the step path verbatim;
+        # fall back to the legacy flattened string prompt for plain-text inputs.
+        carry_structured = chat_messages.has_nontext_content()
+        base_messages = (
+            chat_messages.base_user_messages() if carry_structured else None
+        )
+        prompt_str = chat_messages.to_prompt()
         assert budget % self.num_iterations == 0, (
             "budget must be divisible by num_iterations"
         )
@@ -488,13 +502,13 @@ class ParticleGibbs(AbstractScalingAlgorithm):
             current_step = 0
 
             while not all(p.is_stopped for p in particles):
-                # TODO: Update _apropagate to support native ChatMessages format instead of string conversion
                 particles = await self._apropagate(
                     lm,
                     particles,
-                    chat_messages.to_prompt(),
+                    prompt_str,
                     tools=tools,
                     tool_choice=tool_choice,
+                    base_messages=base_messages,
                 )
 
                 current_step += 1  # Increment after propagation

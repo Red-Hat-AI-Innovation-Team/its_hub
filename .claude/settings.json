@@ -1,8 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "Bash(BV=/media/exx/68031955-bdaa-4e71-9687-916b9876dfc6 *)",
+      "Bash(cd /home/exx/entropic-particle-filter *)",
+      "Read(//home/exx/inference-time-scaling/**)"
     ],
-    "deny": []
+    "deny": [],
+    "additionalDirectories": [
+      "/tmp"
+    ]
   }
 }

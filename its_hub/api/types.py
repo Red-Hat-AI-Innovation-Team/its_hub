@@ -62,10 +62,10 @@ class ChatMessage:
                 text_parts.append(item.get("text", ""))
             elif content_type == "image_url":
                 has_image = True
-            elif content_type:
-                raise ValueError(
-                    f"Unsupported content type '{content_type}' in messages content dict."
-                )
+            # Other content types (e.g. "input_audio"/"audio_url") carry no text
+            # and are skipped here. The structured content is still delivered to
+            # the model verbatim via to_dict(); only this text view drops them.
+            # (Previously an unknown type raised ValueError, which broke audio.)
 
         if has_image:
             logging.warning(
@@ -129,6 +129,35 @@ class ChatMessages:
                 content = " ".join(text_parts)
             parts.append(f"{role}: {content}")
         return "\n".join(parts)
+
+    def has_nontext_content(self) -> bool:
+        """True if any message carries non-text content (e.g. audio/image parts).
+
+        Step-by-step algorithms use this to decide whether they must carry the
+        structured messages through to the model (instead of flattening to a
+        text-only prompt via ``to_prompt()``, which would drop audio/images).
+        """
+        if self._is_string:
+            return False
+        for msg in self._str_or_messages:
+            if isinstance(msg.content, list):
+                for item in msg.content:
+                    if (
+                        isinstance(item, dict)
+                        and item.get("type") not in ("text", None)
+                    ):
+                        return True
+        return False
+
+    def base_user_messages(self) -> list[ChatMessage]:
+        """Return the underlying messages to carry verbatim as the conversation base.
+
+        For the string case this returns ``[ChatMessage(role="user", content=<str>)]``
+        — identical to what step generation builds today, so the plain-text path is
+        unchanged. For structured input it returns the original messages (system/user
+        turns, possibly with audio/image content) so they reach the model intact.
+        """
+        return list(self.to_chat_messages())
 
     @property
     def is_string(self) -> bool:

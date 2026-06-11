@@ -115,6 +115,7 @@ class StepGeneration:
         tool_choice: str | dict | None = None,
         return_logprobs: bool = False,
         top_logprobs: int | None = None,
+        base_messages: list[ChatMessage] | None = None,
     ) -> tuple[str, bool] | list[tuple[str, bool]]:
         """generate next step(s) asynchronously.
 
@@ -122,6 +123,14 @@ class StepGeneration:
         returns an extra per-step summary dict (from ``summarize_step_logprobs``)
         appended to each tuple: ``(next_step, is_stopped, logprob_summary)``.
         This powers self-certainty particle weights (no separate reward model).
+
+        If ``base_messages`` is provided, it is used verbatim as the conversation
+        base (e.g. a user turn with audio content) instead of building a text-only
+        ``ChatMessage(role="user", content=<prompt string>)``. The reasoning steps
+        so far are appended as a trailing assistant turn the model continues. The
+        same ``base_messages`` is broadcast across all prompts in the batch path
+        (all particles share the same question/audio). When ``base_messages`` is
+        None the behavior is identical to the plain-text prompt path.
         """
         if steps_so_far is None:
             steps_so_far = []
@@ -138,9 +147,10 @@ class StepGeneration:
             current_step = len(steps_so_far) + 1
             logging.info("Generating step %s/%s", current_step, self.max_steps)
 
-            messages = [
-                ChatMessage(role="user", content=prompt),
-            ]
+            if base_messages is not None:
+                messages = list(base_messages)  # shallow copy; don't mutate caller's list
+            else:
+                messages = [ChatMessage(role="user", content=prompt)]
             if steps_so_far:
                 messages.append(
                     ChatMessage(
@@ -177,9 +187,11 @@ class StepGeneration:
 
             messages_lst = []
             for prompt, steps_so_far_per_prompt in zip(prompts, steps_so_far):
-                messages = [
-                    ChatMessage(role="user", content=prompt),
-                ]
+                if base_messages is not None:
+                    # broadcast the same base (question + audio) to every particle
+                    messages = list(base_messages)
+                else:
+                    messages = [ChatMessage(role="user", content=prompt)]
                 if steps_so_far_per_prompt:
                     messages.append(
                         ChatMessage(
