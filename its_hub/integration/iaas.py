@@ -13,15 +13,12 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
-from its_hub.algorithms.self_consistency import (
-    SelfConsistency,
+from its_hub import OpenAICompatibleLanguageModel, SelfConsistency
+from its_hub.api.types import ChatMessage, ChatMessages
+from its_hub.core.algorithms.self_consistency import (
     SelfConsistencyResult,
     create_regex_projection_function,
 )
-from its_hub.lms import (
-    OpenAICompatibleLanguageModel,
-)
-from its_hub.types import ChatMessage, ChatMessages
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
