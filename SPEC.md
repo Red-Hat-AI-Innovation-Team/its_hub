@@ -1,33 +1,20 @@
 # its_hub Repository Specification
 
-Status: Draft v1
+Status: Draft v1 (language-agnostic)
 
-Purpose: Define the repository-level contract for `its_hub` as a library-first system for
-inference-time scaling (ITS) of LLMs, while also documenting the two concrete gateway
-implementations that currently exist in the repository family:
+Purpose: Define a library-first system for inference-time scaling (ITS) of LLMs.
 
-- the current OpenAI-compatible FastAPI IaaS service in `its_hub/integration/iaas.py`
-- the Envoy external-processing profile implemented on `origin/envoy_ext_proc`
+This specification defines the repository-family contract, including:
 
-Source of truth for this specification version:
+- a reusable core ITS library contract
+- stable and experimental algorithm profiles
+- two OPTIONAL gateway profiles:
+  - `Direct ITS Gateway`
+  - `External-Processing Gateway`
+- documentation, benchmarking, and validation expectations
 
-- `origin/v1`
-  - normative for the core library surface, package layout, and install profiles
-- current repository branch
-  - normative for the current `its-iaas` FastAPI gateway profile
-- `origin/envoy_ext_proc`
-  - normative for the Envoy ext-proc gateway profile
-
-When these sources differ, this specification MUST say which surface is being described.
-
-Interpretation model for this document:
-
-- Sections 3 through 10 define the intended repository-family design target unless they explicitly
-  name a branch or concrete implementation.
-- Sections 11 through 14 map that target onto the current Python repository family and its concrete
-  gateway/runtime profiles.
-- Python module paths in this document are reference mappings for the current Python branches, not
-  mandatory shapes for future non-Python ports such as Rust.
+The intent is that implementations evolve against this specification. A current codebase is one
+possible implementation of the spec, not the source of truth for the spec itself.
 
 ## Normative Language
 
@@ -40,1078 +27,1218 @@ behavior.
 
 ## 1. Problem Statement
 
-`its_hub` is a repository for inference-time scaling techniques that improve model outputs by
-spending more compute during inference rather than by retraining the model.
+`its_hub` is a system for improving LLM outputs by spending more compute at inference time rather
+than by retraining the model.
 
-The repository family currently serves three closely related needs:
+The system addresses four related problems:
 
-1. `Library-first ITS`
-   - reusable algorithms, LM adapters, reward-model abstractions, and orchestration contracts
-
-2. `Gateway integration`
-   - integration into existing serving layers without changing the downstream OpenAI-compatible
-     client contract
-
-3. `Research and evaluation`
-   - examples, benchmarks, and math-oriented evaluation workflows
+- It defines reusable contracts for inference-time scaling algorithms, language-model adapters,
+  orchestration, and reward models.
+- It allows ITS to be integrated into serving systems without redefining the downstream
+  chat-completions client contract.
+- It supports both production-facing gateway integration and research-oriented experimentation.
+- It provides enough common structure that future implementations in other languages can remain
+  behaviorally compatible.
 
 Important boundary:
 
-- the center of gravity for `v1` is the library contract
-- the gateway runtimes are integration profiles layered on top of that library contract
-- no single gateway runtime is required for `v1` core conformance
+- `its_hub` is library-first.
+- Gateways are OPTIONAL integration profiles layered on top of the library contract.
+- The specification defines behavior and interfaces, not one language, one packaging model, or one
+  deployment topology.
+- A conforming implementation can be a library, a gateway, both, or a strict subset according to
+  the capability profiles in Section 3.3.
 
 ## 2. Goals and Non-Goals
 
 ### 2.1 Goals
 
 - Define stable abstractions for:
-  - messages
-  - language models
-  - orchestration
+  - message normalization
+  - language-model generation
+  - orchestration/fanout
   - ITS algorithms
   - reward models
 - Support both string prompts and structured chat messages.
 - Preserve OpenAI-compatible assistant message structure, including tool calls, where supported.
-- Keep the stable core small enough for gateway integrators.
-- Provide built-in implementations for common LM, orchestration, and judging workflows.
-- Support multiple ITS strategies with a shared `budget` vocabulary.
-- Document the current gateway profiles separately so design work can happen in `SPEC.md` before
-  implementation changes land.
+- Provide a shared `budget` vocabulary for compute allocation across ITS algorithms.
+- Support both outcome-based and process-based scoring.
+- Define two interoperable gateway profiles:
+  - a direct service profile
+  - an external-processing interception profile
+- Keep the contract portable across multiple implementations and languages.
+- Support design-first workflow where changes to system behavior are specified before
+  implementation.
 
 ### 2.2 Non-Goals
 
 - Defining the full OpenAI Chat Completions protocol.
-- Requiring one mandatory service runtime for `v1`.
-- Defining training, fine-tuning, or model-hosting internals.
+- Requiring a single mandatory service runtime.
+- Defining model training, fine-tuning, or model-hosting internals.
+- Requiring every implementation to ship every algorithm or gateway profile.
 - Standardizing streaming ITS behavior in this specification version.
-- Guaranteeing that every experimental algorithm has the same stability level as the stable core.
+- Guaranteeing that experimental algorithms have the same stability level as the stable core.
 
-## 3. Repository Model
+## 3. System Overview
 
-### 3.1 Canonical `v1` Layout
-
-The canonical `v1` design target uses a split API/core layout. `origin/v1` is the closest current
-Python branch to that layout, but the diagram below is conceptual rather than a literal exhaustive
-inventory of any single branch:
-
-```text
-its_hub/
-  api/
-    algorithm.py
-    lm.py
-    orchestrator.py
-    types.py
-    reward_models/
-  core/
-    algorithms/
-    lms/
-    reward_models/
-    orchestrator.py
-  algorithms/
-benchmarking/
-examples/
-docs/
-tests/
-README.md
-pyproject.toml
-SPEC.md
-```
-
-Interpretation note:
-
-- the diagram names the intended conceptual homes of repository surfaces
-- supporting files such as `SPEC.md`, `scripts/`, `eval/`, or branch-specific docs MAY be added,
-  omitted, or relocated without changing the core contract
-
-Responsibilities:
-
-- `its_hub/api/`
-  - stable abstract contracts
-- `its_hub/core/`
-  - built-in implementations of those contracts
-- `its_hub/algorithms/`
-  - compatibility-oriented import surface
-- `benchmarking/`, `examples/`, `docs/`, `tests/`
-  - tooling, documentation, validation
-
-### 3.2 Legacy Flat Layout Compatibility
-
-Some active branches, including the current branch and `origin/envoy_ext_proc`, still use the older
-flat layout:
-
-```text
-its_hub/
-  base.py
-  lms.py
-  types.py
-  algorithms/
-  integration/
-```
-
-For this specification version:
-
-- the `origin/v1` split layout is the canonical design target
-- the flat layout branches are treated as equivalent implementations of the same conceptual layers
-- gateway profiles that still live under the flat layout remain part of the repository-family
-  contract until they are retired or migrated
-
-### 3.3 Deliverables
-
-The repository family currently contains these deliverables:
-
-1. `Core library contract`
-   - abstractions and built-in ITS implementations
-
-2. `Gateway profiles`
-   - current FastAPI IaaS service
-   - Envoy ext-proc external processor
-
-3. `Documentation, examples, and benchmarks`
-   - install guides, quick starts, algorithm docs, benchmark tooling
-
-4. `Tests and packaging metadata`
-   - repository validation and distribution metadata
-
-## 4. Distribution and Installation Profiles
-
-### 4.1 `origin/v1` Profiles
-
-The normative `v1` install profiles are:
-
-- default / core
-  - `pip install its_hub`
-  - minimal dependency footprint
-  - intended for integrators who provide their own LM and orchestrator
-
-- `lm`
-  - `pip install its_hub[lm]`
-  - adds built-in OpenAI-compatible LM support, async HTTP dependencies, `LLMJudge`, and
-    `LMOrchestrator`
-
-- `iaas`
-  - `pip install its_hub[iaas]`
-  - adds service-oriented dependencies
-  - in `origin/v1` this is a dependency profile, not a required built-in runtime contract
-
-- `experimental`
-  - `pip install its_hub[experimental]`
-  - adds experimental algorithms and PRM-related dependencies
-
-- `research`
-  - `pip install its_hub[research]`
-  - adds benchmark/evaluation dependencies
-
-- `dev`
-  - `pip install -e ".[dev]"` or `uv sync --extra dev`
-  - adds development and test tooling
-
-### 4.2 Legacy Branch Packaging Notes
-
-The current branch and `origin/envoy_ext_proc` still ship older packaging shapes:
-
-- current branch
-  - includes a built-in `its-iaas` script in `pyproject.toml`
-  - uses extras such as `vllm`, `prm`, `research`, and `cloud`
-  - default dependencies already include a broader runtime/service footprint than the minimal
-    `origin/v1` core profile
-
-- `origin/envoy_ext_proc`
-  - includes both:
-    - `its-iaas`
-    - `envoy-grpc`
-  - default dependencies also include gRPC/runtime packages needed by that gateway profile
-
-These older package shapes are implementation facts for those branches, but they are not the
-normative `origin/v1` packaging model.
-
-## 5. Runtime Entrypoints
-
-### 5.1 `v1` Core Position
-
-`origin/v1` does not require one built-in ITS service runtime as part of core conformance.
-
-### 5.2 Current FastAPI IaaS Profile
-
-The current branch exports:
-
-- `its-iaas`
-  - entrypoint: `its_hub.integration.iaas:main`
-
-This starts the in-process FastAPI IaaS service.
-
-### 5.3 Envoy ext-proc Profile
-
-The `origin/envoy_ext_proc` branch exports:
-
-- `envoy-grpc`
-  - entrypoint: `its_hub.integration.ext_proc.processor:main`
-
-This starts the Envoy external-processor gRPC service.
-
-## 6. System Overview
-
-### 6.1 Main Components
-
-These are conceptual components. A concrete branch or port MAY collapse two or more components into
-one module, service, or type so long as the externally visible behavior remains equivalent.
+### 3.1 Main Components
 
 1. `Message Model`
-   - normalized prompts, chat history, multimodal text-bearing messages, and tool calls
+   - Normalizes prompts, chat history, multimodal content, and tool-call-bearing messages.
 
-2. `Language Model Adapter Layer`
-   - downstream LM call interface
+2. `Language Model Capability`
+   - Produces assistant responses from normalized message inputs.
 
-3. `Orchestrator Layer`
-   - parallel fanout, concurrency control, and argument forwarding
+3. `Orchestration Capability`
+   - Fans out one logical ITS request into multiple LM calls, preserves ordering, and applies
+     concurrency control.
 
-4. `ITS Algorithm Layer`
-   - sampling, voting, scoring, and search logic
+4. `ITS Algorithm Capability`
+   - Implements sampling, voting, scoring, or search logic over one or more LM calls.
 
-5. `Reward Layer`
-   - outcome and process reward models
+5. `Reward Capability`
+   - Scores final candidates and/or intermediate reasoning steps.
 
-6. `Gateway Integration Layer`
-   - service/proxy integrations such as FastAPI IaaS and Envoy ext-proc
+6. `Gateway Adapter` (OPTIONAL)
+   - Exposes or intercepts OpenAI-compatible requests and maps them onto the core library
+     contract.
 
-7. `Research / Tooling Layer`
-   - examples, benchmarks, docs, and tests
+7. `Research / Tooling Surface` (OPTIONAL)
+   - Provides examples, benchmarks, and evaluation helpers.
 
-### 6.2 Abstraction Levels
+8. `Observability Surface` (OPTIONAL)
+   - Exposes logs, metrics, and implementation-defined runtime status.
 
-The repository family is easiest to reason about in these canonical layers. A concrete branch MAY
-collapse or inline some of them:
+### 3.2 Abstraction Levels
 
-1. `Canonical Public API Contracts`
-   - `ChatMessage`, `ChatMessages`
-   - `AbstractLanguageModel`
-   - `AbstractScalingAlgorithm`, `AbstractScalingResult`
-   - `AbstractOutcomeRewardModel`, `AbstractProcessRewardModel`
-   - `AbstractOrchestrator` in the canonical `origin/v1` model
+`its_hub` is easiest to port when kept in these layers:
 
-2. `Canonical Built-in Implementations`
-   - `OpenAICompatibleLanguageModel`
-   - `SelfConsistency`, `BestOfN`
-   - `LMOrchestrator`, `LLMJudge` in `origin/v1`
-   - experimental search algorithms where implemented
+1. `Core Domain Layer`
+   - Messages, candidates, results, budget semantics, step-generation configuration.
 
-3. `Gateway Profiles`
-   - current FastAPI IaaS service
-   - Envoy ext-proc external processor
+2. `Execution Layer`
+   - LM generation, orchestration, reward-model scoring, algorithm execution.
 
-4. `Tooling and Validation`
-   - examples, benchmarks, docs, tests
+3. `Gateway Layer`
+   - Direct or intercepting request handling built on top of the execution layer.
 
-## 7. Core Domain Model
+4. `Research and Tooling Layer`
+   - Documentation, examples, benchmarks, validation assets.
 
-### 7.1 Message Model
+An implementation MAY collapse multiple layers into one module or service so long as the observable
+behavior remains conformant.
 
-#### 7.1.1 `ChatMessage`
+### 3.3 Capability Profiles
 
-`ChatMessage` is the normalized conversation unit used across the repository family.
+This specification defines these conformance profiles:
+
+1. `Core Library Conformance`
+   - Message model
+   - LM capability
+   - orchestration capability or equivalent
+   - scaling algorithm capability
+   - reward capability
+
+2. `Stable Algorithm Extension`
+   - `SelfConsistency`
+   - `BestOfN`
+
+3. `Experimental Search Extension`
+   - Step-wise search family
+   - beam search
+   - particle methods
+   - planning wrapper
+
+4. `Direct Gateway Extension`
+   - Standalone service that terminates client requests and applies ITS directly.
+
+5. `External-Processing Gateway Extension`
+   - Intercepting gateway that conditionally applies ITS in front of an upstream API.
+
+6. `Research Toolkit Extension`
+   - Examples, benchmark runners, dataset evaluation tooling.
+
+Composition rules:
+
+- Every conforming implementation MUST satisfy `Core Library Conformance`.
+- Sections marked OPTIONAL are extension profiles.
+- An implementation MAY support multiple extensions at once.
+
+### 3.4 External Dependencies
+
+Common external dependencies include:
+
+- one or more downstream language-model providers
+- OPTIONAL reward-model services or local scoring runtimes
+- OPTIONAL HTTP, proxy, or gRPC runtime for gateway implementations
+- local filesystem for docs, examples, test fixtures, or benchmark assets
+- host environment authentication and secret management
+
+The specification does not require any one vendor, network topology, or packaging format.
+
+## 4. Core Domain Model
+
+### 4.1 Entities
+
+#### 4.1.1 `ChatMessage`
+
+`ChatMessage` is the normalized conversation unit used throughout the system.
 
 Fields:
 
-- `role`
-  - supported values:
+- `role` (string)
+  - Supported values:
     - `system`
     - `user`
     - `assistant`
     - `tool`
 - `content`
-  - `str` for plain text
-  - `list[dict]` for OpenAI-style multimodal content
+  - `string` for plain text
+  - `list[object]` for structured or multimodal content
   - `null` when the message is represented primarily by tool calls
-- `tool_calls` (OPTIONAL list of dicts)
+- `tool_calls` (OPTIONAL list of structured tool-call records)
 - `tool_call_id` (OPTIONAL string)
 
 Required semantics:
 
-- tool-call-bearing assistant messages MUST preserve `tool_calls` when returned by the LM path
-- multimodal text extraction MUST preserve text parts in order
-- image parts MAY be ignored by text-only flows
-- in the `origin/v1` API, `ChatMessage.from_dict(...)` ignores unknown inbound fields
+- Tool-call-bearing assistant messages MUST preserve `tool_calls` when returned by LM or gateway
+  paths.
+- Text-bearing content MUST preserve text parts in order.
+- Image-bearing content MAY be ignored by text-only flows, but that behavior MUST be documented.
+- Implementations SHOULD tolerate unknown inbound fields for forward compatibility.
 
-#### 7.1.2 `ChatMessages`
+#### 4.1.2 `ChatMessages`
 
-`ChatMessages` wraps either:
+`ChatMessages` is the normalized conversation container.
+
+It wraps either:
 
 - a string prompt
 - a list of `ChatMessage`
-- another `ChatMessages`
+- an implementation-equivalent normalized conversation object
 
 Required behaviors:
 
-- `from_prompt_or_messages(...)`
-- `to_chat_messages()`
-- `to_batch(size)`
-- `to_prompt()`
+- normalize string prompts into structured messages
+- return structured chat messages as the primary representation
+- produce repeated batches of equivalent conversations for parallel generation
+- provide a prompt-string fallback representation for compatibility-oriented paths when needed
 
-Contract notes:
+#### 4.1.3 `ScalingCandidate`
 
-- `to_chat_messages()` is the primary structured representation
-- `to_prompt()` remains important for backward compatibility and experimental algorithms
+One candidate assistant response produced during ITS execution.
 
-### 7.2 Language Model Interface
+Logical fields:
 
-#### 7.2.1 `AbstractLanguageModel`
+- `message`
+  - selected or candidate assistant message
+- `provider_metadata` (OPTIONAL)
+  - provider-native generation metadata
+- `usage` (OPTIONAL)
+  - generation-usage record for this candidate
 
-The normative `origin/v1` contract is async-first.
+`ScalingCandidate` is a logical model; implementations MAY inline it into plain message records so
+long as equivalent information can be expressed.
 
-Legacy flat-layout branches and future ports MAY expose narrower concrete method signatures or
-inline batching logic, but they SHOULD map cleanly onto this async-first contract at the
-specification level.
+#### 4.1.4 `ScalingResult`
 
-Required method:
+The result of one logical ITS execution.
 
-- `agenerate(messages, stop=None, **kwargs)`
+Logical fields:
 
-Important optional method:
-
-- `agenerate_single(messages, stop=None, **kwargs)`
+- `selected`
+  - the chosen assistant response
+- `candidates` (OPTIONAL)
+  - all candidate responses considered by the algorithm
+- `metadata` (OPTIONAL)
+  - algorithm-specific decision metadata such as vote counts, scores, selected index, or traces
+- `usage` (OPTIONAL)
+  - usage aggregated across the logical ITS execution
 
 Required semantics:
 
-- LM adapters SHOULD preserve OpenAI-compatible assistant message dicts, including `tool_calls`
-- LM adapters MAY accept provider-specific kwargs such as:
-  - `max_tokens`
-  - `temperature`
-  - `tools`
-  - `tool_choice`
-  - `response_format`
+- A selected response MUST always be available.
+- Full result objects are OPTIONAL, but implementations SHOULD support an output mode that exposes
+  detailed result metadata for debugging and research.
 
-### 7.3 Orchestrator Interface
+#### 4.1.5 `GenerationUsage`
 
-#### 7.3.1 `AbstractOrchestrator`
+When token usage is exposed, the interoperable shape is:
 
-`AbstractOrchestrator` is a first-class `origin/v1` abstraction.
+- `prompt_tokens`
+- `completion_tokens`
+- `total_tokens`
 
-Legacy branches MAY instead place fanout/concurrency behavior inside LM adapters or gateway-specific
-wrappers rather than exposing a first-class orchestrator symbol.
+All fields are non-negative integers.
 
-Primary method:
+If an implementation cannot determine usage exactly, it MUST document whether usage is omitted,
+estimated, or reported as zero/unknown.
 
-- `agenerate(lm, messages_lst, stop=None, **kwargs)`
+#### 4.1.6 `StepGenerationConfig`
 
-Sync wrapper:
+Configuration used by step-wise search algorithms.
 
-- `generate(...)`
-
-Responsibilities:
-
-- fan out one logical ITS request into multiple LM calls
-- preserve result ordering
-- forward LM-specific parameters such as:
-  - `temperature`
-  - `max_tokens`
-  - `tools`
-  - `tool_choice`
-  - `response_format`
-- enforce implementation-defined concurrency control
-
-### 7.4 Scaling Algorithm Interfaces
-
-#### 7.4.1 `AbstractScalingAlgorithm`
-
-Primary method:
-
-- `ainfer(lm, prompt_or_messages, budget, return_response_only=True, tools=None, tool_choice=None)`
-
-Sync wrapper:
-
-- `infer(...)`
-
-Contract:
-
-- algorithms MUST accept string prompts or normalized chat messages
-- algorithms MUST interpret `budget` according to documented semantics
-- algorithms SHOULD preserve tool-call-bearing assistant messages when the underlying LM does
-- algorithms MAY depend on an orchestrator explicitly or through built-in wiring
-
-#### 7.4.2 `AbstractScalingResult`
-
-Required property:
-
-- `the_one`
-  - returns the selected assistant response dict
-
-### 7.5 Reward Model Interfaces
-
-#### 7.5.1 `AbstractOutcomeRewardModel`
-
-Scores final responses or complete conversations.
-
-Normative `origin/v1` shape:
-
-- `score(messages, **kwargs)`
-- OPTIONAL async method:
-  - `ascore(messages, orchestrator=None, **kwargs)`
-
-Legacy flat-layout branches use an older prompt-plus-response shape in some implementations.
-
-#### 7.5.2 `AbstractProcessRewardModel`
-
-Scores intermediate reasoning steps.
-
-Required methods:
-
-- `score(prompt_or_messages, steps)`
-- `ascore(prompt_or_messages, steps)`
-
-### 7.6 `StepGeneration`
-
-`StepGeneration` is a built-in helper used by experimental step-wise algorithms.
-
-Key fields include:
+Fields:
 
 - `max_steps`
 - exactly one of:
   - `step_token`
   - `tokens_per_step`
-- `stop_token`
-- `temperature`
-- `include_stop_str_in_output`
-- `temperature_switch`
+- `stop_token` (OPTIONAL)
+- `temperature` (OPTIONAL)
+- `include_stop_str_in_output` (OPTIONAL)
+- `temperature_switch` (OPTIONAL)
 
 Invariants:
 
-- exactly one of `step_token` and `tokens_per_step` MUST be set
-- `tokens_per_step` MUST be positive when used
+- Exactly one of `step_token` and `tokens_per_step` MUST be set.
+- `tokens_per_step` MUST be positive when used.
 
-## 8. Built-in Repository Components
+### 4.2 Normalization and Compatibility Rules
 
-### 8.1 Stable `origin/v1` Surfaces
+- A string prompt MUST normalize into one `user` message.
+- Structured chat is the primary cross-implementation contract.
+- Prompt-string fallback MAY exist for compatibility-oriented or experimental paths.
+- Tool-call-bearing assistant messages SHOULD remain attached to candidates and selected results.
+- Implementations MAY accept additional provider-native content parts, but they MUST document how
+  text extraction behaves for those parts.
 
-The stable repository-facing surfaces include:
+## 5. Core Library Contract
 
-- `AbstractLanguageModel`
-- `AbstractOrchestrator`
-- `AbstractScalingAlgorithm`
-- `AbstractOutcomeRewardModel`
-- `AbstractProcessRewardModel`
-- `ChatMessage`, `ChatMessages`
-- `SelfConsistency`
-- `BestOfN`
+### 5.1 Input Normalization
 
-### 8.2 Built-in LM / Orchestration Components
+Algorithms and reward capabilities MUST accept normalized conversation input in one of these forms:
 
-When the `lm` extra is installed on `origin/v1`, the repository provides:
-
-- `OpenAICompatibleLanguageModel`
-- `LMOrchestrator`
-- `LLMJudge`
-- `StepGeneration`
-
-Important `origin/v1` notes:
-
-- `OpenAICompatibleLanguageModel` forwards tools, tool choice, and structured-output arguments
-- `LMOrchestrator` is the default parallel fanout implementation
-- `LLMJudge` is the built-in outcome-judging implementation
-
-### 8.3 Stable Algorithms
-
-#### 8.3.1 `SelfConsistency`
-
-Behavior:
-
-- generate multiple candidate responses
-- project responses into a comparison space
-- select the most common projection, with implementation-defined tie-breaking
-
-Current capabilities across the repository family:
-
-- content-based voting
-- regex-based projection
-- tool-call voting modes:
-  - `tool_name`
-  - `tool_args`
-  - `tool_hierarchical`
-
-#### 8.3.2 `BestOfN`
-
-Behavior:
-
-- generate `N` candidates
-- score them with an outcome reward model or judge
-- select the highest-scoring candidate
-
-Current `origin/v1` note:
-
-- deduplication considers both content and tool-call-bearing structure
-
-### 8.4 Experimental Components
-
-Experimental repository surfaces may include:
-
-- `BeamSearch`
-- `ParticleFiltering`
-- `ParticleGibbs`
-- `EntropicParticleFiltering`
-- `PlanningWrapper`
-- local PRM integration
-
-These are part of the repository family, but they are not part of the same stable contract as
-`SelfConsistency` and `BestOfN`.
-
-### 8.5 Compatibility Surface
-
-`its_hub/algorithms/` remains a compatibility-oriented import surface.
-
-In `origin/v1`, the canonical implementation home is `its_hub/core/algorithms/`.
-
-In legacy flat-layout branches, `its_hub/algorithms/` still contains the live implementations.
-
-## 9. Budget Semantics
-
-`budget` is the repository-wide compute-control vocabulary for one ITS execution.
-
-Current semantics by algorithm:
-
-- `SelfConsistency`
-  - number of candidate generations
-- `BestOfN`
-  - number of candidate generations to score
-- `BeamSearch`
-  - total search effort, constrained by beam width
-- `ParticleFiltering` / related particle methods
-  - number of particles
-- `PlanningWrapper`
-  - planning cost plus downstream execution budget
-
-Important note:
-
-- `budget` is shared vocabulary, not a universal identical implementation detail
-- each algorithm MUST document how it interprets `budget`
-
-## 10. Core Library Contracts
-
-### 10.1 Async-First Semantics
-
-The `origin/v1` core is async-first.
-
-Required behavior:
-
-- primary contracts are async
-- sync methods are convenience wrappers over async behavior
-
-### 10.2 Input Flexibility
-
-Algorithms and reward adapters MUST accept:
-
-- string prompts
-- `list[ChatMessage]`
-- `ChatMessages`
+- string prompt
+- list of normalized messages
+- implementation-equivalent `ChatMessages` wrapper
 
 Normalization MUST occur before algorithm-specific logic.
 
-### 10.3 Tool-Calling Preservation
+### 5.2 Language Model Capability
 
-When assistant messages include tool calls:
+The core contract is async-first.
 
-- LM adapters SHOULD preserve them in returned message dicts
-- algorithms SHOULD keep them attached to candidate responses and selected results
-- comparison or deduplication logic MAY intentionally project tool calls into reduced forms when
-  that is part of the documented algorithm
+A conforming implementation MUST provide asynchronous LM generation behavior equivalent to:
 
-### 10.4 Structured Output Support
+- generate one assistant response from one normalized conversation
 
-The repository's LM and orchestrator contracts MAY forward provider-native structured-output
-arguments, including `response_format`.
+Batch generation can be implemented in either of two ways:
 
-This is part of the extensible LM call surface, not a universal algorithm-level requirement.
+- the LM capability accepts batched inputs directly
+- a separate orchestration capability fans out multiple single-generation LM calls
 
-### 10.5 Prompt Fallback in Experimental Paths
+Required semantics:
 
-Structured chat is the primary contract, but some experimental algorithms still rely on
-`ChatMessages.to_prompt()` in current implementations.
+- LM generation SHOULD return assistant messages in OpenAI-compatible structure where possible.
+- LM generation SHOULD preserve `tool_calls` when the provider returns them.
+- LM generation MAY accept provider-native arguments such as:
+  - `max_tokens`
+  - `temperature`
+  - `tools`
+  - `tool_choice`
+  - `response_format`
+- Retry, backoff, session reuse, and connection pooling are implementation-defined.
 
-Therefore:
+Convenience behavior:
 
-- structured chat is the primary contract
-- exact chat-history fidelity is weaker in some experimental paths than in the stable core
+- A synchronous wrapper MAY be provided.
+- An implementation MAY expose both single-conversation and batched generation operations.
 
-## 11. Gateway Profiles
+### 5.3 Orchestration Capability
 
-### 11.1 Gateway Role in `v1`
+Orchestration is a required behavior, but it does not need to exist as a first-class public type.
 
-In `origin/v1`, a gateway is an integration profile layered over the library contract.
+Responsibilities:
 
-The repository-family contract currently includes two concrete gateway profiles:
+- fan out one logical ITS request into multiple LM calls
+- preserve input/output ordering
+- forward LM-generation arguments consistently
+- apply implementation-defined concurrency control
+- batch requests directly or emulate batching through repeated single calls
 
-1. `Current FastAPI IaaS profile`
-   - implemented on the current branch
-   - request-body-driven ITS
+Required semantics:
 
-2. `Envoy ext-proc profile`
-   - implemented on `origin/envoy_ext_proc`
-   - header-triggered interception in front of an upstream OpenAI-compatible API
+- Orchestration MUST preserve deterministic positional alignment between input conversations and
+  returned assistant responses.
+- Concurrency policy is implementation-defined, but the implementation MUST document whether and how
+  concurrency is bounded.
 
-### 11.2 Current FastAPI IaaS Profile
+### 5.4 Scaling Algorithm Capability
 
-#### 11.2.1 Role
+Every ITS algorithm MUST implement behavior equivalent to:
 
-The current branch implements an in-process FastAPI service in `its_hub/integration/iaas.py`.
+- accept normalized input
+- allocate compute according to `budget`
+- invoke LM generation and, where needed, reward capabilities
+- select a final assistant response
 
-This profile is a real repository-family gateway implementation, even though it is not the
-normative `origin/v1` core deployment model.
+Required semantics:
 
-#### 11.2.2 Entrypoints and Endpoints
+- Algorithms MUST accept both prompt-style and chat-style input.
+- Algorithms MUST document how they interpret `budget`.
+- Algorithms SHOULD preserve tool-call-bearing assistant messages when the LM capability does.
+- Algorithms MAY depend on an explicit orchestration capability or inline equivalent batching/fanout
+  behavior.
+- Algorithms MAY expose either:
+  - selected response only
+  - selected response plus full algorithm result metadata
 
-Entrypoint:
+### 5.5 Outcome Reward Capability
 
-- `its-iaas`
+Outcome reward models score final candidates.
 
-HTTP endpoints:
+Required behavior:
 
-- `POST /configure`
-- `GET /v1/models`
-- `POST /v1/chat/completions`
+- score one or more complete candidates with enough prompt/conversation context to make the score
+  meaningful
+- higher score means better candidate
 
-#### 11.2.3 Runtime Model
+Interface freedom:
 
-The current IaaS profile uses process-global mutable state:
+- An implementation MAY score:
+  - prompt + candidate
+  - full conversation including candidate
+  - batched conversations
+- An implementation MAY expose sync, async, or both, so long as the overall algorithm behavior is
+  conformant
 
-- `LM_DICT`
-  - configured model registry
-- `SCALING_ALG`
-  - currently active algorithm instance
+### 5.6 Process Reward Capability
 
-This means:
+Process reward models score intermediate reasoning steps.
 
-- configuration is in-memory
-- service state is lost on restart
-- the profile is not horizontally scalable without refactoring
+Required behavior:
 
-#### 11.2.4 Configuration Contract
+- accept prompt or conversation context plus ordered reasoning steps
+- return per-step scores or an equivalent structure that preserves per-step evaluation meaning
 
-`POST /configure` selects the active algorithm and model wiring.
+The minimal interoperable shape is a list of numeric scores aligned with the step list.
 
-Current required/important fields include:
+### 5.7 Async-First and Sync Wrappers
 
-- `provider`
-  - current values:
-    - `openai`
-    - `litellm`
-- `endpoint`
-- `api_key`
-  - REQUIRED when `provider == "openai"`
-- `model`
-- `alg`
-  - current supported values:
-    - `self-consistency`
-    - `best-of-n`
-    - `particle-filtering`
-- other current implementation fields include:
-  - `extra_args`
-  - `step_token`
-  - `stop_token`
-  - `rm_device`
-  - `rm_agg_method`
+The specification is async-first.
 
-Algorithm-specific current behavior:
+Required behavior:
 
-- `self-consistency`
-  - currently requires `regex_patterns`
-  - supports:
-    - `tool_vote`
-    - `exclude_tool_args`
-- `best-of-n`
-  - requires `rm_name`
-  - supports `rm_name == "llm-judge"` for LLM-judge scoring
-  - when `rm_name == "llm-judge"`, the current implementation also accepts judge-specific fields
-    such as:
-    - `judge_model`
-    - `judge_base_url`
-    - `judge_criterion`
-    - `judge_mode`
-    - `judge_top_n`
-    - `judge_api_key`
-    - `judge_temperature`
-    - `judge_max_tokens`
-    - `enable_judge_logging`
-- `particle-filtering`
-  - requires reward-model configuration
-  - accepts step-generation-related fields such as `step_token` and `stop_token`
-  - currently combines request-supplied fields with some hardcoded defaults in
-    `its_hub/integration/iaas.py`; exact tuning is implementation-defined in this profile
+- primary execution contracts SHOULD be async
+- synchronous wrappers MAY be provided as convenience layers
 
-#### 11.2.5 Request Contract
+This specification does not require any one event-loop or threading model.
 
-`POST /v1/chat/completions` accepts:
+### 5.8 Structured Output, Tool Calling, and Provider-Native Args
 
-- `model`
-- `messages`
-- `budget`
-- `temperature` (OPTIONAL)
-- `max_tokens` (OPTIONAL; currently accepted by the request schema but not yet forwarded into the
-  algorithm call path)
-- `stream` (OPTIONAL, currently unsupported)
-- `tools` (OPTIONAL)
-- `tool_choice` (OPTIONAL)
-- `return_response_only`
+Structured-output and tool-calling support are part of the extensible LM call surface.
 
-ITS activation in this profile is request-body-driven:
+Required semantics:
 
-- the client sends `budget` in the JSON request body
-- no Envoy-style `X-ITS-*` header protocol is used
+- Implementations that support tool calling MUST preserve returned tool-call structure on assistant
+  messages.
+- Implementations that support provider-native structured output MAY forward arguments such as
+  `response_format`.
+- Algorithms are not required to interpret provider-native structured-output arguments themselves,
+  but they SHOULD forward them when that is part of the documented design.
 
-#### 11.2.6 Response Contract
+### 5.9 Usage and Metadata
 
-The current IaaS profile returns an OpenAI-compatible top-level response shape with:
+Usage and metadata are OPTIONAL parts of the core contract.
+
+If exposed:
+
+- per-candidate usage MUST refer to one LM generation
+- aggregated usage MUST refer to one logical ITS execution
+- algorithm metadata MUST be documented as algorithm-specific, not assumed to be universal
+
+## 6. Stable Algorithm Profiles
+
+### 6.1 Shared `budget` Vocabulary
+
+`budget` is the shared compute-control vocabulary for one ITS execution.
+
+Required semantics:
+
+- `budget` MUST be a positive integer
+- all algorithms MUST document how `budget` maps to compute
+- identical `budget` values across different algorithms do not imply identical cost
+
+### 6.2 `SelfConsistency`
+
+Behavior:
+
+- Generate multiple candidate responses.
+- Project each candidate into a comparison space.
+- Select the most common projection, with implementation-defined tie-breaking.
+
+Projection behavior:
+
+- The default comparison space MAY be exact or normalized text content.
+- Implementations MAY support explicit projection functions, including regex-based projections.
+- If a projection fails to match, the implementation MUST document whether the candidate is ignored,
+  grouped under a null value, or treated as raw content.
+
+Tool-calling behavior:
+
+- Tool-call-bearing responses MAY participate in consistency voting.
+- If tool-call voting is supported, the implementation MUST document the voting modes.
+- Common modes include:
+  - tool identity only
+  - tool arguments only
+  - hierarchical combination of tool identity and arguments
+
+Result metadata MAY include:
+
+- all candidate responses
+- vote counts
+- selected index
+
+Budget semantics:
+
+- `budget` is the number of candidate generations.
+
+### 6.3 `BestOfN`
+
+Behavior:
+
+- Generate `N` candidate responses.
+- Score them with an outcome reward capability.
+- Select the highest-scoring candidate, with implementation-defined tie-breaking.
+
+Scoring behavior:
+
+- Implementations MAY score all candidates directly.
+- Implementations MAY deduplicate semantically equivalent candidates before scoring to reduce cost.
+- If tool-calling is supported, semantic equivalence SHOULD consider both content and
+  tool-call-bearing structure.
+
+Result metadata MAY include:
+
+- all candidate responses
+- scores
+- selected index
+
+Budget semantics:
+
+- `budget` is the number of candidate generations to score.
+
+## 7. Experimental Algorithm Profiles
+
+Experimental algorithms are OPTIONAL extensions.
+
+They are part of the repository-family design, but they are not part of the stable core contract in
+the same way as `SelfConsistency` and `BestOfN`.
+
+### 7.1 Step-Wise Search Family
+
+Common characteristics:
+
+- use `StepGenerationConfig`
+- generate partial reasoning trajectories rather than only final answers
+- may depend on process reward scoring
+- may rely on prompt-string compatibility paths more than the stable core
+
+### 7.2 `BeamSearch`
+
+Behavior:
+
+- expand a bounded set of partial trajectories
+- retain the best partial candidates according to implementation-defined scoring
+- continue until stopping criteria are met
+
+Budget semantics:
+
+- `budget` represents total search effort rather than a universal number of final candidates
+
+Required documentation:
+
+- beam-width policy
+- step stopping criteria
+- score aggregation policy
+
+### 7.3 Particle Methods
+
+This family includes profiles such as:
+
+- `ParticleFiltering`
+- `ParticleGibbs`
+- entropic or annealed particle variants
+
+Behavior:
+
+- maintain multiple evolving trajectories
+- resample or update trajectories according to implementation-defined particle rules
+- use process reward or equivalent scoring to guide evolution
+
+Budget semantics:
+
+- `budget` typically represents number of particles or equivalent total particle effort
+
+Required documentation:
+
+- resampling/update policy
+- score aggregation policy
+- stopping criteria
+
+### 7.4 `PlanningWrapper`
+
+Behavior:
+
+- allocate some compute to planning
+- execute a downstream algorithm conditioned on the planning result
+
+Budget semantics:
+
+- `budget` combines planning cost and downstream execution cost according to a documented policy
+
+## 8. Gateway Profiles
+
+### 8.1 Gateway Role
+
+Gateways are OPTIONAL integration profiles layered over the core library contract.
+
+They do not redefine algorithm behavior. Instead, they:
+
+- accept or intercept client requests
+- map those requests onto the core ITS contract
+- shape results into an OpenAI-compatible response surface
+
+This specification version defines two gateway profiles:
+
+1. `Direct ITS Gateway`
+2. `External-Processing Gateway`
+
+### 8.2 Shared Gateway Requirements
+
+All gateway profiles that claim conformance MUST:
+
+- target an OpenAI-compatible chat-completions-like request/response surface
+- accept a client-visible `model` selection or documented equivalent
+- accept normalized `messages` or a compatible chat body
+- preserve the selected assistant message structure, including `tool_calls` where supported
+- document how downstream LM routing and algorithm wiring are configured
+- document timeout, retry, and failure behavior
+
+Minimum OpenAI-compatible response shape:
 
 - `id`
-- `object = "chat.completion"`
+- `object`
 - `created`
 - `model`
 - `choices`
-- `usage`
-- `metadata` (OPTIONAL, when algorithm metadata is returned)
 
-Current limitations:
+`usage` and `metadata` are OPTIONAL but RECOMMENDED when meaningful.
 
-- streaming returns `501 Not Implemented`
-- token usage is currently hardcoded to zero
-- response metadata is algorithm-specific rather than standardized across all algorithms
+### 8.3 `Direct ITS Gateway` (OPTIONAL)
 
-### 11.3 Envoy ext-proc Profile
+#### 8.3.1 Role
 
-#### 11.3.1 Role
+A direct gateway is a standalone service that terminates client requests and applies ITS directly.
 
-The `origin/envoy_ext_proc` branch implements an Envoy external-processor profile that intercepts
-OpenAI-compatible requests and short-circuits them when ITS applies.
+#### 8.3.2 Activation Model
 
-#### 11.3.2 Components
+ITS activation MUST be explicit in the request payload.
 
-This profile consists of:
+Canonical behavior:
 
-1. `Envoy HTTP Proxy`
-   - front-door listener and routing layer
+- the client includes `budget` or an implementation-equivalent compute-control field in the request
+  body
 
-2. `External Processor Service`
-   - gRPC service implementing Envoy ext-proc callbacks
+The direct gateway profile MUST NOT rely on proxy-only transport metadata as its primary activation
+mechanism.
 
-3. `ITS Orchestrator`
-   - request-scoped config plus long-lived LM client cache
+#### 8.3.3 Configuration Surface
 
-4. `Provider Adapter`
-   - OpenAI-compatible downstream LM client
+A direct gateway MUST provide a documented configuration mechanism for:
 
-5. `Response Shaper`
-   - emits OpenAI-compatible response JSON
+- downstream LM endpoint/provider selection
+- algorithm selection or policy selection
+- reward-model wiring where applicable
+- credentials and secret handling
 
-#### 11.3.3 Interception Target
+The mechanism MAY be:
 
-The intended interception target is OpenAI-compatible chat-completions traffic.
+- static startup configuration
+- a configuration file
+- an admin/control API
+- an external control plane
 
-The current Python implementation recognizes:
+This specification does not require a single configuration topology.
 
-- requests whose `:path` starts with `/v1/chat/completions`
+#### 8.3.4 Request Contract
 
-Requests to other paths pass through untouched.
+A direct gateway MUST accept:
 
-#### 11.3.4 ITS Activation Headers
+- `model`
+- `messages`
 
-ITS activation is currently driven by:
-
-- `X-ITS-Budget`
-  - integer range `1..1000`
-- `X-ITS-Endpoint`
-- `X-ITS-API-Key` (OPTIONAL)
-
-Current branch-specific note:
-
-- per-request algorithm selection is not yet standardized
-- invalid or out-of-range ITS header values fall back to pass-through behavior
-- the ext-proc branch currently uses a fixed self-consistency policy with default content-based
-  voting rather than per-request algorithm/tool-vote configuration
-
-#### 11.3.5 Request-Scoped Config
-
-The ext-proc profile constructs a request-scoped config equivalent to:
+A direct gateway SHOULD accept:
 
 - `budget`
-- `api_endpoint`
-- `model`
-- `api_key` (OPTIONAL)
 
-The branch names this structure `ITSRequestConfig`.
+A direct gateway MAY accept:
 
-Current implementation caveat:
+- `temperature`
+- `max_tokens`
+- `tools`
+- `tool_choice`
+- `stream`
+- implementation-defined metadata fields
 
-- the long-lived LM client cache is keyed by `(api_endpoint, model)`, not by `api_key`
-- therefore per-request API keys are parsed as request inputs, but they are not fully isolated when
-  multiple requests reuse the same endpoint/model pair
+Unsupported optional request fields SHOULD produce explicit documented behavior rather than silent
+reinterpretation.
 
-#### 11.3.6 Request Resolution
+#### 8.3.5 Response Contract
 
-For an intercepted request:
+When ITS is applied, the response MUST be OpenAI-compatible and include:
 
-1. inspect request path and headers
-2. if path does not start with `/v1/chat/completions` -> `pass_through`
-3. if required ITS headers are absent or invalid -> `pass_through`
-4. buffer and parse the request body
-5. read:
-   - `model`
-   - `messages`
-   - `tools`
-   - `tool_choice`
-6. if `model` is absent -> `pass_through`
-7. run the fixed self-consistency orchestrator
-8. return either:
-   - immediate ITS response
-   - or pass-through behavior on failure
+- one selected assistant message in `choices[0].message`
 
-#### 11.3.7 Pass-Through and Short-Circuit Semantics
+The response MAY also include:
+
+- `usage`
+- algorithm-specific `metadata`
+
+If usage is exposed, the implementation MUST document whether it is:
+
+- aggregated across all LM calls used by ITS
+- estimated
+- or otherwise computed
+
+#### 8.3.6 Failure Model
+
+Configuration or wiring failures SHOULD produce explicit service errors.
+
+Generation failures MAY be handled by:
+
+- explicit service error
+- documented fallback behavior
+
+Direct gateways MUST NOT silently forward the request to an unknown upstream unless that behavior is
+an explicit part of the documented design.
+
+#### 8.3.7 State and Scaling Notes
+
+Direct gateways MAY use:
+
+- static configuration
+- in-memory mutable state
+- external configuration/state stores
+
+Restart behavior, persistence, and horizontal scaling are implementation-defined and MUST be
+documented.
+
+### 8.4 `External-Processing Gateway` (OPTIONAL)
+
+#### 8.4.1 Role
+
+An external-processing gateway sits in front of an upstream OpenAI-compatible API and conditionally
+applies ITS.
+
+#### 8.4.2 Activation Model
+
+ITS activation MUST be conveyed out-of-band relative to the standard request body.
+
+Examples include:
+
+- HTTP headers
+- proxy route metadata
+- gRPC metadata
+- implementation-defined request context
+
+Required semantics:
+
+- activation metadata MUST include compute-control information equivalent to `budget`
+- the implementation MUST document all recognized activation fields and validation rules
+
+#### 8.4.3 Outcomes
 
 The profile supports two outcomes:
 
 1. `pass_through`
-   - the original request continues upstream
+   - the original request continues to the upstream service
 
 2. `its_applied`
    - the gateway runs ITS
    - the gateway returns an OpenAI-compatible response directly
-   - the original upstream request is short-circuited
+   - the upstream request is short-circuited
 
-#### 11.3.8 Response Shape
+#### 8.4.4 Request Resolution
+
+For an intercepted request:
+
+1. inspect route and activation metadata
+2. if route is unsupported -> `pass_through`
+3. if activation metadata is absent or invalid -> `pass_through`
+4. buffer or inspect the request body as needed
+5. if required body fields are absent:
+   - `pass_through`, or
+   - fail explicitly according to documented policy
+6. run ITS
+7. on success, return immediate OpenAI-compatible response
+8. on failure, either:
+   - `pass_through`, or
+   - explicit error according to documented policy
+
+#### 8.4.5 Response Contract
 
 When ITS is applied, the response MUST be OpenAI-compatible and include:
 
-- `id`
-- `object = "chat.completion"`
-- `created`
-- `model`
-- `choices`
-  - `choices[0].message` is the selected assistant message
-  - `choices[0].finish_reason` is typically `stop`
-- `usage`
+- the selected assistant message
 
-Additional profile behavior:
+The response SHOULD also include an implementation-defined signal that ITS was applied, such as:
 
-- the response sets `x-its-applied: true`
-- usage is aggregated across the LM calls used by ITS
+- response header
+- response metadata
+- proxy-local observability event
 
-#### 11.3.9 Failure Model
+If usage is exposed, it SHOULD refer to the full logical ITS execution, not only the selected
+candidate.
 
-The current Envoy profile favors safe fallback:
+#### 8.4.6 Failure Model
 
-- invalid or incomplete ITS activation headers -> pass through
-- non-chat-completions routes -> pass through
-- missing `model` in request body -> pass through
-- ITS processing failure after activation -> pass through
+Safe fallback is RECOMMENDED.
 
-### 11.4 Streaming
+If safe fallback is chosen:
+
+- invalid activation metadata -> `pass_through`
+- unsupported route -> `pass_through`
+- missing required request-body fields -> `pass_through`
+- ITS execution failure after activation -> `pass_through`
+
+If explicit errors are chosen instead, the implementation MUST document that policy clearly.
+
+#### 8.4.7 Safety Notes
+
+External-processing gateways SHOULD sanitize or strip internal ITS activation metadata before
+forwarding pass-through requests upstream when that metadata is not intended for upstream services.
+
+### 8.5 Streaming
 
 This specification version does not standardize streaming ITS behavior.
 
-Current profile notes:
+Implementations MAY:
 
-- current FastAPI IaaS profile:
-  - explicit `501 Not Implemented`
-- Envoy ext-proc profile:
-  - request bodies are buffered for interception
-  - response streaming semantics are not standardized here
+- reject streaming explicitly
+- buffer streaming requests and return non-streaming ITS responses
+- support streaming according to an implementation-defined design
 
-## 12. Documentation Surface
+If streaming is not supported, the implementation SHOULD return an explicit documented error rather
+than silently pretending to stream.
 
-The repository-family documentation surface MAY include the documents below. Not every branch is
-required to contain every document at the same path:
+## 9. Documentation, Benchmarking, and Example Surface
 
-- `README.md`
-  - top-level orientation and installation matrix
-- `docs/installation.md`
-  - install profiles and dependency expectations
-- `docs/quick-start.md`
-  - common usage flows
-- `docs/algorithms.md`
-  - algorithm-facing guidance
-- `docs/orchestration.md` (`origin/v1`)
-  - orchestrator contract and built-in orchestrator behavior
-- `docs/benchmarking.md`
-  - benchmark workflow
-- `docs/development.md`
-  - contributor guidance and architecture notes
-- `docs/PLANNING_WRAPPER.md`
-  - planning-wrapper behavior
-- `docs/iaas-service.md`
-  - current FastAPI IaaS profile and related gateway usage
-- `its_hub/integration/iaas.md`
-  - migration/architecture document for the Envoy proxy direction on legacy flat-layout Python
-    branches
-- `docs/usage.md`
-  - optional user-facing usage guidance on some branches, including `origin/envoy_ext_proc`
+### 9.1 Documentation
 
-Documentation is descriptive and user-facing.
+Repository-family documentation SHOULD cover:
 
-This specification is normative for the intended repository contract, but branch-specific code
-remains the source of truth for exact runtime behavior.
+- installation or setup guidance
+- core algorithm concepts
+- gateway profile behavior where implemented
+- development and contribution notes
+- benchmarking and evaluation workflows
 
-## 13. Research, Benchmarks, and Examples
+This specification does not require fixed file paths or one documentation toolchain.
 
-### 13.1 Benchmark Surface
+### 9.2 Benchmarking Surface
 
-The benchmark surface includes dataset-driven evaluation entrypoints under:
+A research-oriented implementation MAY provide benchmark tooling for:
 
-- `benchmarking/` on `origin/v1`
-- `scripts/benchmark.py` on legacy flat-layout branches
+- mathematical reasoning tasks
+- multi-step reasoning tasks
+- quality/cost trade-off measurement across algorithms
 
-Current benchmark datasets include:
+Benchmark datasets, scripts, and storage formats are implementation-defined.
 
-- MATH-500
-- AIME-2024
+If benchmark tooling is shipped, the implementation SHOULD document:
 
-### 13.2 Examples
+- dataset assumptions
+- evaluation procedure
+- reproducibility expectations
 
-The repository family includes runnable examples and notebook-like artifacts, typically under
-`examples/`, `scripts/`, `notebooks/`, or equivalent branch-specific locations, for:
+### 9.3 Examples
 
-- self-consistency usage
-- math-oriented reasoning flows
-- experimental reasoning/search workflows where installed
+Examples MAY be provided for:
 
-## 14. Development, Testing, and Quality
+- `SelfConsistency`
+- `BestOfN`
+- experimental search profiles
+- gateway profile usage
 
-### 14.1 Development Setup
+Examples are descriptive and user-facing, not normative.
 
-The repository supports:
+## 10. Failure Model and Recovery Strategy
 
-- `uv sync --extra dev`
-- `pip install -e ".[dev]"`
+### 10.1 Failure Classes
 
-Python expectations:
+1. `Input / Normalization Failures`
+   - invalid message shape
+   - unsupported content form
+   - malformed tool-call structure
 
-- `origin/v1`: Python `>= 3.11`
-- current branch / `origin/envoy_ext_proc`: Python `>= 3.10`
+2. `LM Generation Failures`
+   - provider/network failure
+   - timeout
+   - provider rejection
+   - malformed provider response
 
-### 14.2 Test Surface
+3. `Orchestration Failures`
+   - batch fanout failure
+   - concurrency-control failure
+   - partial batch failure
 
-Across the repository family, tests and validation assets MAY cover behaviors such as:
+4. `Reward Failures`
+   - reward-service failure
+   - invalid score payload
+   - inconsistent score cardinality
 
-- message and normalization behavior
-- orchestrator behavior and concurrency semantics
-- stable algorithms
-- tool-calling behavior
-- judge behavior
-- planning wrapper / experimental behavior where present
-- gateway-specific behavior for the IaaS profile and, where present, Envoy-related flows
+5. `Gateway Configuration Failures`
+   - missing routing configuration
+   - invalid algorithm wiring
+   - missing credentials
 
-Concrete coverage differs by branch. For example, current Python coverage is centered on the core
-algorithms and the FastAPI IaaS profile, while the Envoy gateway profile currently also relies on
-branch-specific deployment artifacts and script-level validation.
+6. `Gateway Runtime Failures`
+   - request interception failure
+   - body parsing failure
+   - response shaping failure
+   - proxy transport failure
 
-### 14.3 Quality Tooling
+7. `Observability / Tooling Failures`
+   - logging sink failure
+   - benchmark I/O failure
+   - metrics/status reporting failure
 
-Current repository quality tooling includes:
+### 10.2 Recovery Behavior
 
-- `pytest`
-- `ruff`
+- Input/normalization failures:
+  - fail the current request or run attempt explicitly
 
-## 15. Validation Matrix
+- LM or reward transient failures:
+  - MAY be retried according to implementation-defined policy
 
-A conforming implementation or faithful port SHOULD include tests for the behaviors below.
+- Orchestration failures:
+  - SHOULD fail the current logical ITS execution explicitly
+  - MUST NOT silently reorder candidate results
 
-### 15.1 Message and Input Model
+- Direct gateway configuration failures:
+  - SHOULD fail explicitly and operator-visibly
 
-- string prompts normalize into a single `user` message
-- chat histories preserve role/content/tool-call fields
-- multimodal text extraction behaves consistently
-- tool-call-bearing assistant messages preserve tool-call structures
+- External-processing gateway failures:
+  - SHOULD follow the documented fallback or explicit-error policy from Section 8.4.6
 
-### 15.2 LM and Orchestrator Contracts
+- Observability/tooling failures:
+  - SHOULD NOT corrupt the correctness of the core ITS result
 
-- LM adapters return one response per logical request
-- orchestrators preserve input ordering
-- concurrency limits behave as documented
-- tools, tool choice, and `response_format` are forwarded correctly
+### 10.3 Restart and State Notes
 
-### 15.3 Stable Algorithms
+The core library can be stateless.
 
-- self-consistency selects repeated candidates correctly
-- tool-voting modes behave as documented
-- best-of-n uses outcome scoring correctly
-- result objects expose `the_one`
+Gateway implementations MAY maintain:
 
-### 15.4 Experimental Algorithms
+- in-memory configuration
+- client/session caches
+- request-scoped caches
+- externalized state
 
-If experimental algorithms are implemented or installed:
+Persistence across restarts is OPTIONAL and implementation-defined.
 
-- beam search uses step generation and beam width correctly
-- particle methods handle budget semantics correctly
-- prompt-string fallback behavior is documented
+## 11. Security and Operational Safety
 
-### 15.5 Current FastAPI IaaS Profile
+### 11.1 Trust Boundary Assumption
 
-- `/configure` validates supported algorithm and provider shapes
-- `/v1/models` reflects configured models
-- `/v1/chat/completions` requires configured model state
-- request-body `budget` drives ITS execution
-- tool calls are preserved when produced by the selected algorithm path
-- streaming returns `501 Not Implemented`
-- usage behavior matches the current zero-token implementation or later documented replacement
+Implementations SHOULD assume that all of the following may be partially or fully untrusted:
 
-### 15.6 Envoy ext-proc Profile
+- prompts and chat messages
+- tool definitions
+- tool-call arguments
+- activation metadata
+- downstream model outputs
+- benchmark inputs
 
-- requests without ITS activation pass through
-- requests with valid ITS activation may be short-circuited
-- missing-model behavior matches documented fallback
+The specification intentionally does not mandate one trust posture, but implementations MUST
+document their own.
+
+### 11.2 Secret Handling
+
+Implementations SHOULD:
+
+- avoid logging raw credentials or API tokens
+- validate the presence of secrets without printing them
+- document how secrets are supplied and scoped
+
+### 11.3 Tool-Calling and Structured Input Safety
+
+Tool-calling preservation is part of the contract, but actual execution of tools is out of scope for
+this specification unless an implementation explicitly adds such a feature.
+
+Implementations SHOULD:
+
+- preserve tool-call structure faithfully
+- avoid mutating tool-call arguments silently
+- document any normalization applied to structured content or tool calls
+
+### 11.4 Gateway Safety
+
+Gateway implementations SHOULD document:
+
+- authentication model
+- timeout policy
+- retry policy
+- rate limiting or quota behavior
+- whether internal ITS metadata is stripped before upstream forwarding
+
+### 11.5 Resource Exhaustion and Budget Controls
+
+ITS can amplify LM call volume significantly.
+
+Implementations SHOULD document guardrails for:
+
+- maximum accepted `budget`
+- concurrency limits
+- timeout ceilings
+- gateway backpressure behavior
+- reward-model resource limits
+
+## 12. Reference Algorithms (Language-Agnostic)
+
+### 12.1 Normalize Input
+
+```text
+function normalize_input(prompt_or_messages):
+  if input is string:
+    return [ChatMessage(role="user", content=input)]
+
+  if input is already normalized chat container:
+    return input.to_chat_messages()
+
+  if input is list of messages:
+    return input
+
+  raise invalid_input
+```
+
+### 12.2 Self-Consistency
+
+```text
+function self_consistency_infer(lm, prompt_or_messages, budget, projection):
+  messages = normalize_input(prompt_or_messages)
+  batch = repeat(messages, budget)
+
+  responses = orchestrated_generate(lm, batch)
+
+  projected = []
+  for response in responses:
+    projected.append(project(response))
+
+  counts = count_occurrences(projected)
+  winner_index = choose_most_common_with_documented_tiebreak(counts, projected)
+
+  return {
+    selected: responses[winner_index],
+    candidates: responses,
+    metadata: {
+      counts: counts,
+      selected_index: winner_index
+    }
+  }
+```
+
+### 12.3 Best-of-N
+
+```text
+function best_of_n_infer(lm, reward_model, prompt_or_messages, budget):
+  messages = normalize_input(prompt_or_messages)
+  batch = repeat(messages, budget)
+
+  responses = orchestrated_generate(lm, batch)
+
+  unique_responses, inverse_index = maybe_deduplicate(responses)
+  scores = score_with_outcome_model(reward_model, messages, unique_responses)
+  expanded_scores = remap(scores, inverse_index)
+
+  winner_index = index_of_max(expanded_scores)
+
+  return {
+    selected: responses[winner_index],
+    candidates: responses,
+    metadata: {
+      scores: expanded_scores,
+      selected_index: winner_index
+    }
+  }
+```
+
+### 12.4 Direct Gateway Request Handling
+
+```text
+function handle_direct_gateway_request(request):
+  validate_gateway_configuration()
+
+  model = request.body.model
+  messages = request.body.messages
+  budget = request.body.budget
+
+  result = run_selected_algorithm(
+    model=model,
+    messages=messages,
+    budget=budget,
+    tools=request.body.tools,
+    tool_choice=request.body.tool_choice
+  )
+
+  return make_openai_compatible_response(result)
+```
+
+### 12.5 External-Processing Gateway Request Handling
+
+```text
+function handle_external_processing_request(request):
+  if route_is_not_supported(request):
+    return pass_through
+
+  activation = parse_activation_metadata(request)
+  if activation is invalid or absent:
+    return pass_through
+
+  body = parse_request_body(request)
+  if body.model is missing or body.messages is missing:
+    return documented_fallback_or_error()
+
+  result = run_selected_algorithm(
+    model=body.model,
+    messages=body.messages,
+    budget=activation.budget,
+    tools=body.tools,
+    tool_choice=body.tool_choice
+  )
+
+  return short_circuit_with_openai_compatible_response(result)
+```
+
+## 13. Test and Validation Matrix
+
+A conforming implementation SHOULD include tests that cover the behaviors defined in this
+specification.
+
+Validation profiles:
+
+- `Core Conformance`: REQUIRED for all conforming implementations
+- `Extension Conformance`: REQUIRED only for OPTIONAL profiles that an implementation chooses to
+  ship
+- `Real Integration Profile`: RECOMMENDED environment-dependent checks before production use
+
+Unless otherwise noted, Sections 13.1 and 13.2 are `Core Conformance`. Bullets that begin with
+`If ... is implemented` are `Extension Conformance`.
+
+### 13.1 Core Library Conformance
+
+- string prompts normalize into one `user` message
+- normalized chat preserves role/content/tool-call fields
+- text extraction from structured content is consistent
+- tool-call-bearing assistant messages preserve tool-call structure
+- LM capability returns one response per logical input
+- orchestration preserves input ordering
+- orchestration forwards generation arguments consistently
+- outcome reward scoring is aligned with final candidates
+- process reward scoring is aligned with intermediate steps
+
+### 13.2 Stable Algorithm Extension
+
+- `SelfConsistency` selects repeated candidates correctly
+- documented projection behavior is applied consistently
+- tool-call voting behavior matches documentation if implemented
+- `BestOfN` scores candidates correctly
+- deduplication behavior matches documentation if implemented
+- result objects or detailed outputs expose the selected response correctly
+- `budget` semantics match documentation
+
+### 13.3 Experimental Search Extension
+
+If experimental search is implemented:
+
+- step-generation invariants are enforced
+- beam-search expansion/pruning follows documented policy
+- particle methods follow documented resampling/update policy
+- planning-wrapper budget allocation follows documented policy
+- prompt-fallback behavior is documented where structured-chat fidelity is reduced
+
+### 13.4 Direct Gateway Extension
+
+If the `Direct ITS Gateway` profile is implemented:
+
+- request-body activation drives ITS execution
+- gateway rejects or handles unsupported optional fields as documented
+- configuration failures are surfaced explicitly
 - OpenAI-compatible response shaping is correct
-- `x-its-applied: true` is present on ITS responses
-- aggregated usage behavior matches implementation
+- tool calls are preserved when produced by the algorithm path
+- usage behavior matches documented semantics
+- non-streaming behavior matches documented semantics
 
-## 16. Implementation Checklist
+### 13.5 External-Processing Gateway Extension
 
-### 16.1 Core Repository Checklist
+If the `External-Processing Gateway` profile is implemented:
 
-- message normalization layer
-- abstract language-model contract
-- abstract orchestrator contract
-- abstract ITS algorithm contract
-- abstract reward-model contracts
-- stable algorithms (`SelfConsistency`, `BestOfN`)
-- docs and tests for supported core surfaces
+- unsupported routes pass through
+- missing or invalid activation metadata follows documented fallback
+- missing required body fields follow documented fallback or error policy
+- ITS-applied responses short-circuit upstream behavior correctly
+- OpenAI-compatible response shaping is correct
+- ITS-applied signaling behavior matches documentation
+- usage aggregation behavior matches documentation if usage is exposed
 
-### 16.2 Optional Built-in Implementation Checklist
+### 13.6 Research Toolkit Extension
 
-- `OpenAICompatibleLanguageModel`
-- `LMOrchestrator`
-- `LLMJudge`
-- `StepGeneration`
-- experimental algorithms behind the documented optional profiles
+If benchmark or research tooling is implemented:
 
-### 16.3 Gateway Checklist
+- benchmark inputs and outputs are reproducible enough for the documented workflow
+- dataset and scoring assumptions are documented
+- example code remains consistent with the documented public contract
 
-For the current FastAPI IaaS profile:
+### 13.7 Real Integration Profile (RECOMMENDED)
 
-- `/configure` runtime setup
-- `/v1/models` model enumeration
-- OpenAI-compatible chat-completions response shaping
-- request-body `budget` handling
-- documented non-streaming behavior
+These checks are RECOMMENDED before production use and MAY be skipped in CI when credentials or
+network access are unavailable.
 
-For the Envoy ext-proc profile:
+- Run a real downstream LM smoke test with valid credentials.
+- If a reward model is part of the deployment, run a real reward-path smoke test.
+- If a direct gateway is implemented, run an end-to-end chat-completions smoke test.
+- If an external-processing gateway is implemented, test both:
+  - pass-through behavior
+  - ITS-applied short-circuit behavior
+- Report skipped real-integration tests as skipped rather than silently passing them.
 
-- request-scoped ITS config parsing
-- header-driven ITS activation
-- pass-through fallback behavior
-- OpenAI-compatible response shaping
-- documented usage accounting mode
-- documented non-streaming behavior
+## 14. Implementation Checklist (Definition of Done)
 
-## Appendix A. Non-Normative Notes
+Use the same validation profiles as Section 13:
 
-1. `Repository center of gravity`
-   - `origin/v1` is the design baseline for the core library surface.
+- Section 14.1 = `Core Conformance`
+- Section 14.2 = `Extension Conformance`
+- Section 14.3 = `Real Integration Profile`
 
-2. `Why this spec documents multiple branch states`
-   - The repository family currently has a split between the `origin/v1` library refactor and
-     gateway implementations that still live on flat-layout branches.
-   - This specification deliberately keeps the core contract and the gateway profiles separate so
-     future design changes can be made in `SPEC.md` first.
+### 14.1 REQUIRED for Core Conformance
 
-3. `Current gateway inventory`
-   - The current branch still has a concrete FastAPI IaaS service.
-   - `origin/envoy_ext_proc` has a concrete Envoy external-processing gateway profile.
+- normalized message model
+- async-first LM generation capability
+- orchestration behavior or equivalent batch/fanout layer
+- scaling algorithm execution contract
+- documented `budget` semantics
+- outcome and/or process reward capability as required by shipped algorithms
+- tool-call preservation for supported tool-calling providers
+- documentation of failure behavior and trust boundary
+- deterministic tests for supported core behavior
 
-4. `Migration direction`
-   - The long-term design direction is library-first with gateway runtimes treated as integrations,
-     not as the center of the repository contract.
+### 14.2 RECOMMENDED Extensions
+
+- stable algorithms:
+  - `SelfConsistency`
+  - `BestOfN`
+- experimental search family
+- structured-output forwarding support
+- detailed result metadata and usage accounting
+- `Direct ITS Gateway` profile
+- `External-Processing Gateway` profile
+- benchmark and example toolkit
+
+### 14.3 Operational Validation Before Production
+
+- Run the `Real Integration Profile` from Section 13.7 with valid credentials and network access.
+- Verify timeout, retry, and fallback behavior under representative failure conditions.
+- Verify budget and concurrency guardrails on the target deployment.
+- Verify secret handling and log redaction behavior on the target environment.
