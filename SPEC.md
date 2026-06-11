@@ -186,6 +186,19 @@ Composition rules:
 - Sections marked OPTIONAL are extension profiles.
 - An implementation MAY support multiple extensions at once.
 
+Conformance claim model:
+
+- `Core Library Conformance`
+  - means the implementation satisfies Profile 1 only
+- `Extension Conformance`
+  - means the implementation satisfies `Core Library Conformance` plus one or more named extension
+    profiles from this section
+- `Full Algorithm Conformance`
+  - means the implementation satisfies:
+    - `Core Library Conformance`
+    - at least one stable algorithm profile from Section 7
+    - every scoring extension required by the claimed stable algorithm profile(s)
+
 ### 3.4 External Dependencies
 
 Common external dependencies include:
@@ -282,7 +295,7 @@ Required behaviors:
 
 - normalize string prompts into structured messages
 - return structured chat messages as the primary representation
-- produce repeated batches of equivalent conversations for parallel generation
+- support derivation of multiple equivalent conversation instances for parallel generation
 - provide a prompt-string fallback representation for compatibility-oriented paths when needed
 
 #### 4.1.5 `ScalingCandidate`
@@ -506,6 +519,11 @@ Required semantics:
 - A gateway profile MAY choose fallback only when the gateway profile explicitly permits fallback.
 
 ## 6. Optional Scoring Extensions
+
+Shared score semantics:
+
+- Scores are numeric values whose only guaranteed semantic is relative ordering within a single
+  execution. No fixed range, normalization, or cross-execution comparability is required.
 
 ### 6.1 `Outcome Reward Extension`
 
@@ -1491,7 +1509,7 @@ Use the same validation profiles as Section 14:
 - documentation of failure behavior and trust boundary
 - deterministic tests for supported core behavior
 
-Additional rule for full algorithm conformance:
+Requirement for `Full Algorithm Conformance`:
 
 - implement at least one stable algorithm profile from Section 7
 
