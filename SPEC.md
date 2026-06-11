@@ -996,121 +996,144 @@ Implementations SHOULD document guardrails for:
 - gateway backpressure behavior
 - reward-model resource limits
 
-## 12. Reference Algorithms (Language-Agnostic)
+## 12. Reference Procedures (Language-Agnostic)
 
-### 12.1 Normalize Input
+This section is intentionally non-executable. It describes reference procedures that illustrate the
+intended behavior of a conforming implementation without prescribing any programming language,
+runtime, or internal representation.
 
-```text
-function normalize_input(prompt_or_messages):
-  if input is string:
-    return [ChatMessage(role="user", content=input)]
+### 12.1 Input Normalization Procedure
 
-  if input is already normalized chat container:
-    return input.to_chat_messages()
+Input:
 
-  if input is list of messages:
-    return input
+- string prompt, or
+- normalized message list, or
+- implementation-equivalent chat container
 
-  raise invalid_input
-```
+Required procedure:
 
-### 12.2 Self-Consistency
+1. If the input is a string prompt, convert it into a single `user` message.
+2. If the input is already a normalized chat container, extract its structured message
+   representation.
+3. If the input is already a normalized message list, use it unchanged.
+4. If the input cannot be interpreted as one of the supported forms, fail with an explicit
+   input-normalization error.
 
-```text
-function self_consistency_infer(lm, prompt_or_messages, budget, projection):
-  messages = normalize_input(prompt_or_messages)
-  batch = repeat(messages, budget)
+Required outcome:
 
-  responses = orchestrated_generate(lm, batch)
+- downstream algorithm logic receives a normalized structured message sequence
 
-  projected = []
-  for response in responses:
-    projected.append(project(response))
+### 12.2 Self-Consistency Reference Procedure
 
-  counts = count_occurrences(projected)
-  winner_index = choose_most_common_with_documented_tiebreak(counts, projected)
+Input:
 
-  return {
-    selected: responses[winner_index],
-    candidates: responses,
-    metadata: {
-      counts: counts,
-      selected_index: winner_index
-    }
-  }
-```
+- normalized or normalizable conversation input
+- LM capability
+- `budget`
+- documented projection rule
 
-### 12.3 Best-of-N
+Required procedure:
 
-```text
-function best_of_n_infer(lm, reward_model, prompt_or_messages, budget):
-  messages = normalize_input(prompt_or_messages)
-  batch = repeat(messages, budget)
+1. Normalize the input conversation.
+2. Create `budget` equivalent candidate-generation requests from that normalized conversation.
+3. Generate one assistant response for each candidate-generation request.
+4. Project each candidate response into the documented comparison space.
+5. Count how many times each projected value occurs.
+6. Select the winning projected value using the documented tie-break policy.
+7. Return the candidate associated with the winning projected value as the selected response.
 
-  responses = orchestrated_generate(lm, batch)
+Recommended detailed output:
 
-  unique_responses, inverse_index = maybe_deduplicate(responses)
-  scores = score_with_outcome_model(reward_model, messages, unique_responses)
-  expanded_scores = remap(scores, inverse_index)
+- selected response
+- all candidate responses
+- vote counts
+- selected index
 
-  winner_index = index_of_max(expanded_scores)
+### 12.3 Best-of-N Reference Procedure
 
-  return {
-    selected: responses[winner_index],
-    candidates: responses,
-    metadata: {
-      scores: expanded_scores,
-      selected_index: winner_index
-    }
-  }
-```
+Input:
 
-### 12.4 Direct Gateway Request Handling
+- normalized or normalizable conversation input
+- LM capability
+- outcome reward capability
+- `budget`
 
-```text
-function handle_direct_gateway_request(request):
-  validate_gateway_configuration()
+Required procedure:
 
-  model = request.body.model
-  messages = request.body.messages
-  budget = request.body.budget
+1. Normalize the input conversation.
+2. Create `budget` equivalent candidate-generation requests from that normalized conversation.
+3. Generate one assistant response for each candidate-generation request.
+4. If the implementation documents candidate deduplication, collapse semantically equivalent
+   candidates before scoring.
+5. Score each candidate, or each unique candidate, using the outcome reward capability.
+6. If deduplication was used, map scores back onto the original candidate set.
+7. Select the candidate with the highest score using the documented tie-break policy.
+8. Return that candidate as the selected response.
 
-  result = run_selected_algorithm(
-    model=model,
-    messages=messages,
-    budget=budget,
-    tools=request.body.tools,
-    tool_choice=request.body.tool_choice
-  )
+Recommended detailed output:
 
-  return make_openai_compatible_response(result)
-```
+- selected response
+- all candidate responses
+- per-candidate scores
+- selected index
 
-### 12.5 External-Processing Gateway Request Handling
+### 12.4 Direct Gateway Reference Procedure
 
-```text
-function handle_external_processing_request(request):
-  if route_is_not_supported(request):
-    return pass_through
+Input:
 
-  activation = parse_activation_metadata(request)
-  if activation is invalid or absent:
-    return pass_through
+- OpenAI-compatible chat-completions-like request
+- direct gateway configuration
 
-  body = parse_request_body(request)
-  if body.model is missing or body.messages is missing:
-    return documented_fallback_or_error()
+Required procedure:
 
-  result = run_selected_algorithm(
-    model=body.model,
-    messages=body.messages,
-    budget=activation.budget,
-    tools=body.tools,
-    tool_choice=body.tool_choice
-  )
+1. Validate that the gateway has enough configuration to route LM requests and apply the selected
+   ITS policy.
+2. Read the client-visible request fields required by the direct gateway profile, including at
+   minimum:
+   - `model`
+   - `messages`
+   - request-body compute control equivalent to `budget`, when the profile requires explicit ITS
+     activation
+3. Forward supported optional generation fields such as tools or tool choice according to the
+   documented gateway behavior.
+4. Run the configured ITS algorithm against the normalized request.
+5. Shape the result into an OpenAI-compatible response.
 
-  return short_circuit_with_openai_compatible_response(result)
-```
+Required outcome:
+
+- one direct gateway response representing either:
+  - successful ITS application, or
+  - a documented explicit error
+
+### 12.5 External-Processing Gateway Reference Procedure
+
+Input:
+
+- intercepted upstream request
+- activation metadata
+- external-processing gateway configuration
+
+Required procedure:
+
+1. Determine whether the intercepted route is eligible for ITS handling.
+2. If the route is not eligible, choose `pass_through`.
+3. Parse activation metadata from the documented out-of-band channel.
+4. If activation metadata is absent or invalid, choose `pass_through`.
+5. Read or buffer the request body as needed to obtain the required chat-completions fields.
+6. If the required body fields are unavailable, follow the documented fallback-or-error policy.
+7. If ITS should be applied, run the configured ITS algorithm using:
+   - the upstream request's logical model selection
+   - the request messages
+   - the activation metadata's compute-control value
+   - any forwarded optional fields such as tools or tool choice
+8. If ITS succeeds, return an OpenAI-compatible immediate response and short-circuit the upstream
+   request.
+9. If ITS fails after activation, follow the documented fallback-or-error policy.
+
+Required outcomes:
+
+- `pass_through`, or
+- `its_applied`
 
 ## 13. Test and Validation Matrix
 
