@@ -147,35 +147,42 @@ This specification defines these conformance profiles:
 2. `Outcome Reward Extension`
    - Scores final candidates for profiles that require outcome evaluation.
 
-3. `Stable SelfConsistency Extension`
+3. `Process Reward Extension`
+   - Scores intermediate reasoning steps for profiles that require process evaluation.
+
+4. `Stable SelfConsistency Extension`
    - Candidate-generation and voting profile.
 
-4. `Stable BestOfN Extension`
+5. `Stable BestOfN Extension`
    - Candidate-generation and outcome-scoring profile.
 
-5. `Experimental Search Extension`
+6. `Experimental Search Extension`
    - Step-wise search family
    - beam search
    - particle methods
    - planning wrapper
 
-6. `Direct Gateway Extension`
+7. `Direct Gateway Extension`
    - Standalone service that terminates client requests and applies ITS directly.
 
-7. `External-Processing Gateway Extension`
+8. `External-Processing Gateway Extension`
    - Intercepting gateway that conditionally applies ITS in front of an upstream API.
 
-8. `Research Toolkit Extension`
+9. `Research Toolkit Extension`
    - Examples, benchmark runners, dataset evaluation tooling.
 
 Composition rules:
 
-- Every conforming implementation MUST satisfy `Core Library Conformance`.
-- Every conforming implementation MUST implement at least one algorithm profile from Section 7 or
-  Section 8.
+- Every implementation that claims any conformance profile from this specification MUST satisfy
+  `Core Library Conformance`.
+- An implementation MAY claim `Core Library Conformance` without implementing a stable or
+  experimental algorithm profile.
+- An implementation MAY claim full algorithm conformance only if it implements at least one stable
+  algorithm profile from Section 7.
 - `Stable BestOfN Extension` requires `Outcome Reward Extension`.
-- `Experimental Search Extension` MAY additionally require process scoring according to the selected
+- `Experimental Search Extension` MAY require `Process Reward Extension` according to the selected
   profile.
+- `Experimental Search Extension` alone is not sufficient for full algorithm conformance.
 - Sections marked OPTIONAL are extension profiles.
 - An implementation MAY support multiple extensions at once.
 
@@ -531,7 +538,14 @@ Process scoring evaluates intermediate reasoning steps.
 Required behavior:
 
 - accept prompt or conversation context plus ordered reasoning steps
-- return per-step scores or an equivalent structure that preserves per-step evaluation meaning
+- return exactly one score per step, or an equivalent structure that preserves one-to-one
+  step-aligned evaluation meaning
+
+Required invariants:
+
+- score cardinality MUST equal step cardinality
+- score ordering MUST remain aligned with step ordering
+- if score cardinality does not match, fail with `invalid_reward_cardinality` or equivalent
 
 The minimal interoperable shape is a list of numeric scores aligned with the step list.
 
@@ -659,7 +673,7 @@ Common characteristics:
 
 - use `StepGenerationConfig`
 - generate partial reasoning trajectories rather than only final answers
-- may depend on process scoring
+- MAY depend on `Process Reward Extension`
 - may rely on prompt-string compatibility paths more than the stable core
 
 ### 8.3 `BeamSearch`
@@ -678,6 +692,8 @@ Budget semantics:
 
 Required documentation:
 
+- whether `Process Reward Extension` is required by the selected beam-search variant
+- the ranking signal used when `Process Reward Extension` is not required
 - frontier-bound policy
 - step stopping criteria
 - score aggregation policy
@@ -706,6 +722,8 @@ Budget semantics:
 
 Required documentation:
 
+- whether `Process Reward Extension` is required by the selected particle variant
+- the weighting or ranking signal used when `Process Reward Extension` is not required
 - update/resampling policy
 - score or weight aggregation policy
 - stopping criteria
@@ -721,6 +739,11 @@ Budget semantics:
 
 - implementation-defined in v1
 - the implementation MUST document how planning cost and downstream execution cost share `budget`
+
+Required documentation:
+
+- whether planning, execution, or both depend on `Outcome Reward Extension` and/or
+  `Process Reward Extension`
 
 ## 9. Gateway Profiles
 
@@ -1364,7 +1387,15 @@ If the `Outcome Reward Extension` is implemented:
 - score cardinality mismatches fail explicitly
 - score ordering remains aligned with candidate ordering
 
-### 14.3 Stable SelfConsistency Extension
+### 14.3 Process Reward Extension
+
+If the `Process Reward Extension` is implemented:
+
+- one score is returned per scored step, or an equivalent step-aligned structure is returned
+- score cardinality mismatches fail explicitly
+- score ordering remains aligned with step ordering
+
+### 14.4 Stable SelfConsistency Extension
 
 If the `Stable SelfConsistency Extension` is implemented:
 
@@ -1374,7 +1405,7 @@ If the `Stable SelfConsistency Extension` is implemented:
 - partial candidate-generation failure follows the stable candidate-availability rule
 - `budget` semantics match Section 7.2
 
-### 14.4 Stable BestOfN Extension
+### 14.5 Stable BestOfN Extension
 
 If the `Stable BestOfN Extension` is implemented:
 
@@ -1384,17 +1415,18 @@ If the `Stable BestOfN Extension` is implemented:
 - result objects or detailed outputs expose the selected response correctly
 - `budget` semantics match Section 7.3
 
-### 14.5 Experimental Search Extension
+### 14.6 Experimental Search Extension
 
 If experimental search is implemented:
 
 - `StepGenerationConfig` validation rules are enforced
+- declared scoring dependencies are documented and consistent with the selected profile
 - beam-search frontier bounds follow the documented policy
 - particle methods follow documented update/resampling policy
 - planning-wrapper budget allocation follows documented policy
 - prompt-fallback behavior is documented where structured-chat fidelity is reduced
 
-### 14.6 Direct Gateway Extension
+### 14.7 Direct Gateway Extension
 
 If the `Direct ITS Gateway` profile is implemented:
 
@@ -1406,7 +1438,7 @@ If the `Direct ITS Gateway` profile is implemented:
 - usage behavior matches documented semantics
 - non-streaming behavior matches documented semantics
 
-### 14.7 External-Processing Gateway Extension
+### 14.8 External-Processing Gateway Extension
 
 If the `External-Processing Gateway` profile is implemented:
 
@@ -1418,7 +1450,7 @@ If the `External-Processing Gateway` profile is implemented:
 - ITS-applied signaling behavior matches documentation
 - usage aggregation behavior matches documentation if usage is exposed
 
-### 14.8 Research Toolkit Extension
+### 14.9 Research Toolkit Extension
 
 If benchmark or research tooling is implemented:
 
@@ -1426,7 +1458,7 @@ If benchmark or research tooling is implemented:
 - dataset and scoring assumptions are documented
 - example code remains consistent with the documented public contract
 
-### 14.9 Real Integration Profile (RECOMMENDED)
+### 14.10 Real Integration Profile (RECOMMENDED)
 
 These checks are RECOMMENDED before production use and MAY be skipped in CI when credentials or
 network access are unavailable.
@@ -1459,9 +1491,14 @@ Use the same validation profiles as Section 14:
 - documentation of failure behavior and trust boundary
 - deterministic tests for supported core behavior
 
+Additional rule for full algorithm conformance:
+
+- implement at least one stable algorithm profile from Section 7
+
 ### 15.2 RECOMMENDED Extensions
 
 - `Outcome Reward Extension`
+- `Process Reward Extension`
 - `Stable SelfConsistency Extension`
 - `Stable BestOfN Extension`
 - `Experimental Search Extension`
@@ -1474,7 +1511,7 @@ Use the same validation profiles as Section 14:
 
 ### 15.3 Operational Validation Before Production
 
-- Run the `Real Integration Profile` from Section 14.9 with valid credentials and network access.
+- Run the `Real Integration Profile` from Section 14.10 with valid credentials and network access.
 - Verify timeout, retry, and fallback behavior under representative failure conditions.
 - Verify budget and concurrency guardrails on the target deployment.
 - Verify secret handling and log redaction behavior on the target environment.
