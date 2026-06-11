@@ -91,4 +91,6 @@ include = [
     "its_hub.api.*",
     "its_hub.core",
     "its_hub.core.*",
+    "its_hub.integration",
+    "its_hub.integration.*",
 ]
