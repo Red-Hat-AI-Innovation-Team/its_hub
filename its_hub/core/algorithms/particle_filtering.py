@@ -1,4 +1,5 @@
 import copy
+import logging
 import random
 from dataclasses import dataclass
 from enum import Enum
@@ -121,6 +122,7 @@ class ParticleFiltering(AbstractScalingAlgorithm):
         self.self_certainty_style = self_certainty_style
         self.top_logprobs = top_logprobs
         self.max_steps = self.sg.max_steps
+        self._warned_missing_logprobs = False
 
     def _self_certainty_logweight(self, summary: dict) -> float:
         """Convert a generated step's logprob summary into a particle log-weight.
@@ -134,7 +136,24 @@ class ParticleFiltering(AbstractScalingAlgorithm):
           - ``'raw'``:   use ``c`` directly as the log-weight.
           - ``'logit'``: ``s = exp(c)`` in ``(0, 1]``, log-weight = ``_inv_sigmoid(s)``
             (maps the confidence onto unbounded log-odds for softmax resampling).
+
+        A step with no logprob signal (``num_tokens == 0`` — e.g. the endpoint
+        ignored ``logprobs=true`` or the request errored and was replaced) gets a
+        NEUTRAL log-weight of 0.0. Without this, the summarizer's 0.0 fallback for
+        ``mean_logprob`` would read as *perfect* confidence and the signal-less
+        particle would dominate every resampling round.
         """
+        if summary.get("num_tokens", 0) == 0:
+            if not self._warned_missing_logprobs:
+                self._warned_missing_logprobs = True
+                logging.warning(
+                    "Generated step carried no token logprobs (endpoint may not "
+                    "support logprobs=true, or the request errored). Using a "
+                    "neutral particle weight; self-certainty weighting is "
+                    "degraded for affected steps."
+                )
+            return 0.0
+
         if self.self_certainty_signal == "entropy":
             entropy = summary.get("entropy")
             c = (
@@ -220,6 +239,9 @@ class ParticleFiltering(AbstractScalingAlgorithm):
 
         indices = np.zeros(num_particles, dtype=int)
         cumulative_sum = np.cumsum(probabilities)
+        # guard against floating-point cumsum ending slightly below the last
+        # position, which would walk j past the end of the array
+        cumulative_sum[-1] = max(cumulative_sum[-1], 1.0)
         i, j = 0, 0
 
         while i < num_particles:
@@ -389,11 +411,8 @@ class EntropicParticleFiltering(ParticleFiltering):
         entropy = -p * np.log(p)
         entropy = np.sum(entropy)
 
-        # Make normalization robust to edge cases (e.g., len(p) <= 1)
-        if len(p) > 2 and np.log(len(p)) > 0:
-            entropy_normalized = entropy / np.log(len(p))
-        else:
-            entropy_normalized = entropy
+        # Make normalization robust to edge cases (len(p) <= 1, where log(1) == 0)
+        entropy_normalized = entropy / np.log(len(p)) if len(p) > 1 else entropy
         return entropy_normalized
 
     def _effective_sample_size(self, probabilities: list[float]) -> float:

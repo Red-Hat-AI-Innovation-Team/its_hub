@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 from its_hub.api import AbstractLanguageModel, ChatMessage
@@ -231,16 +230,3 @@ class StepGeneration:
                 ]
                 return list(zip(next_steps, is_stopped, summaries))
             return list(zip(next_steps, is_stopped))
-
-    def forward(
-        self,
-        lm: AbstractLanguageModel,
-        prompt_or_prompts: str | list[str],
-        steps_so_far: list[str] | list[list[str]] | None = None,
-        tools: list[dict] | None = None,
-        tool_choice: str | dict | None = None,
-    ) -> tuple[str, bool] | list[tuple[str, bool]]:
-        """generate next step(s) synchronously"""
-        return asyncio.run(
-            self.aforward(lm, prompt_or_prompts, steps_so_far, tools, tool_choice)
-        )

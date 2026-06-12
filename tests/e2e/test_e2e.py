@@ -110,7 +110,7 @@ def parse_args():
         dest="use_sync",
         action="store_true",
         default=False,
-        help="Use sync infer instead of async ainfer (default: async with shared orchestrator)",
+        help="Use sync infer instead of async ainfer (default: async)",
     )
 
     return p.parse_args()
@@ -145,7 +145,7 @@ def run_sync_tests(algs, loaded, lm, budget, verbose):
 
 
 async def run_async_tests(algs, loaded, lm, budget, verbose):
-    """Run all tests using algorithm.ainfer() with a shared orchestrator."""
+    """Run all tests using algorithm.ainfer()."""
     results: list[TestResult] = []
     try:
         for ds_name, dataset in loaded.items():

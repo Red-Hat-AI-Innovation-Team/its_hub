@@ -66,23 +66,25 @@ def _pf(signal="mean_logprob", style="logit"):
 
 
 def test_self_certainty_logweight_mean_logprob():
-    raw = _pf("mean_logprob", "raw")._self_certainty_logweight({"mean_logprob": -0.3})
+    raw = _pf("mean_logprob", "raw")._self_certainty_logweight(
+        {"mean_logprob": -0.3, "num_tokens": 5}
+    )
     assert raw == pytest.approx(-0.3)
 
     logit = _pf("mean_logprob", "logit")._self_certainty_logweight(
-        {"mean_logprob": -0.3}
+        {"mean_logprob": -0.3, "num_tokens": 5}
     )
     assert logit == pytest.approx(_inv_sigmoid(math.exp(-0.3)))
 
 
 def test_self_certainty_logweight_entropy():
     raw = _pf("entropy", "raw")._self_certainty_logweight(
-        {"mean_logprob": -0.3, "entropy": 0.5}
+        {"mean_logprob": -0.3, "entropy": 0.5, "num_tokens": 5}
     )
     assert raw == pytest.approx(-0.5)
     # entropy missing → falls back to mean_logprob
     fb = _pf("entropy", "raw")._self_certainty_logweight(
-        {"mean_logprob": -0.7, "entropy": None}
+        {"mean_logprob": -0.7, "entropy": None, "num_tokens": 5}
     )
     assert fb == pytest.approx(-0.7)
 
@@ -123,3 +125,20 @@ def test_invalid_self_certainty_options_raise():
         ParticleFiltering(sg=sg, self_certainty_signal="bogus")
     with pytest.raises(ValueError, match="self_certainty_style"):
         ParticleFiltering(sg=sg, self_certainty_style="bogus")
+
+
+def test_missing_logprobs_get_neutral_weight_not_max():
+    """Regression: a step with no logprob signal (num_tokens == 0) must get a
+    NEUTRAL log-weight (0.0), not the maximum weight from treating the 0.0
+    mean_logprob fallback as perfect confidence."""
+    pf = _pf("mean_logprob", "logit")
+    no_signal = {"mean_logprob": 0.0, "entropy": None, "num_tokens": 0}
+    real_step = {"mean_logprob": -0.3, "entropy": None, "num_tokens": 5}
+
+    w_missing = pf._self_certainty_logweight(no_signal)
+    w_real = pf._self_certainty_logweight(real_step)
+
+    assert w_missing == 0.0
+    # the signal-less particle must NOT dominate a genuinely confident one
+    assert w_missing < pf._self_certainty_logweight({"mean_logprob": -0.1, "num_tokens": 5})
+    assert w_real == pytest.approx(_inv_sigmoid(math.exp(-0.3)))

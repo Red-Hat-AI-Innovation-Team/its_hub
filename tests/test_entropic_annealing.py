@@ -38,6 +38,13 @@ class TestEntropicAnnealing:
         assert isinstance(ess, float)
         assert ess == 1.0 / (0.1**2 + 0.2**2 + 0.3**2 + 0.4**2 + 0.5**2)
 
+    def test_entropy_n_normalized_for_two_particles(self):
+        """Regression: len(p) == 2 must be normalized by log(2) like any other
+        size (uniform weights => normalized entropy of 1.0), not left raw."""
+        epf = _epf()
+        assert epf._entropy_n([0.5, 0.5]) == pytest.approx(1.0)
+        assert epf._entropy_n([0.25, 0.25, 0.25, 0.25]) == pytest.approx(1.0)
+
     def test_resampling(self):
         epf = _epf()
         particles = [

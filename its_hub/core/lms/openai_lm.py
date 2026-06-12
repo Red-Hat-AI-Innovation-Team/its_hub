@@ -174,9 +174,11 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         top_logprobs: int | None = None,
     ) -> dict:
         # helper method to prepare request data for both sync and async methods
-        # Convert dict messages to Message objects if needed
+        # Convert dict messages to Message objects if needed. Use from_dict so
+        # response dicts carrying private keys (_logprobs, _raw_choice) can be
+        # appended to a conversation and sent back without a TypeError.
         messages = [
-            msg if isinstance(msg, ChatMessage) else ChatMessage(**msg)
+            msg if isinstance(msg, ChatMessage) else ChatMessage.from_dict(msg)
             for msg in messages
         ]
 
@@ -366,17 +368,11 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         """
         generate response(s) asynchronously
 
-        FIXME: Batch processing has been moved to orchestrator. This function will be fully
-        replaced by agenerate_single once all algorithms have been moved to using orchestrator.
+        This is the batched generation path used by StepGeneration (and thus by
+        ParticleFiltering / EntropicParticleFiltering) — one request per particle
+        per step. agenerate_single() + an orchestrator is the alternative for
+        callers that manage their own batching/concurrency.
         """
-
-        warnings.warn(
-            "agenerate() is deprecated and will be removed in a future version. "
-            "Use agenerate_single() with the orchestrator instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
         is_single = not isinstance(messages_or_messages_lst[0], list)
         messages_lst = (
             [messages_or_messages_lst] if is_single else messages_or_messages_lst

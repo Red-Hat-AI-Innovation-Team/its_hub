@@ -77,6 +77,8 @@ class LMOrchestrator(AbstractOrchestrator):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
         response_format: dict | None = None,
+        logprobs: bool = False,
+        top_logprobs: int | None = None,
     ) -> list[dict]:
         """
         Generate responses for a batch of messages asynchronously.
@@ -91,6 +93,8 @@ class LMOrchestrator(AbstractOrchestrator):
             tools: (Optional) List of available tools
             tool_choice: (Optional) Tool choice mode
             response_format: (Optional) Response format specification for structured outputs
+            logprobs: (Optional) Request token logprobs (used for self-certainty particle weights)
+            top_logprobs: (Optional) Number of top logprobs to return per token
 
         Returns:
             List of response dicts in the same order as messages_lst
@@ -128,6 +132,8 @@ class LMOrchestrator(AbstractOrchestrator):
                     tools=tools,
                     tool_choice=tool_choice,
                     response_format=response_format,
+                    logprobs=logprobs,
+                    top_logprobs=top_logprobs,
                     loop=current_loop,
                 )
 

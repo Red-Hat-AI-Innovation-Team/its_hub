@@ -36,11 +36,32 @@ def test_extract_letter():
     assert extract_letter("no letter here", 4) is None
 
 
+def test_extract_letter_pronoun_i_and_article_a_not_mistaken_for_options():
+    """Regression: standalone 'I'/'A' used as English words must not override
+    the real answer letter on items with many choices."""
+    assert extract_letter("The answer is B, I believe.", 11) == 1  # not choice I
+    assert extract_letter("Answer: I think it is B.", 11) == 1  # not choice I
+    assert extract_letter("It could be B or C. I am sure.", 11) == 2  # not choice I
+    assert extract_letter("Answer: A piano is playing, B fits best.", 11) == 1
+    # ...but a genuine choice-I/A answer still parses
+    assert extract_letter("Answer: I", 11) == 8
+    assert extract_letter("Answer: A", 4) == 0
+    assert extract_letter("Answer: (I).", 11) == 8
+
+
 def test_predicted_index_letter_then_text_fallback():
     choices = ["piano", "violin", "drums"]
     assert predicted_index("Answer: B", choices) == 1
     assert predicted_index("it is clearly a violin", choices) == 1  # text fallback
     assert predicted_index("???", choices) is None
+
+
+def test_predicted_index_prefers_longest_text_match():
+    """Regression: a choice that is a substring of another choice must not
+    shadow the longer (exact) match in the text fallback."""
+    choices = ["dog", "dog barking loudly", "cat"]
+    assert predicted_index("The sound is dog barking loudly", choices) == 1
+    assert predicted_index("The sound is dog", choices) == 0
 
 
 def test_is_correct():

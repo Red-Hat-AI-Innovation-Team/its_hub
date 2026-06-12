@@ -46,6 +46,9 @@ def build_algorithm(arm: str, max_steps: int):
 
 
 def _load_done(path: str) -> set:
+    """Keys already completed successfully. Errored rows are NOT counted as
+    done, so resuming a run retries items that failed transiently (the final
+    report dedupes on key keeping the latest row)."""
     done = set()
     if os.path.exists(path):
         with open(path) as f:
@@ -53,7 +56,8 @@ def _load_done(path: str) -> set:
                 line = line.strip()
                 if line:
                     r = json.loads(line)
-                    done.add((r["unique_id"], r["method"], r["arm"], r["budget"]))
+                    if not r.get("error"):
+                        done.add((r["unique_id"], r["method"], r["arm"], r["budget"]))
     return done
 
 
@@ -169,10 +173,15 @@ def main(
         await lm.close()
 
     asyncio.run(_run())
-    # final report over the complete output (includes resumed rows)
+    # final report over the complete output (includes resumed rows); dedupe on
+    # key keeping the latest row so a retried item's old errored row is ignored
+    by_key = {}
     with open(output) as f:
-        all_rows = [json.loads(line) for line in f if line.strip()]
-    report(all_rows)
+        for line in f:
+            if line.strip():
+                r = json.loads(line)
+                by_key[(r["unique_id"], r["method"], r["arm"], r["budget"])] = r
+    report(list(by_key.values()))
 
 
 if __name__ == "__main__":
