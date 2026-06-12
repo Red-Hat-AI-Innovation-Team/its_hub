@@ -26,7 +26,7 @@ never say 🤖 Generated with [Claude Code](https://claude.ai/code)" in the comm
 uv run pytest tests/
 
 # Run specific test file
-uv run pytest tests/test_algorithms.py
+uv run pytest tests/test_particle_filtering.py
 
 # Run tests with coverage
 uv run pytest tests/ --cov=its_hub
@@ -55,42 +55,22 @@ git commit -s -m "commit message"
 # For any git commits, always use the sign-off flag (-s)
 ```
 
-### Running Examples
+### Benchmarking
 ```bash
-# Test basic functionality
-python scripts/test_math_example.py
+# MMAU-Pro audio MCQ benchmark (requires a served audio LM, e.g. Qwen2.5-Omni on vLLM)
+python -m benchmarking.mmau_pro.run_mmau --help
 
-# Benchmark algorithms (see script help for full options)
-python scripts/benchmark.py --help
-```
-
-### IaaS Service (Inference-as-a-Service)
-```bash
-# Start IaaS service
-uv run its-iaas --host 0.0.0.0 --port 8108
-
-# Or using justfile (if available)
-just iaas-start
-
-# Check service health
-curl -s http://localhost:8108/v1/models | jq .
-
-# Configure the service (example: self-consistency algorithm)
-curl -X POST http://localhost:8108/configure \
-  -H "Content-Type: application/json" \
-  -d '{"endpoint": "http://localhost:8100/v1", "api_key": "NO_API_KEY", "model": "your-model-name", "alg": "self-consistency"}'
-
-# For comprehensive IaaS setup (multi-GPU, reward models, etc.), see docs/iaas-service.md
+# E2E math tests against a served model
+python tests/e2e/test_e2e.py --help
 ```
 
 ## Additional Tips
 - Use `rg` in favor of `grep` whenever it's available
 - Use `uv` for Python environment management: always start with `uv sync --extra dev` to init the env and run stuff with `uv run`
-- In case of dependency issues during testing, try commenting out `reward_hub` and `vllm` temporarily in @pyproject.toml and retry.
 
 ## Architecture Overview
 
-**its_hub** is a library for inference-time scaling of LLMs, focusing on mathematical reasoning tasks. The architecture separates public interfaces (`its_hub/api/`) from implementations (`its_hub/core/`).
+**its_hub** is a library for inference-time scaling of LLMs using Particle Filtering (PF) and Entropic Particle Filtering (EPF). Particle weights come from the *generator* model's own token logprobs (self-certainty) — no separate reward model. The architecture separates public interfaces (`its_hub/api/`) from implementations (`its_hub/core/`).
 
 ### Directory Structure
 
@@ -101,122 +81,66 @@ its_hub/
 │   ├── lm.py                  # AbstractLanguageModel
 │   ├── algorithm.py           # AbstractScalingAlgorithm, AbstractScalingResult
 │   ├── orchestrator.py        # AbstractOrchestrator
-│   ├── types.py               # ChatMessage, ChatMessages
-│   ├── errors.py              # APIError, RateLimitError, etc.
-│   └── reward_models/
-│       ├── orm.py             # AbstractOutcomeRewardModel
-│       └── prm.py             # AbstractProcessRewardModel
+│   ├── types.py               # ChatMessage, ChatMessages (audio-aware helpers)
+│   └── errors.py              # APIError, RateLimitError, etc.
 ├── core/                       # Implementations (internal)
 │   ├── algorithms/
-│   │   ├── self_consistency.py
-│   │   ├── bon.py
-│   │   ├── beam_search.py     # Experimental
-│   │   ├── particle_gibbs.py  # Experimental
-│   │   └── planning_wrapper.py
+│   │   └── particle_filtering.py  # ParticleFiltering, EntropicParticleFiltering
 │   ├── lms/
-│   │   ├── openai_lm.py      # OpenAICompatibleLanguageModel
-│   │   └── step_generation.py # StepGeneration
-│   ├── reward_models/
-│   │   ├── llm_judge.py       # LLMJudge
-│   │   └── local_vllm_prm.py # LocalVllmProcessRewardModel
+│   │   ├── openai_lm.py      # OpenAICompatibleLanguageModel (logprobs support)
+│   │   └── step_generation.py # StepGeneration (logprobs + audio carry)
 │   ├── orchestrator.py        # LMOrchestrator
-│   └── utils.py               # System prompts, helpers
+│   └── utils.py               # System prompts, summarize_step_logprobs, helpers
+benchmarking/
+└── mmau_pro/                   # MMAU-Pro audio MCQ benchmark (Qwen2.5-Omni)
+documentation/                  # In-depth design docs (weights, annealing, audio)
 ```
 
 ### Key Base Classes (`its_hub/api/`)
 - `AbstractLanguageModel`: Interface for async LM generation (`agenerate()`, `agenerate_single()`)
-- `AbstractScalingAlgorithm`: Base for all scaling algorithms with `ainfer()` (async) and `infer()` (sync wrapper)
+- `AbstractScalingAlgorithm`: Base for scaling algorithms with `ainfer()` (async) and `infer()` (sync wrapper)
 - `AbstractScalingResult`: Base for algorithm results with `the_one` property returning a `dict`
 - `AbstractOrchestrator`: Interface for managing parallel LM calls
-- `AbstractOutcomeRewardModel`: Interface for outcome-based reward models
-- `AbstractProcessRewardModel`: Interface for process-based reward models (step-by-step scoring)
 
 ### Main Components
 
 #### Language Models (`its_hub/core/lms/`)
-- `OpenAICompatibleLanguageModel`: Primary LM implementation supporting vLLM and OpenAI APIs. Supports async context manager (`async with`) and requires `close()` for cleanup.
-- `StepGeneration`: Handles incremental generation with configurable step tokens and stop conditions
+- `OpenAICompatibleLanguageModel`: Primary LM implementation supporting vLLM and OpenAI APIs. Supports async context manager (`async with`) and requires `close()` for cleanup. Requests token `logprobs` when asked (used for self-certainty particle weights).
+- `StepGeneration`: Handles incremental generation with configurable step tokens and stop conditions. Optionally returns a per-step logprob summary, and carries structured `base_messages` (e.g. an audio user turn) verbatim to the model.
 - Async-first design with concurrency limits and backoff strategies
 
-#### Algorithms (`its_hub/core/algorithms/`)
-All algorithms follow the same interface: `ainfer(lm, prompt_or_messages, budget, return_response_only=True, tools=None, tool_choice=None)` (async primary) or `infer(...)` (sync wrapper)
+#### Algorithms (`its_hub/core/algorithms/particle_filtering.py`)
+Both follow the same interface: `ainfer(lm, prompt_or_messages, budget, return_response_only=True, tools=None, tool_choice=None)` (async primary) or `infer(...)` (sync wrapper)
 
-- **Self-Consistency**: Generate multiple responses, select most common answer (supports tool voting)
-- **Best-of-N**: Generate N responses, select highest scoring via outcome reward model
-- **Beam Search** (experimental): Step-by-step generation with beam width, uses process reward models
-- **Particle Filtering/Gibbs** (experimental): Probabilistic resampling with process reward models
+- **ParticleFiltering (PF)**: step-by-step generation; after each step, particles are weighted from the generator's own logprobs (`self_certainty_signal="mean_logprob"` or `"entropy"`, `self_certainty_style="logit"` or `"raw"`) and resampled (multinomial by default)
+- **EntropicParticleFiltering (EPF)**: PF plus entropic annealing — when the effective sample size collapses early, the resampling distribution is tempered (`temperature_method`: ess/entropy/base); systematic resampling by default
 
 #### Orchestrator (`its_hub/core/orchestrator.py`)
 - `LMOrchestrator`: Built-in implementation of `AbstractOrchestrator` using `asyncio.TaskGroup` with thread-safe semaphore for concurrency control
-- The orchestrator is central to gateway integration — it controls how algorithms fan out parallel LM calls, enforces rate limits, and handles error propagation. Gateway teams can implement `AbstractOrchestrator` with their own concurrency policies or use the built-in `LMOrchestrator`
-
-#### Reward Models (`its_hub/core/reward_models/`)
-- `LLMJudge`: LLM-based outcome reward model for scoring responses
-- `LocalVllmProcessRewardModel`: Integrates with reward_hub library for process-based scoring (experimental)
+- Gateway teams can implement `AbstractOrchestrator` with their own concurrency policies or use the built-in `LMOrchestrator`
 
 ### Budget Interpretation
-The budget parameter controls computational resources allocated to each algorithm. Different algorithms interpret budget as follows:
-- **Self-Consistency/Best-of-N**: Number of parallel generations to create
-- **Beam Search**: Total generations divided by beam width (controls search depth)
-- **Particle Filtering**: Number of particles maintained during sampling
+`budget` = number of particles maintained during sampling.
 
 ### Step Generation Pattern
 The `StepGeneration` class enables incremental text generation:
-- Configure step tokens (e.g., "\n\n" for reasoning steps)
+- Configure step tokens (e.g., "\n\n" for reasoning steps) or `tokens_per_step`
 - Set max steps and stop conditions
 - Post-processing for clean output formatting
 
 ### Typical Workflow
-1. Start vLLM server with instruction model
+1. Start vLLM server with the model (must support `logprobs`; for audio models like Qwen2.5-Omni serve with audio enabled)
 2. Initialize `OpenAICompatibleLanguageModel` pointing to server
 3. Create `StepGeneration` with step/stop tokens appropriate for the task
-4. Initialize reward model (e.g., `LocalVllmProcessRewardModel`)
-5. Create scaling algorithm with step generation and reward model
-6. Call `ainfer()` (async) or `infer()` (sync wrapper) with prompt and budget
-7. Close LM with `await lm.close()` or `asyncio.run(lm.close())` for resource cleanup
+4. Create `ParticleFiltering` or `EntropicParticleFiltering` with the step generation
+5. Call `ainfer()` (async) or `infer()` (sync wrapper) with the prompt (string or structured messages with audio) and budget
+6. Close LM with `await lm.close()` or `asyncio.run(lm.close())` for resource cleanup
+
+### Audio / Multimodal Support
+- `ChatMessages.has_nontext_content()` detects structured (audio/image) content; the algorithms then carry the original messages verbatim (`base_user_messages()`) to the model at every step instead of flattening to text
+- See `benchmarking/mmau_pro/` for an end-to-end audio benchmark and `documentation/audio-mmau-changes.md` for the design
 
 ### Mathematical Focus
-The library is optimized for mathematical reasoning:
 - Predefined system prompts in `its_hub/core/utils.py` (SAL_STEP_BY_STEP_SYSTEM_PROMPT, QWEN_SYSTEM_PROMPT)
 - Regex patterns for mathematical notation (e.g., `r"\boxed"` for final answers)
-- Integration with math_verify for evaluation
-- Benchmarking on MATH500 and AIME-2024 datasets
-
-## Coding Agent Plugin
-
-This repo serves as a plugin for Claude Code and Codex CLI. The plugin follows the standard structure below — skills are the primary interface, scripts handle execution.
-
-### Standard Plugin Structure
-
-```
-.claude-plugin/                        # Claude Code discovery manifest
-  plugin.json
-.codex-plugin/                         # Codex CLI discovery manifest + install guide
-  plugin.json
-  INSTALL.md
-.claude/skills/                        # Skills (auto-triggered + explicitly invokable)
-  setup-guide/SKILL.md                 # First-time installation and configuration
-  inference-scaling/SKILL.md           # Single-prompt scaling
-  inference-scaling-guide/SKILL.md     # Algorithm selection and troubleshooting
-  batch-scaling/SKILL.md               # Batch scaling from file
-scripts/                               # Bash/Python helpers called by skills
-  _env.sh                              # Shared Python resolution
-  its_detect.sh                        # Environment detection (library, config)
-  its_scale.sh                         # Single-prompt scaling (bash wrapper)
-  its_batch_scale.sh                   # Batch scaling (bash wrapper)
-  _its_scale_runner.py                 # Single-prompt scaling logic
-  _its_batch_runner.py                 # Batch scaling logic
-```
-
-Both plugin manifests point to `./.claude/skills` for discovery.
-
-### Plugin Config
-
-User config is stored at `.its-hub/config.json` (auto-generated by the `setup-guide` skill, gitignored). API keys are **not** stored in the config — they are read from environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.).
-
-### Plugin Development
-
-- Skills are markdown files — edit `.claude/skills/*/SKILL.md` directly
-- Scripts are bash — edit `scripts/*.sh`
-- Discovery manifests rarely change
-- Test plugin changes by invoking skills in Claude Code or Codex
+- E2E benchmarking on MATH500 and AIME-2024 datasets (`tests/e2e/`)

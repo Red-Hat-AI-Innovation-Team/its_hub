@@ -1,13 +1,14 @@
 # E2E Tests
 
-End-to-end tests for its_hub algorithms against an OpenAI-compatible API endpoint (vLLM, OpenAI, etc.).
+End-to-end tests for the its_hub particle-filtering algorithms (PF and EPF) against an OpenAI-compatible API endpoint (vLLM, OpenAI, etc.).
+
+The endpoint must support `logprobs` (vLLM does) — particle weights come from the generator's own token logprobs (self-certainty), so no separate reward model is needed.
 
 ## Prerequisites
 
 - A running OpenAI-compatible server (e.g. vLLM)
 - `pip install its_hub[dev]` (or `uv sync --extra dev`)
-- `math-verify` package (`pip install math-verify` or `pip install its_hub[research]`)
-- For PRM algorithms: `pip install its_hub[experimental]`
+- `math-verify` package (`pip install math-verify`)
 
 ## Quick Start
 
@@ -20,7 +21,7 @@ python tests/e2e/test_e2e.py \
 
 ## Test Modes
 
-**Async (default):** Uses `algorithm.ainfer()` with a shared long-running `LMOrchestrator` and a single event loop.
+**Async (default):** Uses `algorithm.ainfer()` with a single event loop.
 
 ```bash
 python tests/e2e/test_e2e.py \
@@ -47,34 +48,24 @@ python tests/e2e/test_e2e.py \
 | `--temperature` | `0.7` | Sampling temperature |
 | `--max_tokens` | None | Max tokens per generation |
 | `--max_concurrency` | `32` | Max concurrent requests |
-| `--budget` | `4` | Computation budget per problem |
+| `--budget` | `4` | Computation budget (number of particles) per problem |
 | `--datasets` | `math500,aime2024` | Comma-separated list of datasets |
-| `--algorithms` | all available | Comma-separated list: `self-consistency`, `best-of-n`, `beam-search`, `particle-filtering`, `entropic-particle-filtering` |
-| `--rm_name` | None | Reward model name (enables PRM algorithms) |
+| `--algorithms` | all available | Comma-separated list: `particle-filtering`, `entropic-particle-filtering` |
 | `--tokens_per_step` | None | Tokens per step for StepGeneration |
 | `--verbose` | off | Print per-problem results |
 | `--sync` | off | Use sync `infer()` instead of async `ainfer()` |
 
 ## Examples
 
-Run only self-consistency on math500:
+Run only particle filtering on math500:
 
 ```bash
 python tests/e2e/test_e2e.py \
     --endpoint http://localhost:8100/v1 \
     --model_name Qwen/Qwen2.5-7B-Instruct \
-    --algorithms self-consistency \
+    --algorithms particle-filtering \
     --datasets math500 \
     --verbose
-```
-
-Run all algorithms including PRM-based ones:
-
-```bash
-python tests/e2e/test_e2e.py \
-    --endpoint http://localhost:8100/v1 \
-    --model_name Qwen/Qwen2.5-7B-Instruct \
-    --rm_name Qwen/Qwen2.5-Math-PRM-7B
 ```
 
 Run with lower budget for faster iteration:

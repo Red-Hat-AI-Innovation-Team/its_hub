@@ -24,10 +24,11 @@ import click
 from benchmarking.mmau_pro.loader import load_mmau_mcq
 from benchmarking.mmau_pro.prompt import METHODS, build
 from benchmarking.mmau_pro.scoring import is_correct
-from its_hub import OpenAICompatibleLanguageModel, StepGeneration
-from its_hub.core.algorithms.particle_gibbs import (
+from its_hub import (
     EntropicParticleFiltering,
+    OpenAICompatibleLanguageModel,
     ParticleFiltering,
+    StepGeneration,
 )
 from its_hub.core.utils import extract_content_from_lm_response
 
@@ -37,13 +38,10 @@ def build_algorithm(arm: str, max_steps: int):
     sg = StepGeneration(step_token="\n\n", stop_token="Answer:", max_steps=max_steps)
     if arm in ("baseline", "pf"):
         return ParticleFiltering(
-            sg=sg, weight_source="self_certainty",
-            self_certainty_signal="mean_logprob", self_certainty_style="logit",
+            sg=sg, self_certainty_signal="mean_logprob", self_certainty_style="logit",
         )
     if arm == "epf":
-        return EntropicParticleFiltering(
-            sg=sg, weight_source="self_certainty", self_certainty_signal="entropy"
-        )
+        return EntropicParticleFiltering(sg=sg, self_certainty_signal="entropy")
     raise ValueError(f"unknown arm {arm!r}")
 
 

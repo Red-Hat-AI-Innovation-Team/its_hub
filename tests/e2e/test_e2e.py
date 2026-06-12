@@ -1,15 +1,17 @@
 """
 End-to-end test framework for its_hub algorithms.
 
-Tests all available algorithms against pre-saved subsets of MATH500 and
-AIME-2024 datasets using an OpenAI-compatible API endpoint.
+Tests the particle-filtering algorithms (PF and EPF) against pre-saved subsets
+of MATH500 and AIME-2024 datasets using an OpenAI-compatible API endpoint.
+The endpoint must support ``logprobs`` (vLLM does) — particle weights come
+from the generator's own token logprobs (self-certainty).
 
 Two test modes:
-  - async (default): uses algorithm.ainfer() — single event loop, shared orchestrator
+  - async (default): uses algorithm.ainfer() — single event loop
   - sync  (--sync):  uses algorithm.infer()  — each problem gets its own event loop
 
 Usage:
-    # Async mode (default, ainfer + shared orchestrator):
+    # Async mode (default, ainfer):
     python tests/e2e/test_e2e.py --endpoint http://localhost:8100/v1 \
         --model_name Qwen/Qwen2.5-Math-7B-Instruct
 
@@ -20,7 +22,7 @@ Usage:
     # Select specific algorithms / datasets:
     python tests/e2e/test_e2e.py --endpoint http://localhost:8100/v1 \
         --model_name Qwen/Qwen2.5-Math-7B-Instruct \
-        --algorithms self-consistency,best-of-n --datasets math500
+        --algorithms particle-filtering --datasets math500
 """
 
 import argparse
@@ -30,10 +32,8 @@ import sys
 import time
 
 from its_hub import OpenAICompatibleLanguageModel
-from its_hub.core.orchestrator import LMOrchestrator
 from its_hub.core.utils import QWEN_SYSTEM_PROMPT, SAL_STEP_BY_STEP_SYSTEM_PROMPT
-
-from tests.e2e.utils.algorithms import ALL_ALGORITHM_NAMES, PRM_ALGORITHMS, build_algorithms
+from tests.e2e.utils.algorithms import ALL_ALGORITHM_NAMES, build_algorithms
 from tests.e2e.utils.datasets import load_datasets
 from tests.e2e.utils.evaluation import TestResult
 from tests.e2e.utils.report import print_report
@@ -76,13 +76,7 @@ def parse_args():
         help="Max concurrent requests (default: 32)",
     )
 
-    # --- reward model (optional, enables PRM-dependent algorithms) ---
-    p.add_argument(
-        "--rm_name",
-        default=None,
-        help="Reward model name (enables beam-search, particle-filtering, "
-        "entropic-particle-filtering)",
-    )
+    # --- step generation ---
     p.add_argument(
         "--tokens_per_step",
         type=int,
@@ -170,7 +164,7 @@ async def run_async_tests(algs, loaded, lm, budget, verbose):
 def main():
     args = parse_args()
 
-    mode = "sync (infer)" if args.use_sync else "async (ainfer + shared orchestrator)"
+    mode = "sync (infer)" if args.use_sync else "async (ainfer)"
     print("=" * 60)
     print("its_hub E2E Test Framework")
     print("=" * 60)
@@ -182,8 +176,6 @@ def main():
     print(f"  datasets:          {args.datasets}")
     print(f"  algorithms:        {args.algorithms or 'all available'}")
     print(f"  mode:              {mode}")
-    if args.rm_name:
-        print(f"  rm_name:           {args.rm_name}")
     print()
 
     # ---- create language model ----
@@ -202,15 +194,9 @@ def main():
         max_concurrency=args.max_concurrency,
     )
 
-    # ---- create shared orchestrator ----
-    orchestrator = LMOrchestrator(max_concurrency=args.max_concurrency)
-
     # ---- build algorithms ----
     print("Initializing algorithms...")
-    all_algs = build_algorithms(
-        lm, args.model_name, args.rm_name, args.tokens_per_step,
-        orchestrator=orchestrator,
-    )
+    all_algs = build_algorithms(args.model_name, args.tokens_per_step)
 
     # Filter to requested algorithms if specified
     if args.algorithms:
@@ -218,12 +204,6 @@ def main():
         unknown = set(requested) - set(ALL_ALGORITHM_NAMES)
         if unknown:
             print(f"  Warning: unknown algorithm(s) ignored: {unknown}")
-        missing = (set(requested) & PRM_ALGORITHMS) - set(all_algs)
-        if missing:
-            print(
-                f"  Warning: PRM algorithm(s) unavailable "
-                f"(need --rm_name + reward_hub): {missing}"
-            )
         algs = {k: v for k, v in all_algs.items() if k in requested}
         if not algs:
             sys.exit("Error: no valid algorithms selected")

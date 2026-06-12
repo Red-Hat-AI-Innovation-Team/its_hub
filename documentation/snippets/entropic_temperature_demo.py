@@ -13,28 +13,18 @@ watch each schedule anneal toward T = 1.
 
 import numpy as np
 
-from its_hub.core.algorithms.particle_gibbs import (
+from its_hub.core.algorithms.particle_filtering import (
     EntropicParticleFiltering,
     ResamplingMethod,
     SelectionMethod,
     TemperatureMethod,
 )
 from its_hub.core.lms.step_generation import StepGeneration
-from its_hub.api import AbstractProcessRewardModel
-
-
-class _NoopPRM(AbstractProcessRewardModel):
-    def score(self, prompt, response):
-        return 0.5
-
-    async def ascore(self, prompt, response):
-        return 0.5
 
 
 def make_epf() -> EntropicParticleFiltering:
     return EntropicParticleFiltering(
         sg=StepGeneration(step_token="\n", max_steps=3),
-        prm=_NoopPRM(),
         final_response_selection=SelectionMethod.ARGMAX,
         resampling_method=ResamplingMethod.SYSTEMATIC,
         temperature_method=TemperatureMethod.ESS,

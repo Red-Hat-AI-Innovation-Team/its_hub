@@ -21,10 +21,10 @@ Last updated: 2026‑06‑10.
 - **Model / serving:** Qwen2.5‑Omni‑7B (thinker, text‑out) via vLLM 0.22.1, OpenAI‑compatible, port 8100.
   - Required env/flags discovered: **`VLLM_USE_FLASHINFER_SAMPLER=0`** (flashinfer JIT sampler fails to build on Blackwell sm_120); installed server‑side audio decoders **`librosa soundfile av resampy`** (`av`/PyAV is what vLLM falls back to; without it → "install vllm[audio]" / "Invalid audio file"); `--allowed-local-media-path <data>` + `--limit-mm-per-prompt '{"audio":3}'`; `HF_HOME` on the 3.4 TB volume.
   - Audio input: both `input_audio` (base64) and `audio_url` (`file://`, "local‑path") work; **local‑path used for the 957 run** (avoids re‑sending ~26 MB base64 each PF step).
-- **Particle weight:** generator self‑certainty. PF uses `weight_source="self_certainty"`, signal `mean_logprob`, style `logit`; EPF uses signal `entropy`. Reasoning is chunked into PF/EPF steps on `\n\n` (`StepGeneration(step_token="\n\n", stop_token="Answer:", max_steps=6)`), `max_tokens_per_step=300`.
+- **Particle weight:** generator self‑certainty (now the only weight source in its_hub — the former `weight_source=` kwarg is gone). PF uses signal `mean_logprob`, style `logit`; EPF uses signal `entropy`. Reasoning is chunked into PF/EPF steps on `\n\n` (`StepGeneration(step_token="\n\n", stop_token="Answer:", max_steps=6)`), `max_tokens_per_step=300`.
 - **Data:** `mmau_pro_testmini` — 957 MCQ items (non‑empty `choices`; `answer` is the choice *text*). `le30s` split = 411 MCQ (≤30 s audio) used for dev. Scoring: lettered choices A–K, parse `Answer: <letter>`, normalized/fuzzy match to gold (5 items ungradeable → excluded).
 - **Arms:** `baseline` = budget 1 (single trajectory, no resampling); `pf` / `epf` = budgets as noted.
-- **Harness:** `benchmarking/mmau_pro/` (`run_mmau.py`, `prompt.py`, `scoring.py`, `loader.py`, `audio.py`, `cot_compare.py`, `phase0_gate.py`, `ab_causality.py`). Raw outputs in `benchmarking/mmau_pro/results/`.
+- **Harness:** `benchmarking/mmau_pro/` (`run_mmau.py`, `prompt.py`, `scoring.py`, `loader.py`, `audio.py`, `cot_compare.py`, `phase0_gate.py`, `ab_causality.py`). Raw outputs in `benchmarking/mmau_pro/results/`. Client‑side deps: `pip install its_hub[benchmark]` (click, pandas, pyarrow on top of the `[lm]` extra).
 
 ## 2. Validation (does the pipeline actually work on audio?)
 

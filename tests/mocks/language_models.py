@@ -3,133 +3,72 @@
 from its_hub import AbstractLanguageModel
 
 
-class SimpleMockLanguageModel:
-    """Simple mock language model for basic testing."""
+class LogprobMockLM(AbstractLanguageModel):
+    """Mock LM that emits OpenAI-style `_logprobs` when `logprobs=True`.
 
-    def __init__(self, responses: list[str]):
-        self.responses = responses
+    Each generated step gets a (cycled) target mean logprob so different
+    particles end up with different self-certainty weights.
+    """
+
+    def __init__(self, mean_logprobs=(-0.1, -0.5, -1.0, -0.2), n_tokens=2):
+        self.mean_logprobs = list(mean_logprobs)
+        self.n_tokens = n_tokens
         self.call_count = 0
+        self.saw_logprobs = False
+        self.saw_top_logprobs = None
+        self.saw_tools = None
+        self.saw_tool_choice = None
 
-    async def agenerate_single(self, messages, **kwargs):
-        """Single message generation used by the orchestrator.
+    def _make_message(self, idx, want_logprobs, want_top):
+        base = self.mean_logprobs[idx % len(self.mean_logprobs)]
+        msg = {"role": "assistant", "content": f"step{idx}"}
+        if want_logprobs:
+            toks = []
+            for t in range(self.n_tokens):
+                entry = {"token": f"tok{t}", "logprob": base}
+                if want_top is not None:
+                    entry["top_logprobs"] = [
+                        {"token": f"tok{t}", "logprob": base},
+                        {"token": "other", "logprob": base - 1.0},
+                    ]
+                toks.append(entry)
+            msg["_logprobs"] = {"content": toks}
+        return msg
 
-        Delegates to generate() with a batch of one and unwraps the result.
-        Subclasses that override generate() for batch mode get this for free.
-        """
-        result = self.generate([messages], **kwargs)
-        return result[0] if isinstance(result, list) else result
-
-    async def agenerate(self, messages, **kwargs):
-        return self.generate(messages, **kwargs)
-
-    def generate(self, messages, **kwargs):
-        if isinstance(messages[0], list):
-            # Multiple message lists
-            content_responses = self.responses[
-                self.call_count : self.call_count + len(messages)
-            ]
-            self.call_count += len(messages)
-            return [
-                {"role": "assistant", "content": content}
-                for content in content_responses
-            ]
-        else:
-            # Single message list
-            content = self.responses[self.call_count]
-            self.call_count += 1
-            return {"role": "assistant", "content": content}
-
-
-class StepMockLanguageModel(AbstractLanguageModel):
-    """Mock language model for step-by-step generation testing."""
-
-    def __init__(self, step_responses: list[str]):
-        self.step_responses = step_responses
-        self.call_count = 0
-
-    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None):
-        """Single message generation used by the orchestrator."""
-        content = self.step_responses[self.call_count % len(self.step_responses)]
-        self.call_count += 1
-        return {"role": "assistant", "content": content}
-
-    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None):
-        return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
-
-    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
-        if isinstance(messages, list) and len(messages) > 0 and isinstance(messages[0], list):
-            # Batched generation
-            num_requests = len(messages)
-            responses = []
-            for i in range(num_requests):
-                response_idx = (self.call_count + i) % len(self.step_responses)
-                content = self.step_responses[response_idx]
-                responses.append({"role": "assistant", "content": content})
-            self.call_count += num_requests
-            return responses
-        else:
-            # Single generation
-            content = self.step_responses[self.call_count % len(self.step_responses)]
-            self.call_count += 1
-            return {"role": "assistant", "content": content}
-
-    async def aevaluate(self, prompt: str, generation: str) -> list[float]:
-        return self.evaluate(prompt, generation)
-
-    def evaluate(self, prompt: str, generation: str) -> list[float]:
-        """Return mock evaluation scores."""
-        return [0.1] * len(generation.split())
-
-
-class ErrorMockLanguageModel(AbstractLanguageModel):
-    """Mock language model that can simulate errors."""
-
-    def __init__(self, responses: list[str], error_on_calls: list[int] | None = None):
-        self.responses = responses
-        self.error_on_calls = error_on_calls or []
-        self.call_count = 0
-
-    async def agenerate_single(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None, loop=None):
-        """Single message generation used by the orchestrator."""
-        if self.call_count in self.error_on_calls:
-            self.call_count += 1
-            raise Exception("Simulated LM error")
-        content = self.responses[self.call_count % len(self.responses)]
-        self.call_count += 1
-        return {"role": "assistant", "content": content}
-
-    async def agenerate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None, response_format=None):
-        return self.generate(messages, stop, max_tokens, temperature, include_stop_str_in_output, tools, tool_choice)
-
-    def generate(self, messages, stop=None, max_tokens=None, temperature=None, include_stop_str_in_output=None, tools=None, tool_choice=None):
-        if self.call_count in self.error_on_calls:
-            self.call_count += 1
-            raise Exception("Simulated LM error")
-
-        if (
+    async def agenerate(
+        self,
+        messages,
+        stop=None,
+        max_tokens=None,
+        temperature=None,
+        include_stop_str_in_output=None,
+        tools=None,
+        tool_choice=None,
+        response_format=None,
+        logprobs=False,
+        top_logprobs=None,
+    ):
+        self.saw_logprobs = self.saw_logprobs or bool(logprobs)
+        if top_logprobs is not None:
+            self.saw_top_logprobs = top_logprobs
+        if tools is not None:
+            self.saw_tools = tools
+        if tool_choice is not None:
+            self.saw_tool_choice = tool_choice
+        is_batch = (
             isinstance(messages, list)
             and len(messages) > 0
             and isinstance(messages[0], list)
-        ):
-            # Batched generation
-            num_requests = len(messages)
-            responses = []
-            for i in range(num_requests):
-                if (self.call_count + i) in self.error_on_calls:
-                    raise Exception("Simulated LM error in batch")
-                response_idx = (self.call_count + i) % len(self.responses)
-                content = self.responses[response_idx]
-                responses.append({"role": "assistant", "content": content})
-            self.call_count += num_requests
-            return responses
-        else:
-            # Single generation
-            content = self.responses[self.call_count % len(self.responses)]
-            self.call_count += 1
-            return {"role": "assistant", "content": content}
+        )
+        if is_batch:
+            out = []
+            for _ in messages:
+                out.append(self._make_message(self.call_count, logprobs, top_logprobs))
+                self.call_count += 1
+            return out
+        msg = self._make_message(self.call_count, logprobs, top_logprobs)
+        self.call_count += 1
+        return msg
 
-    async def aevaluate(self, prompt: str, generation: str) -> list[float]:
-        return self.evaluate(prompt, generation)
-
-    def evaluate(self, prompt: str, generation: str) -> list[float]:
-        return [0.1] * len(generation.split())
+    async def agenerate_single(self, messages, **kwargs):
+        return await self.agenerate(messages, **kwargs)

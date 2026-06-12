@@ -4,7 +4,6 @@ import time
 import traceback
 
 from its_hub.core.utils import extract_content_from_lm_response
-
 from tests.e2e.utils.evaluation import TestResult, evaluate_answer
 
 

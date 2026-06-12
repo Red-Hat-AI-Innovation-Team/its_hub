@@ -1,59 +1,49 @@
-# `its-hub`: A Python library for inference-time scaling
+# `its-hub`: Inference-time scaling with particle filtering
 
 [![Tests](https://github.com/Red-Hat-AI-Innovation-Team/its_hub/actions/workflows/tests.yaml/badge.svg)](https://github.com/Red-Hat-AI-Innovation-Team/its_hub/actions/workflows/tests.yaml)
 [![codecov](https://codecov.io/gh/Red-Hat-AI-Innovation-Team/its_hub/graph/badge.svg?token=6WD8NB9YPN)](https://codecov.io/gh/Red-Hat-AI-Innovation-Team/its_hub)
 [![PyPI version](https://badge.fury.io/py/its-hub.svg)](https://badge.fury.io/py/its-hub)
 
-**its_hub** is a Python library for inference-time scaling of LLMs, focusing on mathematical reasoning tasks.
+**its_hub** is a Python library for inference-time scaling of LLMs using **Particle Filtering (PF)** and **Entropic Particle Filtering (EPF)**.
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/f92de395-f3c0-49a7-b1a9-caa265ffe2c2" width="80%" controls autoplay loop muted playsinline>
-    ITS Hub algorithms: Self-Consistency, Best-of-N, and Particle Filtering
-  </video>
-</p>
+Both algorithms weight particles from the **generator model's own token logprobs** (self-certainty) — no separate reward model or LLM judge is required. The only serving requirement is an OpenAI-compatible endpoint that supports `logprobs` (vLLM does). Multimodal (e.g. audio) user content is carried verbatim through step-by-step generation, so the algorithms work with audio language models such as Qwen2.5-Omni out of the box.
+
+## How it works
+
+1. A prompt (text, or structured messages with audio parts) is expanded into `budget` particles.
+2. Each particle generates one reasoning step at a time (`StepGeneration` chunks on a step token or a token budget).
+3. After every step, each particle's log-weight is derived from the generator's own per-token logprobs (`mean_logprob`) or top-k entropy for the step it just produced.
+4. Particles are resampled in proportion to their weights (multinomial for PF; systematic for EPF).
+5. **EPF only:** when the weights collapse early (low effective sample size), the resampling distribution is tempered so diversity survives the early phase of generation.
+6. When all particles stop, the final response is the highest-weight particle (`argmax`, default) or sampled.
 
 ## 📚 Documentation
 
-For comprehensive documentation, including installation guides, tutorials, and API reference, visit:
-
-**[https://ai-innovation.team/its_hub](https://ai-innovation.team/its_hub)**
+In-depth design docs live in [documentation/](documentation/) — including the particle-filtering weight derivation, entropic annealing, and the audio carry mechanism.
 
 ## Installation
 
-**its_hub** provides a minimal core focused on algorithms, with optional language model implementations.
-
 ### Core Installation (Algorithms Only)
-
-For **gateway integration** - just algorithms and interfaces, minimal dependencies:
 
 ```bash
 pip install its_hub
 ```
 
 This includes:
-- ✓ Self-Consistency and Best-of-N algorithms
-- ✓ Abstract base classes (`AbstractLanguageModel`, `AbstractOutcomeRewardModel`)
+- ✓ `ParticleFiltering` and `EntropicParticleFiltering`
+- ✓ `StepGeneration` and `LMOrchestrator`
+- ✓ Abstract base classes (`AbstractLanguageModel`, `AbstractOrchestrator`)
 - ✓ Only 2 dependencies: `numpy`, `typing-extensions`
 
 ### With Language Model Support
 
-For **standalone use** - includes OpenAI-compatible language model implementation:
+For **standalone use** - includes the OpenAI-compatible language model client:
 
 ```bash
 pip install its_hub[lm]
 ```
 
-Adds: `OpenAICompatibleLanguageModel`, `LLMJudge`, `StepGeneration` (requires `openai`, `aiohttp`, `backoff`)
-
-### With Experimental Algorithms
-
-For **experimental features** - includes beam search and particle filtering:
-
-```bash
-pip install its_hub[experimental]
-```
-
-Adds: Process reward models, beam search, particle filtering algorithms
+Adds: `OpenAICompatibleLanguageModel` (requires `openai`, `aiohttp`, `backoff`)
 
 ### Development Installation
 
@@ -67,145 +57,66 @@ uv sync --extra dev
 
 ## Quick Start
 
-### Example 1: Gateway Integration (Core Installation)
-
-**Installation required:** `pip install its_hub` (core only, minimal dependencies)
-
-Gateway integration requires implementing two interfaces: `AbstractLanguageModel` for LM calls and `AbstractOrchestrator` for managing parallel execution with concurrency control and rate limiting.
-
-```python
-import asyncio
-
-from its_hub import AbstractLanguageModel, AbstractOrchestrator, SelfConsistency
-
-# Step 1: Implement AbstractLanguageModel with your gateway's LM client
-class MyGatewayLM(AbstractLanguageModel):
-    def __init__(self, gateway_client):
-        self.client = gateway_client
-
-    async def agenerate_single(self, messages, stop=None, **kwargs):
-        response = await self.client.generate(messages, stop=stop, **kwargs)
-        return {"role": "assistant", "content": response}
-
-# Step 2: Implement AbstractOrchestrator for concurrency control
-# (or use the built-in LMOrchestrator from its_hub[lm])
-class MyGatewayOrchestrator(AbstractOrchestrator):
-    async def agenerate(self, lm, messages_lst, **kwargs):
-        # Manage parallel calls with your gateway's rate limits
-        ...
-
-async def main():
-    lm = MyGatewayLM(your_gateway_client)
-    orchestrator = MyGatewayOrchestrator()
-    algorithm = SelfConsistency(orchestrator=orchestrator)
-    result = await algorithm.ainfer(lm, "What is 2+2?", budget=5)
-    print(result)  # {"role": "assistant", "content": "4", ...}
-
-asyncio.run(main())
-```
-
-The `AbstractOrchestrator` is the central coordination point — it controls how algorithms fan out parallel LM calls, enforces rate limits, and provides structured error handling. See [Orchestration](docs/orchestration.md) for details.
-
-### Example 2: Standalone Use with OpenAI-Compatible LM
-
 **Installation required:** `pip install its_hub[lm]`
 
 ```python
 import asyncio
 
-from its_hub import OpenAICompatibleLanguageModel, SelfConsistency
-
-lm = OpenAICompatibleLanguageModel(
-    endpoint="https://api.openai.com/v1",
-    api_key="your-api-key",
-    model_name="gpt-4o-mini",
+from its_hub import (
+    EntropicParticleFiltering,
+    OpenAICompatibleLanguageModel,
+    ParticleFiltering,
+    StepGeneration,
 )
 
-algorithm = SelfConsistency()
-result = algorithm.infer(lm, "What is the capital of France?", budget=3)
-print(result)  # Most common answer from 3 generations
+lm = OpenAICompatibleLanguageModel(
+    endpoint="http://localhost:8100/v1",  # vLLM endpoint with logprobs support
+    api_key="NO_API_KEY",
+    model_name="Qwen/Qwen2.5-7B-Instruct",
+)
+
+# chunk reasoning into steps on blank lines; stop once the model writes "Answer:"
+sg = StepGeneration(step_token="\n\n", stop_token="Answer:", max_steps=12)
+
+# Particle filtering with self-certainty weights (mean step logprob)
+pf = ParticleFiltering(sg=sg)
+result = pf.infer(lm, "What is 6 * 7? Reason step by step.", budget=4)
+print(result)  # {"role": "assistant", "content": "..."}
+
+# Entropic particle filtering (entropy signal, tempered resampling)
+epf = EntropicParticleFiltering(sg=sg, self_certainty_signal="entropy")
+result = epf.infer(lm, "What is 6 * 7? Reason step by step.", budget=4)
+print(result)
 
 # Close lm for resource cleanup
 asyncio.run(lm.close())
 ```
 
-### Example 3: Best-of-N with LLM Judge
+### Audio prompts
 
-**Installation required:** `pip install its_hub[lm]`
+Pass structured messages instead of a string — audio parts reach the model verbatim at every step:
 
 ```python
-import asyncio
+from its_hub.api.types import ChatMessage
 
-from its_hub import BestOfN, LLMJudge, OpenAICompatibleLanguageModel
-
-lm = OpenAICompatibleLanguageModel(
-    endpoint="https://api.openai.com/v1",
-    api_key="your-api-key",
-    model_name="gpt-4o-mini",
-)
-
-judge = LLMJudge(lm=lm, fallback_score=5.0)
-algorithm = BestOfN(orm=judge)
-result = algorithm.infer(lm, "Write a sorting function", budget=5)
-print(result)  # Best response as judged by LLM
-
-# Close lm for resource cleanup
-asyncio.run(lm.close())
+messages = [
+    ChatMessage(
+        role="user",
+        content=[
+            {"type": "input_audio", "input_audio": {"data": "<base64>", "format": "wav"}},
+            {"type": "text", "text": "What instrument is playing? A. piano B. violin"},
+        ],
+    )
+]
+result = pf.infer(lm, messages, budget=4)
 ```
+
+See [benchmarking/mmau_pro/](benchmarking/mmau_pro/) for a complete audio MCQ benchmark (MMAU-Pro on Qwen2.5-Omni).
 
 ## Key Features
 
-- 🔬 **Multiple Algorithms**: Self-Consistency, Best-of-N, Beam Search (experimental), Particle Filtering (experimental)
-- 🚀 **Gateway Integration**: Clean abstractions (`AbstractLanguageModel`, `AbstractOrchestrator`) for easy integration with AI gateways
-- 🔄 **Orchestration**: `AbstractOrchestrator` provides structured concurrency, rate limiting, and error propagation for parallel LM calls — essential for production gateway deployments
-- 🧮 **Math-Optimized**: Built for mathematical reasoning tasks
-- ⚡ **Async-First**: `ainfer()` is the primary method; `infer()` is a sync wrapper. Concurrent generation with limits and error handling
-- 🎯 **Minimal Core**: Only 2 dependencies (numpy, typing-extensions) for core install
-
-## Coding Agent Plugin
-
-its-hub is available as a plugin for two coding agents, bringing inference-time scaling directly into your coding workflow.
-
-<details>
-<summary><strong>Claude Code</strong></summary>
-
-**Via org marketplace** (recommended — includes all Red Hat AI plugins):
-```
-/plugin marketplace add Red-Hat-AI-Innovation-Team/plugins
-/plugin install its-hub@Red-Hat-AI-Innovation-Team/plugins
-```
-
-**Via this repo directly:**
-```
-/plugin marketplace add Red-Hat-AI-Innovation-Team/its_hub
-/plugin install its-hub@Red-Hat-AI-Innovation-Team/its_hub
-```
-
-**From a local clone:**
-```bash
-git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
-/plugin marketplace add /path/to/its_hub
-```
-</details>
-
-<details>
-<summary><strong>Codex CLI</strong></summary>
-
-```bash
-codex plugin marketplace add Red-Hat-AI-Innovation-Team/plugins
-```
-
-Then install the plugin from the marketplace. See `.codex-plugin/INSTALL.md` for manual installation.
-</details>
-
-### After Installing
-
-Invoke the `setup-guide` skill to configure your model endpoint and algorithm.
-
-| Skill | Description |
-|---|---|
-| `setup-guide` | Guided first-time configuration |
-| `inference-scaling` | Run inference-time scaling on a single prompt |
-| `batch-scaling` | Batch scaling from a JSONL/CSV/TXT file |
-
-For detailed documentation, visit: [https://ai-innovation.team/its_hub](https://ai-innovation.team/its_hub)
+- 🔬 **Particle filtering algorithms**: PF and EPF, weighted by the generator's own logprobs (self-certainty) — no reward model needed
+- 🎧 **Audio/multimodal support**: structured user content (e.g. `input_audio` parts) is carried verbatim through step-by-step generation
+- 🚀 **Gateway Integration**: clean abstractions (`AbstractLanguageModel`, `AbstractOrchestrator`) for easy integration with AI gateways
+- ⚡ **Async-First**: `ainfer()` is the primary method; `infer()` is a sync wrapper
+- 🎯 **Minimal Core**: only 2 dependencies (numpy, typing-extensions) for core install

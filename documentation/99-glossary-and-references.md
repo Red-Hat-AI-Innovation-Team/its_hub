@@ -8,8 +8,8 @@
 samples, search) to improve answer quality from a *fixed* model, rather than retraining. The premise of
 the whole library ([Chapter 1](01-the-problem.md)).
 
-**`budget`.** The integer compute allowance passed to every algorithm; its meaning is algorithm-specific
-(see the [cheat-sheet](README.md#the-budget-cheat-sheet)).
+**`budget`.** The integer compute allowance passed to every algorithm; for PF and ePF it is the number
+of particles maintained (see the [cheat-sheet](README.md#the-budget-cheat-sheet)).
 
 **`the_one`.** The single chosen response dict returned by every result object
 ([`api/algorithm.py:8-25`](../its_hub/api/algorithm.py#L8-L25)).
@@ -17,29 +17,25 @@ the whole library ([Chapter 1](01-the-problem.md)).
 **`ainfer` / `infer`.** The async primary entry point and its synchronous `asyncio.run` wrapper
 ([Chapter 2](02-architecture.md)).
 
-**Process Reward Model (PRM).** A reward model that scores a *partial* reasoning trajectory, step by
-step. Returns probability-like scores in $[0,1]$ (higher = better). Used by Beam Search and Particle
-Filtering. Interface: [`api/reward_models/prm.py`](../its_hub/api/reward_models/prm.py)
-([Chapter 4](04-reward-models.md)).
+**Reward models (PRM / ORM) — removed.** Earlier versions weighted particles with an external Process
+Reward Model (and offered ORM-based reranking). All reward models were removed from the library; the
+generator's own self-certainty is now the only weight source.
 
-**Outcome Reward Model (ORM).** A reward model that scores a *complete* conversation. Built-in example:
-`LLMJudge` (an LLM grading on a 0–10 scale). Used by Best-of-N. Interface:
-[`api/reward_models/orm.py`](../its_hub/api/reward_models/orm.py).
-
-**Process vs outcome supervision.** Judging the reasoning *as it unfolds* vs. judging only the final
-answer. Process supervision can prune bad paths early but needs a step-level model (Lightman et al.
-2023).
-
-**`aggregation_method`.** How `LocalVllmProcessRewardModel` collapses per-step PRM scores into one
-number: `"prod"` (multiply), `"mean"` (average), `"last"` (final step). **The only place per-step
-rewards are multiplied** ([Chapter 4](04-reward-models.md), [Chapter 7](07-particle-filtering.md)).
+**Self-certainty.** The generator's own confidence in a step, derived from its token logprobs: either
+the mean token logprob (default, `self_certainty_signal="mean_logprob"`) or the negative mean per-token
+entropy over the top-k alternatives (`"entropy"`). Summarized per step by `summarize_step_logprobs`
+([`core/utils.py`](../its_hub/core/utils.py)) and turned into a log-weight by
+`_self_certainty_logweight` ([`particle_filtering.py`](../its_hub/core/algorithms/particle_filtering.py)).
 
 **Particle.** One candidate reasoning trajectory in the particle filter — its steps, a stopped flag, and
-a history of log-weights ([`particle_gibbs.py:44-63`](../its_hub/core/algorithms/particle_gibbs.py#L44-L63)).
+a history of log-weights (the `Particle` dataclass in
+[`particle_filtering.py`](../its_hub/core/algorithms/particle_filtering.py)).
 
-**Log-weight.** A particle's weight in log-space. Here it is the **logit** of the PRM score:
-$w=\operatorname{logit}(s)=\ln\frac{s}{1-s}$, computed by `_inv_sigmoid`
-([`particle_gibbs.py:66-70`](../its_hub/core/algorithms/particle_gibbs.py#L66-L70)). See
+**Log-weight.** A particle's weight in log-space. With the default `self_certainty_style="logit"` it is
+the **logit** of the step's self-certainty: $w=\operatorname{logit}(s)=\ln\frac{s}{1-s}$ with
+$s=e^{\bar\ell}$ (mean step logprob), computed by `_inv_sigmoid` inside `_self_certainty_logweight`
+([`particle_filtering.py`](../its_hub/core/algorithms/particle_filtering.py)); style `"raw"` uses the
+confidence directly. Re-derived each step, not accumulated. See
 [Chapter 7](07-particle-filtering.md) for the full derivation.
 
 **Logit / inverse sigmoid.** $\operatorname{logit}(s)=\ln\frac{s}{1-s}$, the inverse of the sigmoid.
@@ -53,42 +49,40 @@ core of this library (Gordon et al. 1993; Doucet et al. 2001).
 proposal, corrected by weights. Resampling weights in the particle filter are importance weights.
 
 **Resampling.** Drawing a new particle population with replacement in proportion to weights — clones
-strong particles, drops weak ones. `multinomial` (i.i.d.) or `systematic` (low-variance comb)
-([`particle_gibbs.py:308-353`](../its_hub/core/algorithms/particle_gibbs.py#L308-L353)).
+strong particles, drops weak ones. `multinomial` (i.i.d.) or `systematic` (low-variance comb) —
+`_resampling_multinomial` / `_resampling_systematic` in
+[`particle_filtering.py`](../its_hub/core/algorithms/particle_filtering.py).
 
 **Effective Sample Size (ESS).** $\mathrm{ESS}=1/\sum_i p_i^2 \in [1,N]$. A diagnostic for weight
-concentration; low ESS signals degeneracy ([`particle_gibbs.py:228-243`](../its_hub/core/algorithms/particle_gibbs.py#L228-L243)).
+concentration; low ESS signals degeneracy (`_effective_sample_size` in
+[`particle_filtering.py`](../its_hub/core/algorithms/particle_filtering.py)).
 
 **Particle degeneracy.** The pathology where weight concentrates on one particle (ESS → 1). **Sample
 impoverishment** is the follow-on loss of diversity after resampling clones it. The problem ePF fights
 ([Chapter 8](08-entropic-particle-filtering.md)).
 
 **Normalized entropy.** $H_n = -\sum_i p_i\ln p_i / \ln N \in [0,1]$; another spread diagnostic, used by
-ePF's entropy temperature schedule ([`particle_gibbs.py:203-226`](../its_hub/core/algorithms/particle_gibbs.py#L203-L226)).
+ePF's entropy temperature schedule (`_entropy_n` in
+[`particle_filtering.py`](../its_hub/core/algorithms/particle_filtering.py)).
 
 **Entropic annealing / tempering.** Raising the resampling **temperature** $T>1$ to flatten the
 distribution (preserve diversity) early, annealing back to $T=1$ later. Tempered softmax
-$p_i(T)=\frac{e^{w_i/T}}{\sum_j e^{w_j/T}}$ ([Chapter 8](08-entropic-particle-filtering.md)).
-
-**Reference particle.** In Particle Gibbs (`num_iterations>1`), a surviving trajectory carried into the
-next sweep as a fixed anchor, making the sweeps an MCMC chain
-([Chapter 9](09-particle-gibbs.md)).
+$p_i(T)=\frac{e^{w_i/T}}{\sum_j e^{w_j/T}}$; implemented by ePF overriding `_weights_to_probabilities`
+([Chapter 8](08-entropic-particle-filtering.md)).
 
 **Orchestrator.** The component that fans out parallel LM calls with a concurrency cap
-(`LMOrchestrator` uses `asyncio.TaskGroup` + a thread-safe semaphore). Used by Self-Consistency and
-Best-of-N ([Chapter 3](03-generating-text.md)).
+(`LMOrchestrator` uses `asyncio.TaskGroup` + a thread-safe semaphore). Still part of the public API,
+though the particle filter drives generation through `StepGeneration` directly
+([Chapter 3](03-generating-text.md)).
 
-**StepGeneration.** The adapter that turns the LM into a one-step-at-a-time generator for Beam Search and
-Particle Filtering, stopping on `max_steps` or a `stop_token`
+**StepGeneration.** The adapter that turns the LM into a one-step-at-a-time generator for the particle
+filter, stopping on `max_steps` or a `stop_token`, and (with `return_logprobs=True`, which the filter
+always requests) returning a per-step logprob summary alongside each step
 ([`lms/step_generation.py`](../its_hub/core/lms/step_generation.py)).
 
-**Projection function.** In Self-Consistency, the map from a response to the value voted on (e.g. the
-boxed answer). Built via `create_regex_projection_function`
-([`self_consistency.py:316-375`](../its_hub/core/algorithms/self_consistency.py#L316-L375)).
-
-**PF / ePF / PG / PGAS.** Particle Filtering / Entropic PF / Particle Gibbs / PG with Ancestor Sampling —
-the four members of the `ParticleGibbs` family ([Chapter 9](09-particle-gibbs.md)). PGAS is scaffolded
-but `NotImplementedError`.
+**PF / ePF.** Particle Filtering and Entropic Particle Filtering — the two algorithms in the library
+(`ParticleFiltering` and its subclass `EntropicParticleFiltering`). The former `ParticleGibbs` family
+(PG, PGAS, multi-iteration sweeps, reference particles) was removed.
 
 ## References
 
@@ -99,24 +93,21 @@ but `NotImplementedError`.
   Roulette"*). arXiv:2502.01618. NeurIPS 2025.
   <https://arxiv.org/abs/2502.01618> · project page: <https://probabilistic-inference-scaling.github.io/>
   > **Direct lineage:** co-author **Kai Xu** is the author of `its_hub` (see
-  > [`pyproject.toml`](../pyproject.toml)). This library is the reference implementation of that paper;
-  > the particle-filtering machinery in [Chapter 7](07-particle-filtering.md) is the paper's method, and
-  > the example in [Chapter 12](12-running-it.md) reproduces its headline setup (Qwen2.5-Math-1.5B-Instruct
-  > + Qwen2.5-Math-PRM-7B).
+  > [`pyproject.toml`](../pyproject.toml)). This library began as the reference implementation of that
+  > paper; the particle-filtering machinery in [Chapter 7](07-particle-filtering.md) descends from the
+  > paper's method, though the library has since replaced the paper's PRM weighting with the
+  > generator's own self-certainty.
 
 ### Inference-time scaling & verification
 
 - **Wang, X., Wei, J., Schuurmans, D., Le, Q., Chi, E., et al. (2022).** *Self-Consistency Improves Chain
-  of Thought Reasoning in Language Models.* arXiv:2203.11171. — basis for
-  [Chapter 5](05-self-consistency-and-best-of-n.md). <https://arxiv.org/abs/2203.11171>
+  of Thought Reasoning in Language Models.* arXiv:2203.11171. — part of the methodology landscape
+  surveyed in [Chapter 1](01-the-problem.md). <https://arxiv.org/abs/2203.11171>
 - **Cobbe, K., Kosaraju, V., et al. (2021).** *Training Verifiers to Solve Math Word Problems* (GSM8K).
   arXiv:2110.14168. — the "generate many, rerank with a verifier" recipe behind Best-of-N.
   <https://arxiv.org/abs/2110.14168>
 - **Lightman, H., Kosaraju, V., Burda, Y., et al. (2023).** *Let's Verify Step by Step.* arXiv:2305.20050.
-  — process supervision / PRMs ([Chapter 4](04-reward-models.md)). <https://arxiv.org/abs/2305.20050>
-- **Uesato, J., Kushman, N., et al. (2022).** *Solving Math Word Problems with Process- and Outcome-Based
-  Feedback.* arXiv:2211.14275. — process vs. outcome reward.
-  <https://arxiv.org/abs/2211.14275>
+  — process supervision / PRMs ([Chapter 1](01-the-problem.md)). <https://arxiv.org/abs/2305.20050>
 - **Snell, C., Lee, J., Xu, K., & Kumar, A. (2024).** *Scaling LLM Test-Time Compute Optimally can be More
   Effective than Scaling Model Parameters.* arXiv:2408.03314. — the test-time-compute thesis.
   <https://arxiv.org/abs/2408.03314>
@@ -128,10 +119,6 @@ but `NotImplementedError`.
   (sample → weight → resample).
 - **Doucet, A., de Freitas, N., & Gordon, N. (eds.) (2001).** *Sequential Monte Carlo Methods in
   Practice.* Springer. — the standard SMC reference.
-- **Andrieu, C., Doucet, A., & Holenstein, R. (2010).** *Particle Markov Chain Monte Carlo Methods.*
-  J. R. Statist. Soc. B, 72(3), 269–342. — Particle Gibbs ([Chapter 9](09-particle-gibbs.md)).
-- **Lindsten, F., Jordan, M. I., & Schön, T. B. (2014).** *Particle Gibbs with Ancestor Sampling.* JMLR,
-  15, 2145–2184. — the PGAS refinement scaffolded in the code.
 - **Neal, R. M. (2001).** *Annealed Importance Sampling.* Statistics and Computing, 11(2), 125–139. —
   tempering, the idea behind entropic annealing ([Chapter 8](08-entropic-particle-filtering.md)).
 - **Del Moral, P., Doucet, A., & Jasra, A. (2006).** *Sequential Monte Carlo Samplers.* J. R. Statist.
@@ -139,10 +126,8 @@ but `NotImplementedError`.
 
 ### In-repo documents
 
-- [`docs/algorithms.md`](../docs/algorithms.md) — the user-facing algorithm overview (conceptual).
-- [`docs/PLANNING_WRAPPER.md`](../docs/PLANNING_WRAPPER.md) — planning wrapper user docs.
-- [`docs/orchestration.md`](../docs/orchestration.md) — orchestrator / gateway integration.
 - [`CLAUDE.md`](../CLAUDE.md) — developer commands and conventions.
+- [`snippets/`](snippets/) — runnable, GPU-free demonstrations referenced from the chapters.
 
 ---
 

@@ -106,8 +106,9 @@ class ChatMessages:
     def to_prompt(self) -> str:
         """Convert to prompt string representation.
 
-        This method is used by experimental algorithms (BeamSearch, ParticleGibbs, PlanningWrapper)
-        for backward compatibility. It converts chat messages to a simple string format.
+        This method is used by the step-by-step algorithms (ParticleFiltering,
+        EntropicParticleFiltering) for backward compatibility. It converts chat
+        messages to a simple string format.
         """
         if self._is_string:
             return self._str_or_messages
@@ -142,9 +143,9 @@ class ChatMessages:
         for msg in self._str_or_messages:
             if isinstance(msg.content, list):
                 for item in msg.content:
-                    if (
-                        isinstance(item, dict)
-                        and item.get("type") not in ("text", None)
+                    if isinstance(item, dict) and item.get("type") not in (
+                        "text",
+                        None,
                     ):
                         return True
         return False

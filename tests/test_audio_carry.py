@@ -9,7 +9,7 @@ import copy
 
 from its_hub import AbstractLanguageModel, StepGeneration
 from its_hub.api.types import ChatMessage, ChatMessages
-from its_hub.core.algorithms.particle_gibbs import ParticleFiltering
+from its_hub.core.algorithms.particle_filtering import ParticleFiltering
 
 
 def audio_user_msg(text: str, n_audio: int = 1) -> ChatMessage:
@@ -62,7 +62,7 @@ class AudioEchoMockLM(AbstractLanguageModel):
 
 def _run_pf(lm, messages, budget=3, max_steps=2):
     sg = StepGeneration(step_token="\n", max_steps=max_steps)
-    pf = ParticleFiltering(sg=sg, weight_source="self_certainty")
+    pf = ParticleFiltering(sg=sg)
     return pf.infer(lm, messages, budget=budget, return_response_only=False)
 
 

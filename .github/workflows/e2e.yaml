@@ -24,11 +24,13 @@ jobs:
         enable-cache: true
 
     - name: Install dependencies
-      run: uv sync --extra dev --extra research
+      run: |
+        uv sync --extra dev
+        uv pip install math-verify
 
     - name: Run e2e tests
       run: |
         uv run python tests/e2e/test_e2e.py \
           --endpoint ${{ env.VLLM_ENDPOINT }} \
           --model_name ${{ env.VLLM_MODEL }} \
-          --algorithms self-consistency
+          --algorithms particle-filtering

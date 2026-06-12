@@ -2,13 +2,11 @@
 
 import asyncio
 import threading
-import time
 
 import pytest
 
 from its_hub.api.types import ChatMessage
 from its_hub.core.orchestrator import LMOrchestrator, _ThreadSafeAsyncSemaphore
-
 
 # ---------------------------------------------------------------------------
 # Mock LM helpers
@@ -295,7 +293,7 @@ class TestLoopForwarding:
 
         current_loop = asyncio.get_running_loop()
         assert len(received_loops) == 3
-        assert all(l is current_loop for l in received_loops)
+        assert all(received is current_loop for received in received_loops)
 
     def test_sequential_sync_calls_no_stale_loop(self):
         """Repeated generate() calls must not raise RuntimeError from stale sessions."""

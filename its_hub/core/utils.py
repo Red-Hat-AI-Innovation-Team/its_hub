@@ -89,9 +89,7 @@ def summarize_step_logprobs(logprobs: dict | None) -> dict:
         return {"mean_logprob": 0.0, "entropy": None, "num_tokens": 0}
 
     content = logprobs.get("content") or []
-    token_logprobs = [
-        t.get("logprob") for t in content if t.get("logprob") is not None
-    ]
+    token_logprobs = [t.get("logprob") for t in content if t.get("logprob") is not None]
     num_tokens = len(token_logprobs)
     if num_tokens == 0:
         return {"mean_logprob": 0.0, "entropy": None, "num_tokens": 0}

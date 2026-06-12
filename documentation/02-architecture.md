@@ -2,9 +2,9 @@
 
 > *Previous: [The Problem](01-the-problem.md) · Next: [Generating Text](03-generating-text.md)*
 
-Before we open up any single algorithm, let's meet the shared contracts. Every algorithm in `its_hub`
-plugs into the same five abstractions, and once you know them, each algorithm becomes "just" a different
-way of orchestrating these pieces.
+Before we open up the algorithm, let's meet the shared contracts. Everything in `its_hub` plugs into
+the same four abstractions, and once you know them, the algorithm becomes "just" a particular way of
+orchestrating these pieces.
 
 ## `api/` vs `core/` — interfaces vs implementations
 
@@ -16,14 +16,10 @@ its_hub/
 │   ├── lm.py              AbstractLanguageModel
 │   ├── algorithm.py       AbstractScalingAlgorithm, AbstractScalingResult
 │   ├── orchestrator.py    AbstractOrchestrator
-│   ├── types.py           ChatMessage, ChatMessages
-│   └── reward_models/
-│       ├── prm.py         AbstractProcessRewardModel
-│       └── orm.py         AbstractOutcomeRewardModel
+│   └── types.py           ChatMessage, ChatMessages
 └── core/     ← IMPLEMENTATIONS (may change between versions)
-    ├── algorithms/        self_consistency, bon, beam_search, particle_gibbs, planning_wrapper
+    ├── algorithms/        particle_filtering (ParticleFiltering, EntropicParticleFiltering)
     ├── lms/               openai_lm (OpenAICompatibleLanguageModel), step_generation
-    ├── reward_models/     llm_judge (LLMJudge), local_vllm_prm (LocalVllmProcessRewardModel)
     └── orchestrator.py    LMOrchestrator
 ```
 
@@ -31,22 +27,22 @@ The rule of thumb stated by the project: **import from the top-level `its_hub` p
 `its_hub.api`**; treat `its_hub.core` as internal. A *gateway* (someone wiring their own model
 infrastructure into these algorithms) implements the `api/` interfaces and never touches `core/`.
 
-This split is also why the dependency footprint is so small. The `api/` layer and the simplest
-algorithms need only `numpy`. `OpenAICompatibleLanguageModel` lives in `core/lms` and is gated behind
-the `[lm]` extra; the GPU reward model behind `[experimental]`. The top-level
-[`its_hub/__init__.py`](../its_hub/__init__.py) imports the heavy pieces inside `try/except` blocks, so
-`from its_hub import SelfConsistency` works on a bare install while `OpenAICompatibleLanguageModel`
-simply isn't exported if its extra isn't present.
+This split is also why the dependency footprint is so small. The `api/` layer and the algorithms need
+only `numpy`. `OpenAICompatibleLanguageModel` lives in `core/lms` and is gated behind the `[lm]` extra
+(the remaining extras are `[dev]` and `[benchmark]`, the latter for the MMAU-Pro audio benchmark). The
+top-level [`its_hub/__init__.py`](../its_hub/__init__.py) imports the heavy pieces inside `try/except`
+blocks, so `from its_hub import ParticleFiltering` works on a bare install while
+`OpenAICompatibleLanguageModel` simply isn't exported if its extra isn't present. The full top-level
+export list: `ParticleFiltering`, `EntropicParticleFiltering`, `ParticleFilteringResult`,
+`StepGeneration`, `LMOrchestrator`, the four abstractions below, and (with `[lm]`)
+`OpenAICompatibleLanguageModel`.
 
-## The five abstractions
+## The four abstractions
 
 ```mermaid
 flowchart LR
     A[AbstractScalingAlgorithm<br/>ainfer / infer] -->|fans out via| O[AbstractOrchestrator<br/>parallel LM calls]
     O -->|calls| LM[AbstractLanguageModel<br/>agenerate_single]
-    A -->|scores with| RM{Reward Model}
-    RM --> PRM[AbstractProcessRewardModel<br/>per-step]
-    RM --> ORM[AbstractOutcomeRewardModel<br/>whole answer]
     A -->|returns| R[AbstractScalingResult<br/>.the_one]
 ```
 
@@ -59,10 +55,12 @@ async def agenerate_single(self, messages: list[ChatMessage], stop=None, **kwarg
     ...
 ```
 
-It returns a **response dict** of the form `{"role": "assistant", "content": "...", "tool_calls": [...]}`
-— *text and tool calls, nothing else*. **There are no token logprobs in this contract.** Hold that
-thought; it is the single most important fact for understanding where particle weights come from
-(spoiler: not from the model). We unpack it in [Chapter 3](03-generating-text.md).
+It returns a **response dict** of the form `{"role": "assistant", "content": "...", "tool_calls": [...]}`.
+The contract is deliberately loose: extra parameters travel through `**kwargs`, and the built-in
+implementation uses exactly that to request **token logprobs** (`logprobs=True`, `top_logprobs=k`),
+attaching them to the response dict as `message["_logprobs"]`. This is where particle weights come from
+— the generator's *own* token probabilities, no separate judge. We unpack it in
+[Chapter 3](03-generating-text.md).
 
 ### 2. `AbstractScalingAlgorithm` — the strategy
 Every algorithm subclasses this. The interface is one async method plus a free sync wrapper:
@@ -104,8 +102,8 @@ class AbstractScalingResult(ABC):
         """Return the selected best response."""
 ```
 
-Each algorithm's concrete result adds its own "receipts": Self-Consistency adds the vote `Counter`,
-Best-of-N adds `scores`, Particle Filtering adds `log_weights_lst`, and so on. This is how you inspect
+The concrete result, `ParticleFilteringResult`, adds its own "receipts": all particle `responses`,
+their final `log_weights_lst`, the `selected_index`, and `steps_used_lst`. This is how you inspect
 *why* a particular answer won — invaluable for debugging and for the demos in
 [`snippets/`](snippets/).
 
@@ -116,17 +114,13 @@ rate limits, error propagation — so algorithms don't each reinvent it. Its cor
 `LMOrchestrator` uses `asyncio.TaskGroup` + a thread-safe semaphore; details in
 [Chapter 3](03-generating-text.md).
 
-> Note: only **Self-Consistency** and **Best-of-N** currently route through the orchestrator. The
-> step-by-step algorithms (Beam Search, Particle Filtering) batch their LM calls directly through
-> `StepGeneration` instead. We flag this each time it matters.
+> Note: Particle Filtering does **not** currently route through the orchestrator — it batches its LM
+> calls directly through `StepGeneration` (which uses the LM's batched `agenerate` path). The
+> orchestrator remains part of the public API as the integration seam for gateways.
 
-### 5. The reward models — the judges
-Two flavors, covered in depth in [Chapter 4](04-reward-models.md):
-
-- **`AbstractProcessRewardModel`** (PRM): `score(prompt, steps) -> list[float]` — judges *partial*
-  reasoning. Used by Beam Search and Particle Filtering.
-- **`AbstractOutcomeRewardModel`** (ORM): `score(messages) -> float | list[float]` — judges *complete*
-  conversations. Used by Best-of-N (`LLMJudge` is the built-in example).
+There used to be a fifth abstraction — the reward models (PRM/ORM) that judged candidate text. They are
+gone: the only weighting signal is now the generator's own token logprobs (self-certainty), so there is
+nothing left to plug a judge into.
 
 ## The universal vocabulary
 

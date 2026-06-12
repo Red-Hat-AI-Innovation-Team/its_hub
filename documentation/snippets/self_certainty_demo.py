@@ -13,14 +13,15 @@ It shows:
            log-weight, via the two transform styles:
              (i)  'logit': s = exp(mean_logprob) in (0,1], then _inv_sigmoid(s)
              (ii) 'raw'  : use the mean logprob directly as the log-weight
-  PART 2 — the REAL ParticleFiltering(weight_source='self_certainty') running end-to-end,
-           weighting/resampling particles purely from the generator's confidence.
+  PART 2 — the REAL ParticleFiltering running end-to-end (self-certainty is the only
+           weight source), weighting/resampling particles purely from the generator's
+           confidence.
 """
 
 import math
 
 from its_hub import AbstractLanguageModel, StepGeneration
-from its_hub.core.algorithms.particle_gibbs import ParticleFiltering, _inv_sigmoid
+from its_hub.core.algorithms.particle_filtering import ParticleFiltering, _inv_sigmoid
 from its_hub.core.utils import summarize_step_logprobs
 
 
@@ -92,13 +93,12 @@ class _LogprobMockLM(AbstractLanguageModel):
 
 def part2_real_particle_filtering() -> None:
     print("\n" + "=" * 72)
-    print("PART 2 — real ParticleFiltering(weight_source='self_certainty'), no PRM")
+    print("PART 2 — real ParticleFiltering (self-certainty weights), no reward model")
     print("=" * 72)
 
     sg = StepGeneration(step_token="\n", max_steps=3)
     pf = ParticleFiltering(
         sg=sg,
-        weight_source="self_certainty",
         self_certainty_signal="mean_logprob",
         self_certainty_style="logit",
     )

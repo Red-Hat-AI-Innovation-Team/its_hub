@@ -16,12 +16,14 @@ The repo's own docs use `uv`; we built a dedicated **conda** env instead. Python
 # 1) create the env
 conda create -n epf python=3.11 -y
 
-# 2) install the library editable, with all the extras we want
-#    dev        → pytest, ruff, jupyter, + lm + iaas
-#    research   → math-verify, datasets, matplotlib (benchmarks/eval)
-#    experimental → transformers, reward-hub[prm]  (pulls torch + vLLM; GPU)
-/home/exx/miniconda3/envs/epf/bin/python -m pip install -e ".[dev,research]"
-/home/exx/miniconda3/envs/epf/bin/python -m pip install -e ".[experimental]"
+# 2) install the library editable, with the extras we want
+#    lm        → openai, aiohttp, backoff (the OpenAICompatibleLanguageModel deps)
+#    dev       → [lm] + pytest, pytest-asyncio, ruff
+#    benchmark → [lm] + click, pandas, pyarrow (the MMAU-Pro audio benchmark)
+/home/exx/miniconda3/envs/epf/bin/python -m pip install -e ".[dev,benchmark]"
+
+# (optional) math-verify for the e2e math harness, vLLM to serve models locally
+/home/exx/miniconda3/envs/epf/bin/python -m pip install math-verify vllm
 ```
 
 > ### ⚠️ Gotcha #1 — `conda activate epf` does **not** win PATH on this machine
@@ -46,30 +48,28 @@ conda create -n epf python=3.11 -y
 
 ### What got installed (verified on Blackwell)
 
-The `[experimental]` resolve pulled a recent GPU stack that **works on sm_120 out of the box** — no
-manual CUDA wrangling was needed:
+The GPU stack (installed for *serving* models — the library itself no longer imports torch/vLLM)
+**works on sm_120 out of the box** — no manual CUDA wrangling was needed:
 
 | Package | Version | Note |
 |---|---|---|
 | torch | `2.11.0+cu130` | CUDA 13 wheels; `torch.cuda.is_available()` → `True` |
-| vLLM | `0.22.1` | serves the instruction model + backs the PRM |
-| reward-hub | `0.1.10` | the PRM provider behind `LocalVllmProcessRewardModel` |
+| vLLM | `0.22.1` | serves the generator model (and exposes `logprobs`, which PF needs) |
 | transformers | `4.57.3` | (vLLM warns it prefers v5; harmless here) |
 
-`torch.cuda.get_device_capability(0)` returns `(12, 0)` and sees **2** GPUs. The whole import chain
-(`vllm`, `reward_hub`, `LocalVllmProcessRewardModel`) loads cleanly. The CLAUDE.md note about commenting
-out `reward_hub`/`vllm` on dependency trouble was **not** needed here, but keep it in your back pocket
-for other machines.
+`torch.cuda.get_device_capability(0)` returns `(12, 0)` and sees **2** GPUs. Note there is no
+reward-hub / PRM stack anymore — particle weights come from the generator's own logprobs
+(self-certainty), so the only model you serve is the generator.
 
 ## Running the tests
 
 The unit suite is **mock-based** — no GPU, no server, no API key — and is the fastest way to confirm the
-env and to exercise the EPF/PF/Beam/SC/BoN code paths.
+env and to exercise the PF/EPF code paths.
 
 ```bash
 # all unit tests (exclude the e2e suite, which needs a live endpoint)
 /home/exx/miniconda3/envs/epf/bin/python -m pytest tests/ --ignore=tests/e2e -q
-# → 216 passed in ~4s   (verified)
+# → 91 passed in ~4s   (verified)
 
 # lint
 /home/exx/miniconda3/envs/epf/bin/python -m ruff check its_hub/
@@ -93,97 +93,79 @@ Notes:
 There are two paths. **Which one to run live is deferred** until after you've digested these docs — but
 both are ready.
 
-### Path A — Local vLLM + Particle Filtering (no API key; uses the GPUs)
+### Path A — Local vLLM + Particle Filtering on math (no API key; uses the GPUs)
 
-This is the path that actually exercises the repo's namesake algorithm. It needs **two** models: an
-*instruction* model served by vLLM (the generator) and a *process reward* model loaded by
-`LocalVllmProcessRewardModel` (the judge). With 96 GB cards, both fit comfortably.
+This is the path that actually exercises the repo's namesake algorithm. It needs **one** model: a
+generator served by vLLM. There is no reward model — the particle weights come from the generator's own
+token logprobs, so the only requirement on the endpoint is that it supports `logprobs` (vLLM does).
 
 ```bash
-# Terminal 1 — serve the instruction model (OpenAI-compatible) on :8100
+# Terminal 1 — serve the generator (OpenAI-compatible) on :8100
 conda run -n epf vllm serve Qwen/Qwen2.5-Math-1.5B-Instruct --port 8100
 
-# Terminal 2 — run the bundled particle-filtering example against it
-conda run -n epf python examples/test_math_example.py
+# Terminal 2 — run the math e2e harness (MATH500 / AIME subsets) against it
+conda run -n epf python tests/e2e/test_e2e.py \
+    --endpoint http://localhost:8100/v1 \
+    --model_name Qwen/Qwen2.5-Math-1.5B-Instruct \
+    --verbose
 ```
 
-The example ([`examples/test_math_example.py`](../examples/test_math_example.py)) wires up exactly the
-pieces from Chapters 3–8:
+The harness ([`tests/e2e/test_e2e.py`](../tests/e2e/test_e2e.py)) wires up exactly the pieces from
+Chapters 3–8; the minimal version by hand is:
 
 ```python
+from its_hub import (EntropicParticleFiltering, OpenAICompatibleLanguageModel,
+                     ParticleFiltering, StepGeneration)
+
 lm  = OpenAICompatibleLanguageModel(endpoint="http://localhost:8100/v1", api_key="NO_API_KEY",
                                     model_name="Qwen/Qwen2.5-Math-1.5B-Instruct",
                                     system_prompt=SAL_STEP_BY_STEP_SYSTEM_PROMPT)
 sg  = StepGeneration(step_token="\n\n", max_steps=32, stop_token=r"\boxed")
-prm = LocalVllmProcessRewardModel(model_name="Qwen/Qwen2.5-Math-PRM-7B", device="cuda:0",
-                                  aggregation_method="prod")     # ← the "prod" from Chapter 4
-scaling_alg = ParticleFiltering(sg, prm)
-result = scaling_alg.infer(lm, problem, budget=...)              # budget = number of particles
+scaling_alg = ParticleFiltering(sg)        # no prm — self-certainty weights
+result = scaling_alg.infer(lm, problem, budget=...)   # budget = number of particles
 ```
 
-To run **Entropic** PF instead, swap the last two lines for
-`EntropicParticleFiltering(sg, prm)`. The first run downloads the models from Hugging Face (the 7B PRM is
-the big one). Put the PRM on the second GPU with `device="cuda:1"` to keep it off the vLLM card.
+To run **Entropic** PF instead, swap the algorithm line for `EntropicParticleFiltering(sg)`. The first
+run downloads the model from Hugging Face. Math answer-checking uses `math-verify` (install it in the
+env; it's not part of any extra).
 
-### Path B — Cloud API + Self-Consistency / Best-of-N (no GPU)
+### Path B — Audio: the MMAU-Pro benchmark (Qwen2.5-Omni via vLLM)
 
-The whole-answer algorithms work against any OpenAI-compatible endpoint and need only the `[lm]` deps
-(already in our env).
+The audio path runs PF/ePF on MMAU-Pro MCQ items, carrying the audio user turn through the step loop
+verbatim (see [audio-mmau-changes.md](audio-mmau-changes.md)). It needs the `[benchmark]` extra
+(click, pandas, pyarrow) and a served Qwen2.5-Omni:
 
 ```bash
-export OPENAI_API_KEY=sk-...                       # keys come from the ENV, never config files
-conda run -n epf python examples/self-consistency.py
+conda run -n epf python -m benchmarking.mmau_pro.run_mmau \
+    --endpoint http://localhost:8100/v1 --model-name qwen-omni \
+    --data-root /home/exx/inference-time-scaling/mmau_pro_testmini --subset full \
+    --prompt-methods 2,4 --arms baseline,pf,epf --budgets 4 \
+    --audio-mode local-path --item-concurrency 10 \
+    --output mmau_results.jsonl
 ```
 
-[`examples/self-consistency.py`](../examples/self-consistency.py) points
-`OpenAICompatibleLanguageModel` at `https://api.openai.com/v1` and demonstrates tool-call voting
-(`tool_vote="tool_hierarchical"`). Best-of-N with `LLMJudge` is the same shape (see
-[`docs/quick-start.md`](../docs/quick-start.md), Example 2).
+See [`benchmarking/mmau_pro/run_mmau.py`](../benchmarking/mmau_pro/run_mmau.py) for all flags and
+[`benchmarking/mmau_pro/RESULTS.md`](../benchmarking/mmau_pro/RESULTS.md) for recorded runs.
 
-| | Path A (local PF/ePF) | Path B (cloud SC/BoN) |
+| | Path A (math PF/ePF) | Path B (audio PF/ePF) |
 |---|---|---|
-| Needs GPU | yes (instruction + 7B PRM) | no |
-| Needs API key | no | yes |
-| Exercises | the namesake algorithm + PRM | voting / judging |
-| Extra | `[experimental]` | `[lm]` |
-
-## The plugin path (`its_scale.sh`)
-
-This repo also ships as a Claude Code / Codex plugin. The bash entry point
-[`scripts/its_scale.sh`](../scripts/its_scale.sh) reads config from `.its-hub/config.json` (endpoints +
-model + algorithm; **API keys still come from env vars**) and calls
-[`scripts/_its_scale_runner.py`](../scripts/_its_scale_runner.py). Note that the plugin **deliberately
-refuses** particle filtering and beam search
-([`_its_scale_runner.py:33-39`](../scripts/_its_scale_runner.py#L33-L39)):
-
-```python
-if algorithm in ("particle-filtering", "beam-search"):
-    print("ERROR: ... requires process reward models and is experimental in v1. "
-          "Use the Python API directly for advanced algorithms.", file=sys.stderr)
-    sys.exit(1)
-```
-
-So the plugin covers the GPU-free algorithms (Self-Consistency, Best-of-N); for PF/ePF use the Python
-API as in Path A.
-
-## Benchmarking & evaluation
-
-- [`benchmarking/benchmark.py`](../benchmarking/benchmark.py) — compares algorithms across budgets on
-  MATH500 / AIME-2024 (needs the `[research]` extra, already installed). See `--help`.
-- [`eval/score.py`](../eval/score.py) — scoring utilities; [`docs/benchmarking.md`](../docs/benchmarking.md)
-  has the full story.
-- Math answer-checking uses `math-verify` (the `[research]` extra), which is why benchmarks need it.
+| Needs GPU | yes (the generator) | yes (Qwen2.5-Omni) |
+| Needs API key | no | no |
+| Exercises | the namesake algorithm on MATH500/AIME | the audio base_messages carry |
+| Extra | `[lm]` (+ `math-verify`) | `[benchmark]` |
 
 ## Quick reference card
 
 ```bash
 PY=/home/exx/miniconda3/envs/epf/bin/python   # or: conda run -n epf python
 
-$PY -m pytest tests/ --ignore=tests/e2e -q     # 216 unit tests, ~4s
+$PY -m pytest tests/ --ignore=tests/e2e -q     # 91 unit tests, ~4s
 $PY -m ruff check its_hub/                      # lint
 $PY -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_capability(0))"
-conda run -n epf vllm serve Qwen/Qwen2.5-Math-1.5B-Instruct --port 8100   # path A, terminal 1
-conda run -n epf python examples/test_math_example.py                     # path A, terminal 2
+conda run -n epf vllm serve Qwen/Qwen2.5-Math-1.5B-Instruct --port 8100               # path A, terminal 1
+conda run -n epf python tests/e2e/test_e2e.py --endpoint http://localhost:8100/v1 \
+    --model_name Qwen/Qwen2.5-Math-1.5B-Instruct                                      # path A, terminal 2
+conda run -n epf python -m benchmarking.mmau_pro.run_mmau --help                      # path B (audio)
 ```
 
 ---

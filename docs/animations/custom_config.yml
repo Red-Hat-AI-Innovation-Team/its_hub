@@ -1,8 +1,0 @@
-# docs/animations/custom_config.yml
-camera:
-  resolution: (960, 540)
-  background_color: "#FAFAFA"
-  fps: 15
-directories:
-  subdirs:
-    output: "output"

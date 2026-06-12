@@ -106,6 +106,7 @@ def test_build_messages_structured_audio():
 
 @pytest.mark.skipif(not os.path.isdir(DATA_ROOT), reason="MMAU-Pro data not present")
 def test_real_testmini_has_957_mcq():
+    pytest.importorskip("pandas", reason="loader needs pandas to read the parquet")
     from benchmarking.mmau_pro.loader import load_mmau_mcq
 
     recs = load_mmau_mcq(DATA_ROOT, subset="full", require_audio_exists=False)

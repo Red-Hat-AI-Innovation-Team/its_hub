@@ -20,6 +20,12 @@ the **MMAU-Pro** audio MCQ benchmark, using the generator's *own* self-certainty
 This report names every change. (Group 1 was committed separately as "added generator log probs";
 Groups 2–3 are the audio/benchmark work.)
 
+> **Update (post-refactor):** the library has since been pruned to **PF/EPF-only** —
+> Self-Consistency, Best-of-N, Beam Search, Particle Gibbs, and all reward models (the entire PRM
+> path) were removed, and `particle_gibbs.py` was renamed to `particle_filtering.py`. Self-certainty
+> is now the *only* weight source (PF always requests logprobs). Bracketed notes below mark where
+> this report's narrative has been overtaken by that refactor.
+
 ---
 
 ## File-by-file summary
@@ -29,7 +35,7 @@ Groups 2–3 are the audio/benchmark work.)
 | `its_hub/core/lms/openai_lm.py` | modified | request + capture token logprobs |
 | `its_hub/core/utils.py` | modified | summarize a step's logprobs |
 | `its_hub/core/lms/step_generation.py` | modified | return logprobs per step **+ carry structured (audio) messages** |
-| `its_hub/core/algorithms/particle_gibbs.py` | modified | self-certainty weight source **+ thread audio messages through PF/EPF** |
+| `its_hub/core/algorithms/particle_gibbs.py` (since renamed `particle_filtering.py`) | modified | self-certainty weight source **+ thread audio messages through PF/EPF** |
 | `its_hub/api/types.py` | modified | tolerate audio content; helpers to detect/carry structured messages |
 | `tests/test_self_certainty.py` | new | self-certainty weight tests (9) |
 | `tests/test_audio_carry.py` | new | audio-carry tests (9) |
@@ -40,6 +46,7 @@ Groups 2–3 are the audio/benchmark work.)
 content part is just a dict in `ChatMessage.content`, which `to_dict()` already passes through, and the
 vLLM `continue_final_message` path was already wired). Beam Search, Self-Consistency, Best-of-N, and the
 PRM path (`local_vllm_prm.py`) were left untouched — out of scope for the audio PF/EPF experiment.
+[Since removed entirely: those algorithms and all reward models no longer exist in the library.]
 
 ---
 
@@ -76,13 +83,16 @@ log-probabilities," which is what makes PF/EPF usable on audio (where no PRM exi
   enabled, both the single and batch paths return a **3-tuple** `(next_step, is_stopped,
   logprob_summary)` instead of the usual 2-tuple.
 
-### `its_hub/core/algorithms/particle_gibbs.py`
-- Added enum **`WeightSource { PRM, SELF_CERTAINTY }`**.
+### `its_hub/core/algorithms/particle_gibbs.py` (since renamed `particle_filtering.py`)
+- Added enum **`WeightSource { PRM, SELF_CERTAINTY }`**. [Since removed: self-certainty is now the
+  only weight source, so the enum and the `weight_source=` kwarg are gone.]
 - `ParticleGibbs.__init__(...)`: made **`prm` optional** (`AbstractProcessRewardModel | None = None`);
   added **`weight_source`**, **`self_certainty_signal`** (`"mean_logprob" | "entropy"`),
   **`self_certainty_style`** (`"logit" | "raw"`), **`top_logprobs`**. Added validation (require `prm`
   when `weight_source == PRM`; validate signal/style; auto-set `top_logprobs=20` for the entropy signal);
-  stored the new attributes.
+  stored the new attributes. [Since removed: `ParticleGibbs` and the `prm`/`weight_source` kwargs are
+  gone — `ParticleFiltering.__init__` now takes only `sg`, `final_response_selection`,
+  `resampling_method`, `self_certainty_signal`, `self_certainty_style`, `top_logprobs`.]
 - Added method **`_self_certainty_logweight(summary)`**: maps a step's logprob summary to a particle
   log-weight. Both signals reduce to a confidence `c ≤ 0` (`mean_logprob`, or `-entropy`); style `"raw"`
   uses `c` directly, style `"logit"` uses `_inv_sigmoid(exp(c))` (so it reuses the exact same transform
@@ -90,15 +100,19 @@ log-probabilities," which is what makes PF/EPF usable on audio (where no PRM exi
 - `_apropagate(...)`: branched on `weight_source`. The **self-certainty** branch calls
   `sg.aforward(..., return_logprobs=True, top_logprobs=...)` and appends
   `_self_certainty_logweight(summary)` to each particle's `partial_log_weights` — **no PRM call**. The
-  **PRM** branch is the original code, unchanged.
+  **PRM** branch is the original code, unchanged. [Since removed: the PRM branch was deleted; the
+  self-certainty path is the only path and logprobs are always requested.]
 - `ParticleFiltering.__init__` and `EntropicParticleFiltering.__init__`: made `prm` optional and threaded
   the four new parameters (`weight_source`, `self_certainty_signal`, `self_certainty_style`,
-  `top_logprobs`) through to `super().__init__`.
+  `top_logprobs`) through to `super().__init__`. [Since removed: `prm`/`weight_source` are gone from
+  both ctors; only the three self-certainty parameters remain.]
 
 ### `tests/test_self_certainty.py` (new — 9 tests)
 A `LogprobMockLM` emitting fake logprobs; tests for `summarize_step_logprobs`, the
 `_self_certainty_logweight` signal×style matrix, end-to-end PF/EPF with `weight_source="self_certainty"`,
-and the `prm`-required / invalid-option guards.
+and the `prm`-required / invalid-option guards. [The `prm`-required guard test went away with the
+kwarg; the suite now covers the summaries, the signal×style matrix, end-to-end PF/EPF, and the
+invalid-option guards.]
 
 ---
 
@@ -133,15 +147,17 @@ steps stay text; only the user turn stays structured.
   across all particles (so the multi-MB audio payload isn't duplicated per particle in Python). A shallow
   `list(base_messages)` copy avoids mutating the caller's list.
 
-### `its_hub/core/algorithms/particle_gibbs.py`
+### `its_hub/core/algorithms/particle_gibbs.py` (since renamed `particle_filtering.py`)
 - `_apropagate(...)`: added a **`base_messages`** parameter, forwarded to `sg.aforward(...)`.
 - `ParticleGibbs.ainfer(...)`: after normalizing input, computes once
   **`carry_structured = chat_messages.has_nontext_content()`**,
   **`base_messages = chat_messages.base_user_messages() if carry_structured else None`**, and keeps
-  `prompt_str = chat_messages.to_prompt()` (used for logging / the PRM path). The propagation loop now
+  `prompt_str = chat_messages.to_prompt()` (used for logging / the PRM path — the PRM path has since
+  been removed; `prompt_str` remains for the plain-text path). The propagation loop now
   passes both `prompt_str` and `base_messages` to `_apropagate`. (The old `# TODO: support native
   ChatMessages` comment was removed since this implements it.) `ParticleFiltering`/`EntropicParticleFiltering`
-  inherit this for free (they call `super().ainfer`).
+  inherit this for free (they call `super().ainfer`). [Since the rename, `ainfer` lives directly on
+  `ParticleFiltering`.]
 
 ### `tests/test_audio_carry.py` (new — 9 tests)
 An `AudioEchoMockLM` that **records the exact messages it receives**, used to assert: the `input_audio`
@@ -192,8 +208,8 @@ New package **`benchmarking/mmau_pro/`** (kept out of the library import surface
 - **`run_mmau.py`** — click CLI; the main evaluation runner.
   - `build_algorithm(arm, max_steps)` — constructs `StepGeneration(step_token="\n\n",
     stop_token="Answer:", max_steps=…)` so reasoning is **chunked into PF/EPF steps on blank lines**, and
-    builds baseline/PF/EPF with `weight_source="self_certainty"` (PF: `mean_logprob`/`logit`; EPF:
-    `entropy`).
+    builds baseline/PF/EPF weighted by self-certainty (PF: `self_certainty_signal="mean_logprob"`,
+    style `"logit"`; EPF: `self_certainty_signal="entropy"`).
   - Loops over **prompt-methods × arms × budgets × records**; tags each row with `method`; writes a
     **resumable** JSONL keyed by `(unique_id, method, arm, budget)`; per-item try/except so one failure
     doesn't abort the sweep; `report()` prints accuracy per `(prompt, arm, budget)`. Flags include

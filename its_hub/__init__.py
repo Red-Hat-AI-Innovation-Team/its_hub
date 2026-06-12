@@ -1,20 +1,23 @@
 """
-A Python library for inference-time scaling LLMs
+A Python library for inference-time scaling LLMs with particle filtering
 """
 
 from importlib.metadata import version
 
-# Core - Algorithm implementations (always available)
+# Core - abstractions and algorithm implementations (always available)
 from its_hub.api import (
     AbstractLanguageModel,
     AbstractOrchestrator,
-    AbstractOutcomeRewardModel,
-    AbstractProcessRewardModel,
     AbstractScalingAlgorithm,
     AbstractScalingResult,
 )
-from its_hub.core.algorithms.bon import BestOfN
-from its_hub.core.algorithms.self_consistency import SelfConsistency
+from its_hub.core.algorithms.particle_filtering import (
+    EntropicParticleFiltering,
+    ParticleFiltering,
+    ParticleFilteringResult,
+)
+from its_hub.core.lms.step_generation import StepGeneration
+from its_hub.core.orchestrator import LMOrchestrator
 
 __version__ = version("its_hub")
 
@@ -26,27 +29,23 @@ __all__ = [  # noqa: RUF022
     "AbstractLanguageModel",
     "AbstractOrchestrator",
     "AbstractScalingAlgorithm",
-    "AbstractOutcomeRewardModel",
-    "AbstractProcessRewardModel",
     "AbstractScalingResult",
     # Algorithms
-    "SelfConsistency",
-    "BestOfN",
+    "ParticleFiltering",
+    "EntropicParticleFiltering",
+    "ParticleFilteringResult",
+    # Step generation and orchestration
+    "StepGeneration",
+    "LMOrchestrator",
 ]
 
 # Optional LM implementations - only available if [lm] extra is installed
 try:
     from its_hub.core.lms.openai_lm import OpenAICompatibleLanguageModel
-    from its_hub.core.lms.step_generation import StepGeneration
-    from its_hub.core.orchestrator import LMOrchestrator
-    from its_hub.core.reward_models.llm_judge import LLMJudge
 
     __all__.extend(
         [
-            "LLMJudge",
-            "LMOrchestrator",
             "OpenAICompatibleLanguageModel",
-            "StepGeneration",
         ]
     )
 except ImportError:

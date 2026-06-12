@@ -1,6 +1,6 @@
 # Chapter 8 — Entropic Particle Filtering: The Namesake
 
-> *Previous: [Particle Filtering](07-particle-filtering.md) · Next: [Particle Gibbs & the Family](09-particle-gibbs.md)*
+> *Previous: [Particle Filtering](07-particle-filtering.md) · Next: [Putting It Together](11-putting-it-together.md)*
 
 This repository is called **entropic-particle-filter** for the algorithm in this chapter. Everything so
 far has been building toward it. **Entropic Particle Filtering (ePF)** is plain particle filtering plus
@@ -9,8 +9,8 @@ particle swarm doesn't collapse onto a single lucky trajectory before it has exp
 adjective is literal — one of the temperature schedules is driven by the **entropy** of the weight
 distribution.
 
-([`its_hub/core/algorithms/particle_gibbs.py`](../its_hub/core/algorithms/particle_gibbs.py), class
-`EntropicParticleFiltering` at lines 560-618.)
+([`its_hub/core/algorithms/particle_filtering.py`](../its_hub/core/algorithms/particle_filtering.py),
+class `EntropicParticleFiltering`, a subclass of `ParticleFiltering`.)
 
 ## The problem it solves: degeneracy and impoverishment
 
@@ -27,16 +27,22 @@ uncertainty is high, then sharpen them as the trajectories mature. ePF implement
 
 ## The mechanism: temperature on the resampling softmax
 
-The entire intervention is four lines, right after the normal softmax in the resampling step
-([`particle_gibbs.py:427-433`](../its_hub/core/algorithms/particle_gibbs.py#L427-L433)):
+The entire intervention lives in one override:
+`EntropicParticleFiltering._weights_to_probabilities`, the hook the base class calls each outer step to
+turn log-weights into the resampling distribution
+([`particle_filtering.py`](../its_hub/core/algorithms/particle_filtering.py)):
 
 ```python
-# its_hub/core/algorithms/particle_gibbs.py:427-433
-if self.does_entropic_annealing:
-    temperature = self._temperature_annealing(probabilities, current_step, num_free_particles)
-    log_weights = np.array(log_weights)
-    probabilities = _softmax(log_weights * (1 / temperature))   # tempered resampling distribution
+# its_hub/core/algorithms/particle_filtering.py — EntropicParticleFiltering
+def _weights_to_probabilities(self, log_weights, current_step, num_particles):
+    probabilities = _softmax(log_weights)
+    temperature = self._temperature_annealing(probabilities, current_step, num_particles)
+    # apply temperature annealing to the log weights
+    return _softmax(np.asarray(log_weights) * (1 / temperature))   # tempered resampling distribution
 ```
+
+(Plain `ParticleFiltering._weights_to_probabilities` is just `_softmax(log_weights)`; there is no
+`does_entropic_annealing` flag anymore — subclassing *is* the switch.)
 
 Mathematically, the resampling probabilities become a **tempered softmax** with temperature $T$:
 
@@ -54,10 +60,10 @@ Because $T \ge 1$ always (it's clamped, below), ePF only ever *flattens*, never 
 ## When does it intervene? The gate
 
 Crucially, $T>1$ is applied **only when the swarm is actually collapsing, and only early**. The gate is
-in `_temperature_annealing` ([`particle_gibbs.py:280-306`](../its_hub/core/algorithms/particle_gibbs.py#L280-L306)):
+in `EntropicParticleFiltering._temperature_annealing`:
 
 ```python
-# its_hub/core/algorithms/particle_gibbs.py:290-306
+# its_hub/core/algorithms/particle_filtering.py — _temperature_annealing
 progress = current_step / self.max_steps
 entropy_n = self._entropy_n(probabilities)
 ess = self._effective_sample_size(probabilities)
@@ -87,11 +93,11 @@ crank up the temperature; otherwise leave it at 1."* Two intuitive knobs:
 
 Both are computed on the *current* softmax probabilities.
 
-**Effective Sample Size** ([`particle_gibbs.py:228-243`](../its_hub/core/algorithms/particle_gibbs.py#L228-L243)):
+**Effective Sample Size** (`_effective_sample_size`):
 
 $$ \mathrm{ESS} = \frac{1}{\sum_i p_i^2}, \qquad \mathrm{ess\_ratio} = \frac{\mathrm{ESS}}{N}\in(0,1]. $$
 
-**Normalized entropy** ([`particle_gibbs.py:203-226`](../its_hub/core/algorithms/particle_gibbs.py#L203-L226)):
+**Normalized entropy** (`_entropy_n`):
 
 $$ H_n = \frac{-\sum_i p_i \ln p_i}{\ln N} \in [0,1]. $$
 
@@ -105,19 +111,17 @@ All three return $T = \max(1.0, \text{value})$ so they can only flatten. They di
 `value`.
 
 ### 1. ESS-based (the ePF default) — `_temperature_ess`
-([`particle_gibbs.py:264-278`](../its_hub/core/algorithms/particle_gibbs.py#L264-L278))
 
 $$ T_{\mathrm{ESS}} = \max\!\Big(1,\; \tfrac{1}{\mathrm{ess\_ratio}}\,(1-\mathrm{progress})\Big). $$
 
 The more collapsed the swarm (smaller `ess_ratio`), the *larger* the temperature — directly proportional
 to the severity of the collapse. The $(1-\mathrm{progress})$ factor anneals it toward $1$ as generation
 proceeds. *Worked example from the test suite*
-([`tests/test_entropic_annealing.py:162-170`](../tests/test_entropic_annealing.py#L162-L170)):
+(`test_temperature_functions` in [`tests/test_entropic_annealing.py`](../tests/test_entropic_annealing.py)):
 `ess_ratio=0.2, progress=0.2` ⟹ $\frac{1}{0.2}(1-0.2) = 5 \times 0.8 = 4.0$;
 `ess_ratio=0.5, progress=0.8` ⟹ $2 \times 0.2 = 0.4 \to \max(1, 0.4) = 1.0$.
 
 ### 2. Entropy-based — `_temperature_entropy`
-([`particle_gibbs.py:254-262`](../its_hub/core/algorithms/particle_gibbs.py#L254-L262))
 
 $$ \beta = H_n + (1 - H_n)\,\mathrm{progress}, \qquad T_{H} = \max\!\Big(1, \tfrac{1}{\beta}\Big). $$
 
@@ -125,16 +129,15 @@ When entropy is high ($H_n\to 1$), $\beta\to 1$ and $T\to 1$ — no need to inte
 diverse. When entropy is low ($H_n\to 0$) *and* it's early ($\mathrm{progress}\to 0$), $\beta\to 0$ and
 $T$ grows large — strong flattening. As `progress` $\to 1$, $\beta\to 1$ regardless, annealing $T$ back
 to baseline. This is the schedule that most literally earns the name *entropic*. *Test*
-([`test_entropic_annealing.py:172-181`](../tests/test_entropic_annealing.py#L172-L181)): `H_n=0.5,
+(`test_temperature_functions`): `H_n=0.5,
 progress=0.3` ⟹ $1/(0.5 + 0.5\cdot0.3)=1/0.65\approx1.538$; `H_n=1.0` ⟹ $T=1.0$.
 
 ### 3. Base (linear) — `_temperature_base`
-([`particle_gibbs.py:245-252`](../its_hub/core/algorithms/particle_gibbs.py#L245-L252))
 
 $$ T_{\mathrm{base}} = \max\!\big(1,\; v_{\max} - \mathrm{progress}\big), \quad v_{\max}=2.0 \text{ by default}. $$
 
 The simplest: ignore the swarm's state, just decay linearly from $v_{\max}$ toward $1$ as generation
-proceeds. *Test* ([`test_entropic_annealing.py:183-191`](../tests/test_entropic_annealing.py#L183-L191)):
+proceeds. *Test* (`test_temperature_functions`):
 `v_max=2.0, progress=0.5` ⟹ $1.5$; `v_max=0.8, progress=0.5` ⟹ $\max(1, 0.3)=1.0$.
 
 ### The shape, sketched
@@ -155,34 +158,36 @@ proceeds. *Test* ([`test_entropic_annealing.py:183-191`](../tests/test_entropic_
 
 ## How `EntropicParticleFiltering` is wired
 
-The convenience class fixes the right defaults
-([`particle_gibbs.py:560-587`](../its_hub/core/algorithms/particle_gibbs.py#L560-L587)):
+The subclass fixes the right defaults (constructor in
+[`particle_filtering.py`](../its_hub/core/algorithms/particle_filtering.py)):
 
 ```python
 EntropicParticleFiltering(
-    sg, prm,
+    sg,
     final_response_selection=SelectionMethod.ARGMAX,
     resampling_method=ResamplingMethod.SYSTEMATIC,   # lower-variance, diversity-friendly
-    temperature_method=TemperatureMethod.ESS,        # the adaptive default
+    temperature_method=TemperatureMethod.ESS,        # the adaptive default ("ess"|"entropy"|"base")
     ess_threshold=0.5,
     early_phase=0.5,
+    self_certainty_signal="mean_logprob",            # or "entropy"  (passed through to the base class)
+    self_certainty_style="logit",                    # or "raw"
+    top_logprobs=None,
 )
-# ≡ ParticleGibbs(num_iterations=1, does_entropic_annealing=True, num_ref_particles=0, ...)
 ```
 
-So ePF = particle filtering (`num_iterations=1`) with `does_entropic_annealing=True`, **systematic**
-resampling, and the **ESS** schedule. Everything else — the logit weights, the softmax, the
+So ePF = `ParticleFiltering` with **systematic** resampling, the **ESS** schedule, and the tempered
+`_weights_to_probabilities` override. (No `prm=` — the weights come from self-certainty, exactly as in
+Chapter 7.) Everything else — the logit weights, the softmax, the
 `ParticleFilteringResult`, `the_one` — is inherited unchanged from [Chapter 7](07-particle-filtering.md).
 Note ePF flattens **only the resampling distribution**; the underlying log-weights (and thus the final
-`ARGMAX` selection) are not tempered.
+`ARGMAX` selection) are not tempered — final selection re-softmaxes the raw log-weights.
 
 ## Why this matters
 
 On easy problems, ePF behaves like plain PF — `ess_ratio` stays healthy, the gate never fires, $T=1$. On
 **hard, long** problems where naive PF would prematurely commit, ePF detects the early collapse and holds
 the swarm open long enough to find the good reasoning path. This is the algorithmic contribution the
-repository is named for. The existing user docs describe it qualitatively
-([`docs/algorithms.md`](../docs/algorithms.md)); this chapter is the mechanism.
+repository is named for; this chapter is the mechanism.
 
 A runnable demo that evaluates all three schedules across `progress` values (mirroring the test
 assertions, no GPU needed) is in
@@ -190,5 +195,5 @@ assertions, no GPU needed) is in
 
 ---
 
-*Next: [Chapter 9 — Particle Gibbs & the Family](09-particle-gibbs.md): the one class that generates all
-four variants.*
+*Next: [Chapter 11 — Putting It Together](11-putting-it-together.md): one end-to-end trace and the
+mental model.*

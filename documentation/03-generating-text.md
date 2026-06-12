@@ -1,30 +1,30 @@
-# Chapter 3 — Generating Text: The Machinery (and Why No Logprobs Flow)
+# Chapter 3 — Generating Text: The Machinery (and How Logprobs Flow)
 
-> *Previous: [Architecture](02-architecture.md) · Next: [Reward Models](04-reward-models.md)*
+> *Previous: [Architecture](02-architecture.md) · Next: [Particle Filtering](07-particle-filtering.md)*
 
 This chapter follows a single generation request from an algorithm down to the HTTP call and back. Pay
 special attention to the last section — it answers one half of the user's headline question:
 *"are they getting just the output from the model, or are they getting log-weights too?"* The answer,
-which we prove from the code, is **just the text output**.
+which we prove from the code, is **text plus the model's own token logprobs** — Particle Filtering
+always requests them, and they are the raw material of the particle weights.
 
 ## Three pieces of machinery
 
 ```mermaid
 flowchart TD
-    ALG[Algorithm<br/>SelfConsistency / BestOfN] -->|to_batch budget| ORC[LMOrchestrator.agenerate<br/>TaskGroup + semaphore]
-    ORC -->|N concurrent calls| LM[OpenAICompatibleLanguageModel<br/>agenerate_single]
+    ALG[ParticleFiltering / EntropicPF] --> SGEN[StepGeneration.aforward<br/>one reasoning step at a time]
+    SGEN -->|stop=step_token, logprobs=true| LM[OpenAICompatibleLanguageModel]
     LM -->|aiohttp POST| API[/v1/chat/completions/]
-    API -->|choices0.message| LM
-    SGEN[StepGeneration.aforward<br/>step-by-step algos] -->|stop=step_token| LM
-    BEAM[BeamSearch / ParticleFiltering] --> SGEN
+    API -->|choices0.message + logprobs| LM
+    ORC[LMOrchestrator.agenerate<br/>TaskGroup + semaphore] -->|N concurrent calls| LM
 ```
 
-There are **two ways** an algorithm drives the LM:
+There are **two ways** to drive the LM:
 
-1. **Whole-answer algorithms** (Self-Consistency, Best-of-N) ask the **orchestrator** for `budget`
-   complete responses at once.
-2. **Step-by-step algorithms** (Beam Search, Particle Filtering) drive **`StepGeneration`**, which asks
-   the LM for *one reasoning step at a time*.
+1. The **orchestrator** fans out a batch of complete-response requests concurrently — this is the
+   gateway-facing seam (no built-in algorithm currently uses it).
+2. **`StepGeneration`** asks the LM for *one reasoning step at a time* — this is what Particle
+   Filtering drives, batching all particles into a single call per step.
 
 We take them in turn.
 
@@ -42,50 +42,67 @@ A few design points worth knowing:
   expected to `await lm.close()` (or use `async with lm:`) for clean shutdown
   ([`openai_lm.py:129-161`](../its_hub/core/lms/openai_lm.py#L129-L161)).
 - **Retries with exponential backoff.** Both `agenerate_single` and the legacy `_agenerate` wrap the
-  HTTP call in `@backoff.on_exception(backoff.expo, RETRYABLE_ERRORS, max_tries=...)`
-  ([`openai_lm.py:398-404`](../its_hub/core/lms/openai_lm.py#L398-L404)) and can optionally swallow
+  HTTP call (the inner `fetch_response`) in
+  `@backoff.on_exception(backoff.expo, RETRYABLE_ERRORS, max_tries=...)` and can optionally swallow
   errors into a placeholder message via `replace_error_with_message`.
 - **vLLM vs OpenAI quirks.** For vLLM endpoints it can set `add_generation_prompt=False` /
   `continue_final_message=True` so a partially-written assistant turn is *continued* rather than
-  restarted — essential for step-by-step generation ([`openai_lm.py:192-203`](../its_hub/core/lms/openai_lm.py#L192-L203)).
-- **`agenerate` is deprecated** in favor of `agenerate_single` + orchestrator
-  ([`openai_lm.py:357-362`](../its_hub/core/lms/openai_lm.py#L357-L362)).
+  restarted — essential for step-by-step generation (see the `endpoint_type == "vllm"` branch of
+  `_prepare_request_data`).
+- **`agenerate` is deprecated** in favor of `agenerate_single` + orchestrator — but note it is still
+  the batch path `StepGeneration` uses to advance all particles in one call.
 
 ### What goes *out* in the request
 
 The request body is assembled in `_prepare_request_data`
-([`openai_lm.py:163-239`](../its_hub/core/lms/openai_lm.py#L163-L239)). It can contain `model`,
-`messages`, `stop`, `max_tokens`, `temperature`, `tools`, `tool_choice`, and `response_format`. **It
-never contains a `logprobs` field.** The library does not ask the API for token probabilities.
+([`openai_lm.py`](../its_hub/core/lms/openai_lm.py)). It can contain `model`, `messages`, `stop`,
+`max_tokens`, `temperature`, `tools`, `tool_choice`, and `response_format` — and, when the caller asks
+(`logprobs=True`, optionally `top_logprobs=k`), a **`logprobs` field requesting token probabilities**:
+
+```python
+# its_hub/core/lms/openai_lm.py (_prepare_request_data, end)
+# request token logprobs (used to derive self-certainty particle weights)
+if logprobs:
+    request_data["logprobs"] = True
+    if top_logprobs is not None:
+        request_data["top_logprobs"] = top_logprobs
+```
+
+Particle Filtering *always* sets this (it calls `StepGeneration.aforward(..., return_logprobs=True)`),
+so in practice every PF step request carries `logprobs: true`.
 
 ### What comes *back* in the response
 
 ```python
-# its_hub/core/lms/openai_lm.py:430-438 (inside agenerate_single)
+# its_hub/core/lms/openai_lm.py (inside agenerate_single)
 response_json = await response.json()
 choice = response_json["choices"][0]
 message = dict(choice["message"])
+if choice.get("logprobs") is not None:
+    message["_logprobs"] = choice["logprobs"]
 if self.include_raw_choices:
     message["_raw_choice"] = {**choice, "message": dict(choice["message"])}
 return message
 ```
 
-Only `choice["message"]` is extracted — i.e. `{"role", "content", "tool_calls"}`. Even when
-`include_raw_choices=True`, the preserved `_raw_choice` is the *choice* object the server returned
-(index, message, finish_reason); the code does not request or surface token-level `logprobs`.
+`choice["message"]` is extracted — i.e. `{"role", "content", "tool_calls"}` — and, when the server
+returned them, the token-level `logprobs` object is attached as `message["_logprobs"]`. (With
+`include_raw_choices=True` the whole *choice* object — index, message, finish_reason — is preserved
+too.)
 
 > ### ⛳ The pivotal fact
-> **The LM hands back text (and tool calls). It does not hand back log-probabilities.** So when later
-> chapters talk about a particle's "log weight," that number does **not** come from the model's token
-> probabilities. It comes entirely from a **reward model** ([Chapter 4](04-reward-models.md)) scoring
-> the text, with the log transform applied by the *algorithm*. We will see the exact line in
-> [Chapter 7](07-particle-filtering.md).
+> **The LM hands back text (and tool calls) *plus*, when asked, its own token log-probabilities.** A
+> particle's "log weight" comes *entirely* from those generator logprobs — there is no separate reward
+> model anywhere in the library. Each step's `_logprobs` is condensed by `summarize_step_logprobs`
+> (`its_hub/core/utils.py`) into `mean_logprob` / `entropy`, which the algorithm turns into a
+> log-weight. We will see the exact line in [Chapter 7](07-particle-filtering.md).
 
 ## The orchestrator: structured concurrency
 
-When Self-Consistency wants `budget` samples, it doesn't loop — it hands a *batch* to the orchestrator.
-The built-in `LMOrchestrator` ([`its_hub/core/orchestrator.py`](../its_hub/core/orchestrator.py)) fans
-out with Python 3.11's `asyncio.TaskGroup` and bounds concurrency with a **thread-safe** semaphore:
+When a caller wants a *batch* of complete responses, it doesn't loop — it hands the batch to the
+orchestrator. The built-in `LMOrchestrator`
+([`its_hub/core/orchestrator.py`](../its_hub/core/orchestrator.py)) fans out with Python 3.11's
+`asyncio.TaskGroup` and bounds concurrency with a **thread-safe** semaphore:
 
 ```python
 # its_hub/core/orchestrator.py:115-141
@@ -111,13 +128,13 @@ Two subtleties:
   that spins up fresh loops. Default `max_concurrency=32`; `-1` means unlimited.
 
 This is the seam a gateway team customizes: implement `AbstractOrchestrator` with your own rate-limiting
-policy and every algorithm inherits it for free. (See the user-facing
-[`docs/orchestration.md`](../docs/orchestration.md) for the integration story.)
+policy. (Note: Particle Filtering itself currently bypasses the orchestrator and batches through
+`StepGeneration` — the orchestrator is kept as the gateway integration point.)
 
 ## `StepGeneration`: one reasoning step at a time
 
-Beam Search and Particle Filtering don't want a whole answer — they want to grow a solution *step by
-step* so a reward model can judge each step. `StepGeneration`
+Particle Filtering doesn't want a whole answer — it wants to grow a solution *step by step* so each
+step can be weighted as it lands. `StepGeneration`
 ([`its_hub/core/lms/step_generation.py`](../its_hub/core/lms/step_generation.py)) is the adapter that
 turns the LM into a step emitter.
 
@@ -131,29 +148,37 @@ You configure it with **exactly one** of:
 The heart is `aforward`, which builds the running prompt and calls the LM with `stop=step_token`:
 
 ```python
-# its_hub/core/lms/step_generation.py:132-145 (single-prompt path)
+# its_hub/core/lms/step_generation.py (aforward, single-prompt path)
 next_step_response = await lm.agenerate(
     messages, stop=self.step_token, max_tokens=self.tokens_per_step,
     temperature=self._get_temperature(messages),
     include_stop_str_in_output=self.include_stop_str_in_output, tools=tools, tool_choice=tool_choice,
+    **logprob_kwargs,
 )
 next_step = extract_content_from_lm_response(next_step_response)
 is_stopped = len(steps_so_far) >= self.max_steps
 if self.stop_token:
     is_stopped = is_stopped or self.stop_token in next_step
+if return_logprobs:
+    summary = summarize_step_logprobs(next_step_response.get("_logprobs"))
+    return next_step, is_stopped, summary
+return next_step, is_stopped
 ```
 
-Three things to notice:
+Four things to notice:
 
 1. **The "is this done?" decision is made *here*, not by the model's `finish_reason`.** A step-by-step
-   trajectory stops when it hits `max_steps` **or** the `stop_token` appears in the generated text
-   ([`step_generation.py:142-144`](../its_hub/core/lms/step_generation.py#L142-L144)).
+   trajectory stops when it hits `max_steps` **or** the `stop_token` appears in the generated text.
 2. **The growing trajectory is replayed each step.** Prior steps are folded back into the prompt as an
-   assistant message via `_post_process` ([`step_generation.py:54-71`](../its_hub/core/lms/step_generation.py#L54-L71)),
-   and `aforward` has a **batched** path ([`step_generation.py:146-190`](../its_hub/core/lms/step_generation.py#L146-L190))
-   so *all* beams/particles advance one step in a single batched LM call.
-3. **`_post_process(steps, stopped=True)`** reassembles the steps into the full response string — this
-   exact string is what gets handed to the reward model for scoring (next chapter).
+   assistant message via `_post_process`, and `aforward` has a **batched** path so *all* particles
+   advance one step in a single batched LM call.
+3. **`aforward(..., return_logprobs=True)` returns a third element per step** — the
+   `summarize_step_logprobs` dict (`mean_logprob`, `entropy`, `num_tokens`) condensed from the
+   `_logprobs` the LM attached. Particle Filtering always passes `return_logprobs=True` (plus its
+   `top_logprobs` setting); the logprob kwargs are only forwarded to the LM when requested, so LMs and
+   mocks that predate logprob support keep working unchanged.
+4. **`_post_process(steps, stopped=True)`** reassembles the steps into the full response string — this
+   exact string becomes the particle's entry in `ParticleFilteringResult.responses`.
 
 ### `ChatMessage` / `ChatMessages`
 
@@ -163,12 +188,12 @@ wrapper ([`its_hub/api/types.py`](../its_hub/api/types.py)). Two helpers you'll 
 
 - `to_batch(size)` — make `size` identical copies of a conversation for parallel sampling
   ([`types.py:101-104`](../its_hub/api/types.py#L101-L104)). This is how `budget` becomes N requests.
-- `to_prompt()` — flatten a conversation back to a single string, used by the "legacy" step-by-step
-  algorithms that still pass prompts as strings ([`types.py:106-131`](../its_hub/api/types.py#L106-L131)).
+- `to_prompt()` — flatten a conversation back to a single string, used by the step-by-step path, which
+  still passes prompts as strings ([`types.py:106-131`](../its_hub/api/types.py#L106-L131)).
 
 ---
 
-With text flowing and proven logprob-free, we can meet the components that actually produce the numbers
-the search algorithms optimize: the **reward models**.
+With text *and* token logprobs flowing, we can watch the algorithm turn those logprobs into the numbers
+it optimizes: the **particle weights**.
 
-*Next: [Chapter 4 — Reward Models](04-reward-models.md).*
+*Next: [Chapter 7 — Particle Filtering](07-particle-filtering.md).*

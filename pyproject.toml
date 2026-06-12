@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "its_hub"
-description = "A Python library for inference-time scaling LLMs"
+description = "A Python library for inference-time scaling LLMs with particle filtering"
 authors = [
     {name = "Kai Xu and the Red Hat AI Innovation Team", email = "xuk@redhat.com"}
 ]
@@ -26,9 +26,6 @@ dependencies = [
     "typing-extensions>=4.12.2",
 ]
 
-[project.scripts]
-# its-iaas removed for MVP - will be added back in [iaas] extra if needed
-
 [tool.setuptools_scm]
 version_file = "its_hub/_version.py"
 # do not include +gREV local version, required for Test PyPI upload
@@ -47,36 +44,21 @@ lm = [
     "requests",
 ]
 
-iaas = [
-    "its_hub[lm]",
-    "fastapi>=0.115.5",
-    "uvicorn",
-    "pydantic>=2.7.2",
-    "click>=8.1.0",
-]
-
 dev = [
-    "its_hub[lm,iaas]",
+    "its_hub[lm]",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
     "ruff>=0.10.0",
     "python-dotenv>=1.0.0",
-    "jupytext>=1.15.0",
-    "jupyter>=1.0.0",
 ]
 
-# Experimental - not officially supported in MVP
-experimental = [
+# For running the MMAU-Pro audio benchmark (benchmarking/mmau_pro/)
+benchmark = [
     "its_hub[lm]",
-    "transformers>=4.53.2",
-    "reward-hub[prm]>=0.1.10",
-]
-
-research = [
-    "math-verify>=0.1.0",  # For mathematical reasoning evaluation in benchmark scripts
-    "datasets>=2.0.0",     # For loading benchmark datasets (MATH500, AIME)
-    "matplotlib>=3.5.0",   # For visualization scripts
+    "click>=8.1.0",
+    "pandas>=2.0.0",   # parquet loading in benchmarking/mmau_pro/loader.py
+    "pyarrow>=14.0.0",
 ]
 
 [tool.setuptools]
@@ -86,7 +68,6 @@ package-dir = {"" = "."}
 where = ["."]
 include = [
     "its_hub",
-    "its_hub.algorithms",
     "its_hub.api",
     "its_hub.api.*",
     "its_hub.core",

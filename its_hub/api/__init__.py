@@ -20,8 +20,6 @@ from .errors import (
 )
 from .lm import AbstractLanguageModel
 from .orchestrator import AbstractOrchestrator
-from .reward_models.orm import AbstractOutcomeRewardModel
-from .reward_models.prm import AbstractProcessRewardModel
 from .types import ChatMessage, ChatMessages
 
 __all__ = [  # noqa: RUF022
@@ -30,9 +28,6 @@ __all__ = [  # noqa: RUF022
     "AbstractScalingResult",
     # Language model abstractions
     "AbstractLanguageModel",
-    # Reward model abstractions
-    "AbstractOutcomeRewardModel",
-    "AbstractProcessRewardModel",
     # Orchestrator abstraction
     "AbstractOrchestrator",
     # Common types

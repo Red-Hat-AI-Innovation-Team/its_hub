@@ -148,7 +148,9 @@ class StepGeneration:
             logging.info("Generating step %s/%s", current_step, self.max_steps)
 
             if base_messages is not None:
-                messages = list(base_messages)  # shallow copy; don't mutate caller's list
+                messages = list(
+                    base_messages
+                )  # shallow copy; don't mutate caller's list
             else:
                 messages = [ChatMessage(role="user", content=prompt)]
             if steps_so_far:
