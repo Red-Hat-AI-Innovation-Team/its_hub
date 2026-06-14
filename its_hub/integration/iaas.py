@@ -3,6 +3,7 @@
 Provides an OpenAI-compatible API server for inference-time scaling algorithms.
 """
 
+import json
 import logging
 import time
 import uuid
@@ -11,6 +12,7 @@ from typing import Any
 import click
 import uvicorn
 from fastapi import FastAPI, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from its_hub import OpenAICompatibleLanguageModel, SelfConsistency
@@ -34,6 +36,7 @@ app = FastAPI(
 # Global state - TODO: Replace with proper dependency injection in production
 LM_DICT: dict[str, OpenAICompatibleLanguageModel] = {}
 SCALING_ALG: Any | None = None  # TODO: Add proper type annotation
+CONFIGURED_BUDGET: int = 4  # Default budget, overridden by /configure
 
 
 class ConfigRequest(BaseModel):
@@ -96,9 +99,12 @@ class ConfigRequest(BaseModel):
 async def config_service(request: ConfigRequest) -> dict[str, str]:
     """Configure the IaaS service with language model and scaling algorithm."""
 
-    global LM_DICT, SCALING_ALG
+    global LM_DICT, SCALING_ALG, CONFIGURED_BUDGET
 
-    logger.info(f"Configuring service with model={request.model}, alg={request.alg}")
+    if request.budget is not None:
+        CONFIGURED_BUDGET = request.budget
+
+    logger.info(f"Configuring service with model={request.model}, alg={request.alg}, budget={CONFIGURED_BUDGET}")
 
     try:
         # Configure language model based on provider
@@ -229,14 +235,117 @@ class ChatCompletionResponse(BaseModel):
     )
 
 
+async def _stream_chat_completions(request: ChatCompletionRequest) -> StreamingResponse:
+    """Handle streaming requests by buffering ITS result then sending as SSE chunks."""
+
+    async def _generate():
+        response_id = f"chatcmpl-{uuid.uuid4()}"
+        created = int(time.time())
+
+        try:
+            lm = LM_DICT[request.model]
+        except KeyError:
+            yield f"data: {json.dumps({'error': f'Model {request.model} not found'})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        if SCALING_ALG is None:
+            yield f"data: {json.dumps({'error': 'Service not configured'})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        if request.temperature is not None:
+            lm.temperature = request.temperature
+
+        chat_messages = ChatMessages(list(request.messages))
+
+        effective_budget = request.budget or CONFIGURED_BUDGET
+        logger.info(
+            f"Streaming request: model={request.model}, budget={effective_budget}"
+        )
+        algorithm_result = await SCALING_ALG.ainfer(
+            lm,
+            chat_messages,
+            effective_budget,
+            return_response_only=True,
+            tools=request.tools,
+            tool_choice=request.tool_choice,
+        )
+
+        response_message = algorithm_result
+        content = response_message.get("content")
+        tool_calls = response_message.get("tool_calls")
+
+        if tool_calls:
+            for i, tc in enumerate(tool_calls):
+                chunk = {
+                    "id": response_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": request.model,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [{
+                                "index": i,
+                                "id": tc.get("id", f"call_{uuid.uuid4().hex[:24]}"),
+                                "type": "function",
+                                "function": {
+                                    "name": tc.get("function", {}).get("name", ""),
+                                    "arguments": tc.get("function", {}).get("arguments", "{}"),
+                                },
+                            }],
+                        },
+                        "finish_reason": None,
+                    }],
+                }
+                yield f"data: {json.dumps(chunk)}\n\n"
+
+            done_chunk = {
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": request.model,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+            }
+            yield f"data: {json.dumps(done_chunk)}\n\n"
+
+        elif content:
+            content_chunk = {
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": request.model,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": content},
+                    "finish_reason": None,
+                }],
+            }
+            yield f"data: {json.dumps(content_chunk)}\n\n"
+
+            done_chunk = {
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": request.model,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            }
+            yield f"data: {json.dumps(done_chunk)}\n\n"
+
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
 @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResponse:
     """Generate chat completion with inference-time scaling."""
     if request.stream:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Streaming responses not yet implemented",
-        )
+        return await _stream_chat_completions(request)
 
     try:
         lm = LM_DICT[request.model]
@@ -262,15 +371,16 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
         # Convert Pydantic ChatMessage objects to list if needed
         chat_messages = ChatMessages(list(request.messages))
 
+        effective_budget = request.budget or CONFIGURED_BUDGET
         logger.info(
-            f"Processing request for model={request.model}, budget={request.budget}"
+            f"Processing request for model={request.model}, budget={effective_budget}"
         )
 
         # Generate response using scaling algorithm with full conversation context
         algorithm_result = await SCALING_ALG.ainfer(
             lm,
             chat_messages,
-            request.budget,
+            effective_budget,
             return_response_only=request.return_response_only,
             tools=request.tools,
             tool_choice=request.tool_choice,
