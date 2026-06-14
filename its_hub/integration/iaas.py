@@ -55,6 +55,10 @@ class ConfigRequest(BaseModel):
     regex_patterns: list[str] | None = Field(
         None, description="Regex patterns for self-consistency projection function"
     )
+    budget: int | None = Field(
+        None,
+        description="Default budget for requests that don't specify one",
+    )
     tool_vote: str | None = Field(
         None,
         description="Tool voting strategy: 'tool_name', 'tool_args', 'tool_hierarchical'",
