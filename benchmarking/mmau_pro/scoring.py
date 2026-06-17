@@ -60,6 +60,15 @@ def extract_letter(text: str, num_choices: int) -> int | None:
     if not text:
         return None
     valid = LETTERS[:num_choices]
+    # 0) explicit \boxed{X} — an unambiguous final-answer marker (take the last).
+    #    No _is_option_token guard: the braces already disambiguate (and "}" is not
+    #    in that helper's trailing-punctuation set, so it would wrongly reject A/I).
+    for m in reversed(
+        list(re.finditer(r"\\boxed\s*\{\s*\(?([A-K])", text, re.IGNORECASE))
+    ):
+        c = m.group(1).upper()
+        if c in valid:
+            return valid.index(c)
     # 1) explicit "Answer: X" (take the last such marker)
     for m in reversed(
         list(re.finditer(r"answer\s*[:\-]?\s*\(?([A-K])\b", text, re.IGNORECASE))
