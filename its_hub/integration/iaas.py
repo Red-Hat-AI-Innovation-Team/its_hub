@@ -37,6 +37,7 @@ app = FastAPI(
 LM_DICT: dict[str, OpenAICompatibleLanguageModel] = {}
 SCALING_ALG: Any | None = None  # TODO: Add proper type annotation
 CONFIGURED_BUDGET: int = 4  # Default budget, overridden by /configure
+CONFIGURED_TEMPERATURE: float | None = None  # Default temperature, overridden by /configure
 
 
 class ConfigRequest(BaseModel):
@@ -58,6 +59,12 @@ class ConfigRequest(BaseModel):
     budget: int | None = Field(
         None,
         description="Default budget for requests that don't specify one",
+    )
+    temperature: float | None = Field(
+        None,
+        ge=0.0,
+        le=2.0,
+        description="Default sampling temperature (overrides per-request temperature from upstream)",
     )
     tool_vote: str | None = Field(
         None,
@@ -103,10 +110,12 @@ class ConfigRequest(BaseModel):
 async def config_service(request: ConfigRequest) -> dict[str, str]:
     """Configure the IaaS service with language model and scaling algorithm."""
 
-    global LM_DICT, SCALING_ALG, CONFIGURED_BUDGET
+    global LM_DICT, SCALING_ALG, CONFIGURED_BUDGET, CONFIGURED_TEMPERATURE
 
     if request.budget is not None:
         CONFIGURED_BUDGET = request.budget
+    if request.temperature is not None:
+        CONFIGURED_TEMPERATURE = request.temperature
 
     logger.info(f"Configuring service with model={request.model}, alg={request.alg}, budget={CONFIGURED_BUDGET}")
 
@@ -258,8 +267,9 @@ async def _stream_chat_completions(request: ChatCompletionRequest) -> StreamingR
             yield "data: [DONE]\n\n"
             return
 
-        if request.temperature is not None:
-            lm.temperature = request.temperature
+        effective_temp = CONFIGURED_TEMPERATURE if CONFIGURED_TEMPERATURE is not None else request.temperature
+        if effective_temp is not None:
+            lm.temperature = effective_temp
 
         chat_messages = ChatMessages(list(request.messages))
 
@@ -368,8 +378,9 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
 
     try:
         # Configure language model for this request
-        if request.temperature is not None:
-            lm.temperature = request.temperature
+        effective_temp = CONFIGURED_TEMPERATURE if CONFIGURED_TEMPERATURE is not None else request.temperature
+        if effective_temp is not None:
+            lm.temperature = effective_temp
 
         # Create ChatMessages from the full conversation history
         # Convert Pydantic ChatMessage objects to list if needed
