@@ -178,8 +178,8 @@ class ChatCompletionRequest(BaseModel):
 
     model: str = Field(..., description="Model identifier")
     messages: list[ChatMessage] = Field(..., description="Conversation messages")
-    budget: int = Field(
-        8, ge=1, le=1000, description="Computational budget for scaling"
+    budget: int | None = Field(
+        None, ge=1, le=1000, description="Computational budget for scaling"
     )
     temperature: float | None = Field(
         None, ge=0.0, le=2.0, description="Sampling temperature"
@@ -275,7 +275,7 @@ async def _stream_chat_completions(request: ChatCompletionRequest) -> StreamingR
 
         effective_budget = request.budget or CONFIGURED_BUDGET
         logger.info(
-            f"Streaming request: model={request.model}, budget={effective_budget}"
+            f"Streaming request: model={request.model}, budget={effective_budget}, temperature={effective_temp} (configured={CONFIGURED_TEMPERATURE}, request={request.temperature}), tool_vote={getattr(SCALING_ALG, 'tool_vote', None)}"
         )
         algorithm_result = await SCALING_ALG.ainfer(
             lm,
@@ -388,7 +388,7 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
 
         effective_budget = request.budget or CONFIGURED_BUDGET
         logger.info(
-            f"Processing request for model={request.model}, budget={effective_budget}"
+            f"Processing request: model={request.model}, budget={effective_budget}, temperature={effective_temp} (configured={CONFIGURED_TEMPERATURE}, request={request.temperature}), tool_vote={getattr(SCALING_ALG, 'tool_vote', None)}"
         )
 
         # Generate response using scaling algorithm with full conversation context
