@@ -163,7 +163,7 @@ This specification defines these conformance profiles:
    - planning wrapper
 
 7. `Direct Gateway Extension`
-   - Standalone service that terminates client requests and applies ITS directly.
+   - Standalone service that accepts and handles client requests directly with ITS.
 
 8. `External-Processing Gateway Extension`
    - Intercepting gateway that conditionally applies ITS in front of an upstream API.
@@ -359,6 +359,8 @@ If an implementation cannot determine usage exactly, it MUST do one of the follo
 - Tool-invocation-bearing assistant messages SHOULD remain attached to candidates and selected
   results.
 - Provider-native fields MAY be preserved in metadata, but canonical fields remain authoritative.
+- The field names defined in this specification are canonical and provider-neutral. Provider-specific
+  names such as OpenAI `tool_calls` are mapping targets, not the normative vocabulary.
 - Implementations that map to or from OpenAI-compatible payloads SHOULD map:
   - `tool_calls` -> `tool_invocations`
   - `tool_call_id` -> `in_reply_to_tool_invocation`
@@ -370,13 +372,15 @@ If an implementation cannot determine usage exactly, it MUST do one of the follo
 
 ### 5.1 Input Normalization
 
-Algorithms MUST accept normalized conversation input in one of these forms:
+Algorithm-facing entrypoints MUST support one or more documented public input forms, which MAY
+include:
 
 - string prompt
 - list of normalized messages
 - implementation-equivalent `ChatMessages` wrapper
 
-Normalization MUST occur before algorithm-specific logic.
+Any supported public input form MUST normalize into the canonical message model before
+algorithm-specific logic.
 
 ### 5.2 Language Model Capability
 
@@ -426,7 +430,8 @@ Every ITS algorithm MUST implement behavior equivalent to:
 
 Required semantics:
 
-- Algorithms MUST accept both prompt-style and chat-style input.
+- Public algorithm-facing entrypoints MAY accept prompt-style and/or chat-style input. Regardless of
+  surface shape, normalization MUST occur before algorithm-specific logic.
 - Algorithms MUST document how they interpret `budget`.
 - Algorithms SHOULD preserve tool-invocation-bearing assistant messages when the LM capability does.
 - Algorithms MAY depend on an explicit orchestration capability or inline equivalent batching/fanout
@@ -454,7 +459,7 @@ Provider-native generation arguments are OPTIONAL parts of the extensible execut
 
 Implementations MAY support arguments such as:
 
-- `max_tokens`
+- maximum output length
 - `temperature`
 - tool-availability hints
 - tool-selection hints
@@ -581,8 +586,9 @@ Required semantics:
 
 Candidate availability policy for stable candidate-set algorithms:
 
-- If one or more candidate generations succeed, the algorithm MUST continue using the successful
-  subset.
+- Implementations MUST document whether candidate-generation failure causes:
+  - fail-fast failure of the full logical ITS execution, or
+  - continued execution over the successful subset
 - If zero candidate generations succeed, the algorithm MUST fail with `insufficient_candidates` or
   equivalent.
 - Implementations MUST NOT synthesize placeholder candidates for failed generations.
@@ -806,7 +812,7 @@ Minimum OpenAI-compatible response shape:
 
 #### 9.3.1 Role
 
-A direct gateway is a standalone service that terminates client requests and applies ITS directly.
+A direct gateway is a standalone service that accepts and handles client requests directly with ITS.
 
 #### 9.3.2 Activation Model
 
@@ -849,7 +855,7 @@ A direct gateway SHOULD accept:
 
 A direct gateway MAY accept:
 
-- generation-control fields such as maximum token count or temperature
+- generation-control fields such as maximum output length or temperature
 - tool-availability hints
 - tool-selection hints
 - `stream`
@@ -1188,8 +1194,10 @@ stable mapping from its error surface to these concepts.
 
 Stable candidate-set algorithms MUST follow these rules:
 
-- If one or more candidate generations succeed, proceed using the successful subset only.
+- If one or more candidate generations fail, follow the documented candidate-availability policy.
 - If zero candidate generations succeed, fail with `insufficient_candidates` or equivalent.
+- If the implementation chooses successful-subset continuation, proceed using only the successful
+  subset.
 - Synthetic filler candidates are forbidden.
 
 Scoring-related partial failures:
