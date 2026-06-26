@@ -46,8 +46,8 @@ Important boundary:
 - Gateways are OPTIONAL integration profiles layered on top of the library contract.
 - The specification defines behavior and interfaces, not one language, one packaging model, or one
   deployment topology.
-- A conforming implementation can be a library, a gateway, both, or a strict subset according to
-  the capability profiles in Section 3.3.
+- A conforming implementation can be core-library-only, or core-library-plus-optional extensions,
+  according to the capability profiles in Section 3.3.
 
 ## 2. Goals and Non-Goals
 
@@ -349,7 +349,8 @@ If an implementation cannot determine usage exactly, it MUST do one of the follo
 
 - omit usage entirely
 - provide a documented estimate
-- provide a documented sentinel representation
+- provide a documented placeholder representation that still uses non-negative integers for all
+  fields (for example, zero values)
 
 ### 4.2 Normalization and Mapping Rules
 
