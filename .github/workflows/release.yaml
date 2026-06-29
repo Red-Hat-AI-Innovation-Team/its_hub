@@ -118,7 +118,7 @@ jobs:
                   path: dist
 
             - name: "Sigstore sign package"
-              uses: sigstore/gh-action-sigstore-python@f514d46b907ebcd5bedc05145c03b69c1edd8b46 # v3.0.0
+              uses: sigstore/gh-action-sigstore-python@5b79a39c381910c090341a2c9b0bf022c8b387e1 # v3.4.0
               with:
                   inputs: |
                       ./dist/*.tar.gz
