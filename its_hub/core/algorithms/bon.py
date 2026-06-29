@@ -131,7 +131,10 @@ class BestOfN(AbstractScalingAlgorithm):
 
         # generate responses
         responses = await self.orchestrator.agenerate(
-            lm, chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice,
+            lm,
+            chat_messages.to_batch(budget),
+            tools=tools,
+            tool_choice=tool_choice,
             usage_accumulator=usage,
         )
 
