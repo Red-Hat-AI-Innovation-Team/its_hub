@@ -1,0 +1,9 @@
+[analysis]
+include = ["its_hub/"]
+exclude = ["tests/", "scripts/", "benchmarking/", "docs/"]
+
+[thresholds]
+max_function_length = 200
+max_file_length = 1000
+max_cyclomatic_complexity = 30
+max_cognitive_complexity = 50
