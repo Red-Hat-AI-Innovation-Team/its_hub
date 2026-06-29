@@ -1,0 +1,34 @@
+name: E2E Tests
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VLLM_ENDPOINT: http://vllm-its-hub-svc.vllm.svc:8100/v1
+  VLLM_MODEL: Qwen/Qwen2.5-Math-7B-Instruct
+
+jobs:
+  e2e:
+    runs-on: arc-runner
+    steps:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+    - name: Install uv and setup python version
+      uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      with:
+        python-version: "3.11"
+        enable-cache: true
+
+    - name: Install dependencies
+      run: uv sync --extra dev --extra research
+
+    - name: Run e2e tests
+      run: |
+        uv run python tests/e2e/test_e2e.py \
+          --endpoint ${{ env.VLLM_ENDPOINT }} \
+          --model_name ${{ env.VLLM_MODEL }} \
+          --algorithms self-consistency

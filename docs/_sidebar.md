@@ -7,5 +7,7 @@
   - [Best-of-N](algorithms.md#best-of-n)
   - [Beam Search](algorithms.md#beam-search)
   - [Self-Consistency](algorithms.md#self-consistency)
+  - [Planning Wrapper](PLANNING_WRAPPER.md)
+- [Orchestration](orchestration.md)
 - [Benchmarking](benchmarking.md)
 - [Development](development.md)

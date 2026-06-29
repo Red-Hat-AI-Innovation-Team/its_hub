@@ -1,0 +1,37 @@
+name: Lint
+
+on:
+  push:
+    branches:
+      - "main"
+      - "v1"
+      - "release-**"
+  pull_request:
+    branches:
+      - "main"
+      - "v1"
+      - "release-**"
+    paths:
+      - "its_hub/**"
+      - ".github/workflows/lint.yaml"  # This workflow
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+    - name: Install uv and setup python version
+      uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      with:
+        python-version: "3.11"
+        enable-cache: true
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Run linting checks
+      run: uv run ruff check its_hub/
+
+    - name: Run formatting checks
+      run: uv run ruff format --check its_hub/
