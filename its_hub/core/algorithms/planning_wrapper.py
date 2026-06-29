@@ -210,8 +210,9 @@ class PlanningWrapper(AbstractScalingAlgorithm):
             )
 
             # Merge usage from inner algorithm
-            if hasattr(approach_result, "usage") and approach_result.usage is not None:
-                usage.merge(approach_result.usage)
+            approach_usage = getattr(approach_result, "usage", None)
+            if isinstance(approach_usage, GenerationUsage):
+                usage.merge(approach_usage)
 
             # Store approach-specific result
             approach_results[approach] = approach_result
