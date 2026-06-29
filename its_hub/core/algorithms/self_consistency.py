@@ -161,7 +161,13 @@ class SelfConsistency(AbstractScalingAlgorithm):
             ValueError: If tool_vote is not one of the supported options.
         """
         # Validate tool_vote parameter - only validation needed since typing handles the rest
-        valid_tool_vote_options = {None, "tool_name", "tool_args", "tool_hierarchical", "tool_flat_all"}
+        valid_tool_vote_options = {
+            None,
+            "tool_name",
+            "tool_args",
+            "tool_hierarchical",
+            "tool_flat_all",
+        }
         if tool_vote not in valid_tool_vote_options:
             raise ValueError(
                 f"tool_vote must be one of {valid_tool_vote_options}, got: {tool_vote}"
@@ -194,7 +200,10 @@ class SelfConsistency(AbstractScalingAlgorithm):
 
         # generate responses
         responses = await self.orchestrator.agenerate(
-            lm, chat_messages.to_batch(budget), tools=tools, tool_choice=tool_choice,
+            lm,
+            chat_messages.to_batch(budget),
+            tools=tools,
+            tool_choice=tool_choice,
             usage_accumulator=usage,
         )
 
@@ -275,7 +284,9 @@ class SelfConsistency(AbstractScalingAlgorithm):
     def _make_hashable(obj):
         """Recursively convert nested structures to hashable types."""
         if isinstance(obj, dict):
-            return tuple(sorted((k, SelfConsistency._make_hashable(v)) for k, v in obj.items()))
+            return tuple(
+                sorted((k, SelfConsistency._make_hashable(v)) for k, v in obj.items())
+            )
         elif isinstance(obj, list):
             return tuple(SelfConsistency._make_hashable(item) for item in obj)
         elif isinstance(obj, set):
@@ -299,9 +310,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
         if not isinstance(raw_args, dict):
             raw_args = {}
         if self.exclude_args:
-            raw_args = {
-                k: v for k, v in raw_args.items() if k not in self.exclude_args
-            }
+            raw_args = {k: v for k, v in raw_args.items() if k not in self.exclude_args}
         return self._make_hashable(raw_args) if raw_args else ()
 
     def _extract_tool_call_features(self, message_obj: dict):

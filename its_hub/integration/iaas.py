@@ -37,7 +37,9 @@ app = FastAPI(
 LM_DICT: dict[str, OpenAICompatibleLanguageModel] = {}
 SCALING_ALG: Any | None = None  # TODO: Add proper type annotation
 CONFIGURED_BUDGET: int = 4  # Default budget, overridden by /configure
-CONFIGURED_TEMPERATURE: float | None = None  # Default temperature, overridden by /configure
+CONFIGURED_TEMPERATURE: float | None = (
+    None  # Default temperature, overridden by /configure
+)
 
 
 class ConfigRequest(BaseModel):
@@ -117,7 +119,9 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
     if request.temperature is not None:
         CONFIGURED_TEMPERATURE = request.temperature
 
-    logger.info(f"Configuring service with model={request.model}, alg={request.alg}, budget={CONFIGURED_BUDGET}")
+    logger.info(
+        f"Configuring service with model={request.model}, alg={request.alg}, budget={CONFIGURED_BUDGET}"
+    )
 
     try:
         # Configure language model based on provider
@@ -267,7 +271,11 @@ async def _stream_chat_completions(request: ChatCompletionRequest) -> StreamingR
             yield "data: [DONE]\n\n"
             return
 
-        effective_temp = CONFIGURED_TEMPERATURE if CONFIGURED_TEMPERATURE is not None else request.temperature
+        effective_temp = (
+            CONFIGURED_TEMPERATURE
+            if CONFIGURED_TEMPERATURE is not None
+            else request.temperature
+        )
         if effective_temp is not None:
             lm.temperature = effective_temp
 
@@ -297,21 +305,31 @@ async def _stream_chat_completions(request: ChatCompletionRequest) -> StreamingR
                     "object": "chat.completion.chunk",
                     "created": created,
                     "model": request.model,
-                    "choices": [{
-                        "index": 0,
-                        "delta": {
-                            "tool_calls": [{
-                                "index": i,
-                                "id": tc.get("id", f"call_{uuid.uuid4().hex[:24]}"),
-                                "type": "function",
-                                "function": {
-                                    "name": tc.get("function", {}).get("name", ""),
-                                    "arguments": tc.get("function", {}).get("arguments", "{}"),
-                                },
-                            }],
-                        },
-                        "finish_reason": None,
-                    }],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": i,
+                                        "id": tc.get(
+                                            "id", f"call_{uuid.uuid4().hex[:24]}"
+                                        ),
+                                        "type": "function",
+                                        "function": {
+                                            "name": tc.get("function", {}).get(
+                                                "name", ""
+                                            ),
+                                            "arguments": tc.get("function", {}).get(
+                                                "arguments", "{}"
+                                            ),
+                                        },
+                                    }
+                                ],
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
                 }
                 yield f"data: {json.dumps(chunk)}\n\n"
 
@@ -330,11 +348,13 @@ async def _stream_chat_completions(request: ChatCompletionRequest) -> StreamingR
                 "object": "chat.completion.chunk",
                 "created": created,
                 "model": request.model,
-                "choices": [{
-                    "index": 0,
-                    "delta": {"role": "assistant", "content": content},
-                    "finish_reason": None,
-                }],
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": content},
+                        "finish_reason": None,
+                    }
+                ],
             }
             yield f"data: {json.dumps(content_chunk)}\n\n"
 
@@ -354,6 +374,7 @@ async def _stream_chat_completions(request: ChatCompletionRequest) -> StreamingR
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
+
 
 @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResponse:
@@ -378,7 +399,11 @@ async def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResp
 
     try:
         # Configure language model for this request
-        effective_temp = CONFIGURED_TEMPERATURE if CONFIGURED_TEMPERATURE is not None else request.temperature
+        effective_temp = (
+            CONFIGURED_TEMPERATURE
+            if CONFIGURED_TEMPERATURE is not None
+            else request.temperature
+        )
         if effective_temp is not None:
             lm.temperature = effective_temp
 
