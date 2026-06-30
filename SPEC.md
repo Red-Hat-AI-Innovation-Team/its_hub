@@ -342,8 +342,16 @@ When token usage is exposed, the interoperable shape is:
 - `prompt_tokens`
 - `completion_tokens`
 - `total_tokens`
+- `num_calls` (OPTIONAL)
 
 All fields are non-negative integers.
+
+Implementations that accumulate usage across multiple LM calls within a single ITS execution SHOULD
+support:
+
+- incremental addition of per-call usage (prompt and completion tokens from one API response)
+- merging of independently accumulated usage records (for composing algorithm results, such as a
+  planning wrapper merging usage from its inner algorithm)
 
 If an implementation cannot determine usage exactly, it MUST do one of the following:
 
@@ -619,12 +627,14 @@ Tool-invocation behavior:
   - tool identity only
   - tool arguments only
   - hierarchical combination of tool identity and arguments
+  - flat combined signature of all tool invocations in a response (order-independent)
 
 Result metadata MAY include:
 
 - all candidate responses
 - vote counts
 - selected index
+- usage (aggregated `GenerationUsage` across all candidate generations)
 
 Budget semantics:
 
@@ -655,6 +665,7 @@ Result metadata MAY include:
 - all candidate responses
 - scores
 - selected index
+- usage (aggregated `GenerationUsage` across all candidate generations and scoring calls)
 
 Budget semantics:
 
@@ -1429,8 +1440,11 @@ If the `Stable SelfConsistency Extension` is implemented:
 - repeated candidates are selected correctly
 - documented projection behavior is applied consistently
 - invocation-based voting behavior matches documentation if implemented
+- flat combined-signature voting treats tool-call order as irrelevant and distinguishes different
+  tool-call sets if implemented
 - partial candidate-generation failure follows the stable candidate-availability rule
 - `budget` semantics match Section 7.2
+- usage accumulator is populated when provided
 
 ### 14.5 Stable BestOfN Extension
 
@@ -1441,6 +1455,7 @@ If the `Stable BestOfN Extension` is implemented:
 - incomplete scoring fails explicitly
 - result objects or detailed outputs expose the selected response correctly
 - `budget` semantics match Section 7.3
+- usage accumulator is populated when provided
 
 ### 14.6 Experimental Search Extension
 
