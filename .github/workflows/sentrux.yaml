@@ -29,12 +29,20 @@ jobs:
         curl -fsSL https://raw.githubusercontent.com/sentrux/sentrux/main/install.sh | sh
         echo "$HOME/.sentrux/bin" >> "$GITHUB_PATH"
 
+    - name: Preserve sentrux config
+      if: github.event_name == 'pull_request'
+      run: cp -r .sentrux /tmp/.sentrux-config
+
     - name: Checkout base branch
       if: github.event_name == 'pull_request'
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         ref: ${{ github.event.pull_request.base.sha }}
         clean: false
+
+    - name: Restore sentrux config on base
+      if: github.event_name == 'pull_request'
+      run: cp -r /tmp/.sentrux-config .sentrux
 
     - name: Run Sentrux on base
       if: github.event_name == 'pull_request'
