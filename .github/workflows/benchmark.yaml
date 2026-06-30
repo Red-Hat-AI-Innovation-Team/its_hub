@@ -22,7 +22,7 @@ jobs:
     runs-on: arc-runner
     strategy:
       matrix:
-        algorithm: [self-consistency]
+        algorithm: [self-consistency, best-of-n]
         dataset: [math500, aime-2024]
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -34,7 +34,7 @@ jobs:
         enable-cache: true
 
     - name: Install dependencies
-      run: uv sync --extra dev --extra research --extra experimental
+      run: uv sync --extra dev --extra research
 
     - name: Run benchmark
       run: |

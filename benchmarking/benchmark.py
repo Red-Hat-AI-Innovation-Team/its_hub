@@ -1,9 +1,9 @@
+import asyncio
 import os
 import re
 import time
 from enum import Enum
 
-import asyncio
 import click
 import datasets
 import math_verify
@@ -11,15 +11,20 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from reward_hub.base import AggregationMethod
-
-from its_hub import OpenAICompatibleLanguageModel, SelfConsistency, StepGeneration
+from its_hub import (
+    BestOfN,
+    LLMJudge,
+    OpenAICompatibleLanguageModel,
+    SelfConsistency,
+    StepGeneration,
+)
 from its_hub.core.algorithms.beam_search import BeamSearch
 from its_hub.core.algorithms.particle_gibbs import (
     EntropicParticleFiltering,
     ParticleFiltering,
     _softmax,
 )
+from its_hub.core.orchestrator import LMOrchestrator
 from its_hub.core.reward_models.local_vllm_prm import LocalVllmProcessRewardModel
 from its_hub.core.utils import (
     QWEN_SYSTEM_PROMPT,
@@ -27,6 +32,7 @@ from its_hub.core.utils import (
     extract_content_from_lm_response,
 )
 
+from reward_hub.base import AggregationMethod
 
 class BenchmarkDataset(Enum):
     MATH500 = "math500"
@@ -54,6 +60,7 @@ def load_benchmark_dataset(dataset: BenchmarkDataset):
 
 class ScalingAlgorithm(Enum):
     SELF_CONSISTENCY = "self-consistency"
+    BEST_OF_N = "best-of-n"
     BEAM_SEARCH = "beam-search"
     PARTICLE_FILTERING = "particle-filtering"
     ENTROPIC_PARTICLE_FILTERING = "entropic-particle-filtering"
@@ -69,21 +76,28 @@ def _extract_boxed(s: str) -> str:
 def init_algorithm(
     alg: ScalingAlgorithm,
     model_name: str,
+    lm: OpenAICompatibleLanguageModel,
+    orchestrator: LMOrchestrator,
     rm_name: str,
     rm_device: str,
     rm_agg_method: AggregationMethod,
-    tokens_per_step: int = None,
+    tokens_per_step: int | None = None,
 ):
     if alg == ScalingAlgorithm.SELF_CONSISTENCY:
-        return SelfConsistency(_extract_boxed)
-    elif alg == ScalingAlgorithm.BEAM_SEARCH:
+        return SelfConsistency(_extract_boxed, orchestrator=orchestrator)
+    elif alg == ScalingAlgorithm.BEST_OF_N:
+        judge = LLMJudge(lm=lm, fallback_score=5.0)
+        return BestOfN(orm=judge, orchestrator=orchestrator)
+    elif alg in (
+        ScalingAlgorithm.BEAM_SEARCH,
+        ScalingAlgorithm.PARTICLE_FILTERING,
+        ScalingAlgorithm.ENTROPIC_PARTICLE_FILTERING,
+    ):
         if tokens_per_step is not None:
-            # Use new tokens_per_step approach for easier usage
             sg = StepGeneration(
                 max_steps=50, tokens_per_step=tokens_per_step, stop_token="\\boxed"
             )
         else:
-            # Use traditional step_token approach
             step_token = "\n\n##" if "llama" in model_name.lower() else "\n\n"
             sg = StepGeneration(
                 step_token=step_token, max_steps=50, stop_token="\\boxed"
@@ -91,40 +105,13 @@ def init_algorithm(
         prm = LocalVllmProcessRewardModel(
             model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
         )
-        return BeamSearch(sg, prm, beam_width=4)
-    elif alg == ScalingAlgorithm.PARTICLE_FILTERING:
-        if tokens_per_step is not None:
-            # Use new tokens_per_step approach for easier usage
-            sg = StepGeneration(
-                max_steps=50, tokens_per_step=tokens_per_step, stop_token="\\boxed"
-            )
-        else:
-            # Use traditional step_token approach
-            step_token = "\n\n##" if "llama" in model_name.lower() else "\n\n"
-            sg = StepGeneration(
-                step_token=step_token, max_steps=50, stop_token="\\boxed"
-            )
-        prm = LocalVllmProcessRewardModel(
-            model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
-        )
-        return ParticleFiltering(sg, prm)
 
-    elif alg == ScalingAlgorithm.ENTROPIC_PARTICLE_FILTERING:
-        if tokens_per_step is not None:
-            # Use new tokens_per_step approach for easier usage
-            sg = StepGeneration(
-                max_steps=50, tokens_per_step=tokens_per_step, stop_token="\\boxed"
-            )
-        else:
-            # Use traditional step_token approach
-            step_token = "\n\n##" if "llama" in model_name.lower() else "\n\n"
-            sg = StepGeneration(
-                step_token=step_token, max_steps=50, stop_token="\\boxed"
-            )
-        prm = LocalVllmProcessRewardModel(
-            model_name=rm_name, device=rm_device, aggregation_method=rm_agg_method
-        )
-        return EntropicParticleFiltering(sg, prm)
+        if alg == ScalingAlgorithm.BEAM_SEARCH:
+            return BeamSearch(sg, prm, beam_width=4)
+        elif alg == ScalingAlgorithm.PARTICLE_FILTERING:
+            return ParticleFiltering(sg, prm)
+        elif alg == ScalingAlgorithm.ENTROPIC_PARTICLE_FILTERING:
+            return EntropicParticleFiltering(sg, prm)
 
 
 def display_results(df: pd.DataFrame):
@@ -151,9 +138,6 @@ def display_results(df: pd.DataFrame):
     "--model_name", type=str, required=True, help="model to inference-time scale"
 )
 @click.option(
-    "--is_async", is_flag=True, default=False, help="whether to use async mode"
-)
-@click.option(
     "--max_tokens",
     type=int,
     default=None,
@@ -168,7 +152,7 @@ def display_results(df: pd.DataFrame):
 @click.option(
     "--max_concurrency",
     type=int,
-    default=8,
+    default=32,
     help="max concurrency to use for inference-time scaling",
 )
 @click.option("--endpoint", type=str, help="endpoint to use for inference-time scaling")
@@ -182,7 +166,7 @@ def display_results(df: pd.DataFrame):
     "--rm_name",
     type=str,
     default="Qwen/Qwen2.5-Math-PRM-7B",
-    help="name of reward model to use",
+    help="name of reward model to use (required for beam-search, particle-filtering, entropic-particle-filtering)",
 )
 @click.option(
     "--rm_device", type=str, default="cpu", help="device to use for reward model"
@@ -247,7 +231,6 @@ def display_results(df: pd.DataFrame):
 def main(
     benchmark: BenchmarkDataset,
     model_name: str,
-    is_async: bool,
     max_tokens: int,
     temperature: float,
     max_concurrency: int,
@@ -281,10 +264,10 @@ def main(
 
     print("loading existing results...")
     model_name_dashed = model_name.replace("/", "-")
-    if (
-        alg == ScalingAlgorithm.BEAM_SEARCH
-        or alg == ScalingAlgorithm.PARTICLE_FILTERING
-        or alg == ScalingAlgorithm.ENTROPIC_PARTICLE_FILTERING
+    if alg in (
+        ScalingAlgorithm.BEAM_SEARCH,
+        ScalingAlgorithm.PARTICLE_FILTERING,
+        ScalingAlgorithm.ENTROPIC_PARTICLE_FILTERING,
     ):
         rm_name_dashed = rm_name.replace("/", "-")
         alg_str = f"{alg.value}-{rm_name_dashed}-{rm_agg_method.value}"
@@ -343,16 +326,20 @@ def main(
             system_prompt=QWEN_SYSTEM_PROMPT
             if "qwen" in model_name.lower()
             else SAL_STEP_BY_STEP_SYSTEM_PROMPT,
-            is_async=is_async,
             temperature=temperature,
             max_tokens=max_tokens,
             max_concurrency=max_concurrency,
         )
 
+    print("creating orchestrator...")
+    orchestrator = LMOrchestrator(max_concurrency=max_concurrency)
+
     print("initializing algorithm...")
     scaling_alg = init_algorithm(
         alg,
         model_name,
+        lm,
+        orchestrator,
         rm_name,
         rm_device,
         rm_agg_method,
@@ -365,101 +352,120 @@ def main(
         os.makedirs(output_dir)
 
     print(f"running inference-time scaling for {budgets=}...")
-    rows = []
-    budget_timings = {}
-    try:
-        for n in tqdm(budgets):
-            budget_start_time = time.time()
-            for x in dataset:
-                y_full = None
-                y = None
-                if not force_run and len(df_existing) > 0:
-                    # only skip if both the unique_id and budget matches
-                    match = (df_existing["unique_id"] == x["unique_id"]) & (
-                        df_existing["budget"] == n
-                    )
-                    if match.any():
-                        assert match.sum() == 1, (
-                            f"expected exactly one match, got {match.sum()}"
+
+    async def run_benchmark():
+        rows = []
+        budget_timings = {}
+        try:
+            for n in tqdm(budgets):
+                budget_start_time = time.time()
+                for x in dataset:
+                    y_full = None
+                    y = None
+                    if not force_run and len(df_existing) > 0:
+                        # only skip if both the unique_id and budget matches
+                        match = (df_existing["unique_id"] == x["unique_id"]) & (
+                            df_existing["budget"] == n
                         )
-                        if eval_expected_pass_at_one:
-                            y_full = {
-                                "responses": df_existing.loc[match, "responses"].values[
-                                    0
-                                ],
-                                "log_probs": df_existing.loc[match, "log_probs"].values[
-                                    0
-                                ],
-                            }
-                        else:
-                            y = df_existing.loc[match, "response"].values[0]
-                if y_full is None if eval_expected_pass_at_one else y is None:
-                    try:
-                        if eval_expected_pass_at_one:
-                            y_full = scaling_alg.infer(
-                                lm, x["problem"], n, return_response_only=False
+                        if match.any():
+                            assert match.sum() == 1, (
+                                f"expected exactly one match, got {match.sum()}"
                             )
-                            y_full = {
-                                "responses": y_full.responses_lst[-1],
-                                "log_probs": y_full.log_weights_lst[-1],
-                            }
-                        else:
-                            y = scaling_alg.infer(lm, x["problem"], n)
-                    except KeyboardInterrupt:
-                        raise
-                    except Exception as e:
-                        print(f"error scaling example {x['unique_id']}: {e}")
-                        continue
-                if eval_expected_pass_at_one:
-                    row = {
-                        "unique_id": x["unique_id"],
-                        "budget": n,
-                        "responses": y_full["responses"],
-                        "log_probs": y_full["log_probs"],
-                        "correct": None,
-                    }
-                else:
-                    row = {
-                        "unique_id": x["unique_id"],
-                        "budget": n,
-                        "response": y,
-                        "correct": None,
-                    }
-                if does_eval:
+                            if eval_expected_pass_at_one:
+                                y_full = {
+                                    "responses": df_existing.loc[
+                                        match, "responses"
+                                    ].values[0],
+                                    "log_probs": df_existing.loc[
+                                        match, "log_probs"
+                                    ].values[0],
+                                }
+                            else:
+                                y = df_existing.loc[match, "response"].values[0]
+                    if y_full is None if eval_expected_pass_at_one else y is None:
+                        try:
+                            if eval_expected_pass_at_one:
+                                result = await scaling_alg.ainfer(
+                                    lm, x["problem"], n, return_response_only=False
+                                )
+                                y_full = {
+                                    "responses": result.responses_lst[-1],
+                                    "log_probs": result.log_weights_lst[-1],
+                                }
+                            else:
+                                y = await scaling_alg.ainfer(lm, x["problem"], n)
+                        except KeyboardInterrupt:
+                            raise
+                        except Exception as e:
+                            print(f"error scaling example {x['unique_id']}: {e}")
+                            continue
                     if eval_expected_pass_at_one:
-                        c = [
-                            math_verify.verify(
-                                math_verify.parse(x["answer"]),
-                                math_verify.parse(extract_content_from_lm_response(y) if isinstance(y, dict) else y),
-                            )
-                            for y in row["responses"]
-                        ]
-                        p = _softmax(row["log_probs"])
-                        row["correct"] = np.dot(p, c)
+                        row = {
+                            "unique_id": x["unique_id"],
+                            "budget": n,
+                            "responses": y_full["responses"],
+                            "log_probs": y_full["log_probs"],
+                            "correct": None,
+                        }
                     else:
-                        response_content = extract_content_from_lm_response(row["response"]) if isinstance(row["response"], dict) else row["response"]
-                        row["correct"] = math_verify.verify(
-                            math_verify.parse(x["answer"]),
-                            math_verify.parse(response_content),
-                        )
-                rows.append(row)
+                        row = {
+                            "unique_id": x["unique_id"],
+                            "budget": n,
+                            "response": y,
+                            "correct": None,
+                        }
+                    if does_eval:
+                        if eval_expected_pass_at_one:
+                            c = [
+                                math_verify.verify(
+                                    math_verify.parse(x["answer"]),
+                                    math_verify.parse(
+                                        extract_content_from_lm_response(y)
+                                        if isinstance(y, dict)
+                                        else y
+                                    ),
+                                )
+                                for y in row["responses"]
+                            ]
+                            p = _softmax(row["log_probs"])
+                            row["correct"] = np.dot(p, c)
+                        else:
+                            response_content = (
+                                extract_content_from_lm_response(row["response"])
+                                if isinstance(row["response"], dict)
+                                else row["response"]
+                            )
+                            row["correct"] = math_verify.verify(
+                                math_verify.parse(x["answer"]),
+                                math_verify.parse(response_content),
+                            )
+                    rows.append(row)
 
-            # Record timing for this budget
-            budget_end_time = time.time()
-            budget_elapsed_time = budget_end_time - budget_start_time
-            budget_timings[n] = budget_elapsed_time
-            print(f"\nBudget {n} completed in {budget_elapsed_time:.2f} seconds ({budget_elapsed_time/60:.2f} minutes)")
+                # Record timing for this budget
+                budget_end_time = time.time()
+                budget_elapsed_time = budget_end_time - budget_start_time
+                budget_timings[n] = budget_elapsed_time
+                print(
+                    f"\nBudget {n} completed in {budget_elapsed_time:.2f} seconds "
+                    f"({budget_elapsed_time / 60:.2f} minutes)"
+                )
 
-    except KeyboardInterrupt:
-        print("\nkeyboard interrupt detected, saving partial results")
+        except KeyboardInterrupt:
+            print("\nkeyboard interrupt detected, saving partial results")
+
+        return rows, budget_timings
+
+    rows, budget_timings = asyncio.run(run_benchmark())
 
     # Display timing summary
     if budget_timings:
         print("\n=== Timing Summary ===")
         total_time = sum(budget_timings.values())
         for budget, elapsed_time in budget_timings.items():
-            print(f"Budget {budget:3d}: {elapsed_time:8.2f}s ({elapsed_time/60:6.2f} min)")
-        print(f"Total time: {total_time:.2f}s ({total_time/60:.2f} min)")
+            print(
+                f"Budget {budget:3d}: {elapsed_time:8.2f}s ({elapsed_time / 60:6.2f} min)"
+            )
+        print(f"Total time: {total_time:.2f}s ({total_time / 60:.2f} min)")
         print("=" * 40)
 
     # save results to jsonl file using pandas
