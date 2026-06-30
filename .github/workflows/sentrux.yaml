@@ -4,17 +4,19 @@ on:
   push:
     branches:
       - "main"
-      - "v1"
       - "release-**"
   pull_request:
     branches:
       - "main"
-      - "v1"
       - "release-**"
     paths:
       - "its_hub/**"
       - ".sentrux/**"
-      - ".github/workflows/sentrux.yaml"  # This workflow
+      - ".github/workflows/sentrux.yaml"
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   quality-check:
@@ -27,6 +29,85 @@ jobs:
         curl -fsSL https://raw.githubusercontent.com/sentrux/sentrux/main/install.sh | sh
         echo "$HOME/.sentrux/bin" >> "$GITHUB_PATH"
 
-    - name: Run Sentrux quality check
-      run: sentrux check .
+    - name: Checkout base branch
+      if: github.event_name == 'pull_request'
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ github.event.pull_request.base.sha }}
+        clean: false
+
+    - name: Run Sentrux on base
+      if: github.event_name == 'pull_request'
+      id: base
       continue-on-error: true
+      run: |
+        output=$(sentrux check . 2>&1) || true
+        echo "$output"
+        score=$(echo "$output" | grep -oP 'Quality:\s*\K[0-9]+' || echo "N/A")
+        echo "score=$score" >> "$GITHUB_OUTPUT"
+
+    - name: Checkout PR head
+      if: github.event_name == 'pull_request'
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        clean: false
+
+    - name: Run Sentrux on head
+      id: head
+      continue-on-error: true
+      run: |
+        output=$(sentrux check . 2>&1) || true
+        echo "$output"
+        score=$(echo "$output" | grep -oP 'Quality:\s*\K[0-9]+' || echo "N/A")
+        echo "score=$score" >> "$GITHUB_OUTPUT"
+
+    - name: Compute delta
+      if: github.event_name == 'pull_request'
+      id: delta
+      run: |
+        base="${{ steps.base.outputs.score }}"
+        head="${{ steps.head.outputs.score }}"
+        if [[ "$base" =~ ^[0-9]+$ ]] && [[ "$head" =~ ^[0-9]+$ ]]; then
+          diff=$((head - base))
+          if [ "$diff" -gt 0 ]; then
+            delta="+${diff} :arrow_up:"
+          elif [ "$diff" -lt 0 ]; then
+            delta="${diff} :arrow_down:"
+          else
+            delta="0 :left_right_arrow:"
+          fi
+        else
+          delta="N/A"
+        fi
+        echo "delta=$delta" >> "$GITHUB_OUTPUT"
+
+    - name: Post or update PR comment
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        marker="<!-- sentrux-quality-report -->"
+        body="${marker}
+        ## Sentrux Quality Report
+
+        | Metric | Base | Head | Delta |
+        |--------|------|------|-------|
+        | Composite Quality | ${{ steps.base.outputs.score }} | ${{ steps.head.outputs.score }} | ${{ steps.delta.outputs.delta }} |
+
+        <sub>Scale: 0 – 10,000. Higher is better.</sub>"
+
+        comment_id=$(gh api \
+          "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+          --jq ".[] | select(.body | startswith(\"${marker}\")) | .id" \
+          | head -1)
+
+        if [ -n "$comment_id" ]; then
+          gh api \
+            --method PATCH \
+            "repos/${{ github.repository }}/issues/comments/${comment_id}" \
+            -f body="$body"
+        else
+          gh pr comment "${{ github.event.pull_request.number }}" --body "$body"
+        fi
