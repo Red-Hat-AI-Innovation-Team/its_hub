@@ -1,3 +1,4 @@
+import json
 import logging
 import math
 import random
@@ -300,8 +301,6 @@ class SelfConsistency(AbstractScalingAlgorithm):
         Handles JSON strings, applies exclude_args filtering, and converts
         nested structures to hashable types.
         """
-        import json
-
         if isinstance(raw_args, str):
             try:
                 raw_args = json.loads(raw_args)
