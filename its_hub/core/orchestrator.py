@@ -7,6 +7,7 @@ from its_hub.api import (
     AbstractLanguageModel,
     AbstractOrchestrator,
     ChatMessage,
+    GenerationUsage,
 )
 
 
@@ -77,6 +78,7 @@ class LMOrchestrator(AbstractOrchestrator):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
         response_format: dict | None = None,
+        usage_accumulator: GenerationUsage | None = None,
     ) -> list[dict]:
         """
         Generate responses for a batch of messages asynchronously.
@@ -129,6 +131,7 @@ class LMOrchestrator(AbstractOrchestrator):
                     tool_choice=tool_choice,
                     response_format=response_format,
                     loop=current_loop,
+                    usage_accumulator=usage_accumulator,
                 )
 
         try:

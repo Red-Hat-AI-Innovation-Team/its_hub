@@ -9,6 +9,7 @@ from its_hub.api import (
     AbstractScalingResult,
     ChatMessage,
     ChatMessages,
+    GenerationUsage,
 )
 from its_hub.core.utils import extract_content_from_lm_response
 
@@ -24,6 +25,7 @@ class PlanningWrappedResult(AbstractScalingResult):
     combined_responses: list[dict]  # Keep original message format with tool calls
     best_approach: str
     best_approach_result: AbstractScalingResult
+    usage: GenerationUsage | None = None
 
     @property
     def the_one(self) -> dict:
@@ -151,13 +153,16 @@ class PlanningWrapper(AbstractScalingAlgorithm):
         Returns:
             Best response string or full result object
         """
+        usage = GenerationUsage()
+
         # Step 1: Generate plan (uses 1 generation from budget)
         # TODO: Update PlanningPromptTemplate to support native ChatMessages format instead of string conversion
         planning_prompt = PlanningPromptTemplate.create_planning_prompt(
             chat_messages.to_prompt()
         )
         plan_response = await lm.agenerate(
-            [ChatMessage(role="user", content=planning_prompt)]
+            [ChatMessage(role="user", content=planning_prompt)],
+            usage_accumulator=usage,
         )
         plan = extract_content_from_lm_response(plan_response)
 
@@ -204,6 +209,11 @@ class PlanningWrapper(AbstractScalingAlgorithm):
                 tool_choice=tool_choice,
             )
 
+            # Merge usage from inner algorithm
+            approach_usage = getattr(approach_result, "usage", None)
+            if isinstance(approach_usage, GenerationUsage):
+                usage.merge(approach_usage)
+
             # Store approach-specific result
             approach_results[approach] = approach_result
 
@@ -234,6 +244,7 @@ class PlanningWrapper(AbstractScalingAlgorithm):
             combined_responses=combined_responses,
             best_approach=best_approach,
             best_approach_result=best_result,
+            usage=usage,
         )
 
         return result.the_one if return_response_only else result

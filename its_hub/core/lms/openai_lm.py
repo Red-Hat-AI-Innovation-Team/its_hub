@@ -14,6 +14,7 @@ from its_hub.api import (
     AbstractLanguageModel,
     APIError,
     ChatMessage,
+    GenerationUsage,
     enhanced_on_backoff,
     format_non_retryable_error,
     parse_api_error,
@@ -248,6 +249,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
         response_format: dict | None = None,
+        usage_accumulator: GenerationUsage | None = None,
     ) -> list[dict]:
         # limit concurrency to max_concurrency using a semaphore
         semaphore = asyncio.Semaphore(
@@ -300,6 +302,12 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                                 **choice,
                                 "message": dict(choice["message"]),
                             }
+                        if usage_accumulator is not None:
+                            api_usage = response_json.get("usage", {})
+                            usage_accumulator.add(
+                                api_usage.get("prompt_tokens", 0),
+                                api_usage.get("completion_tokens", 0),
+                            )
                         return message
 
             async def safe_fetch_response(
@@ -346,6 +354,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
         response_format: dict | None = None,
+        usage_accumulator: GenerationUsage | None = None,
     ) -> dict | list[dict]:
         """
         generate response(s) asynchronously
@@ -374,6 +383,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             tools,
             tool_choice,
             response_format,
+            usage_accumulator,
         )
         return response_or_responses[0] if is_single else response_or_responses
 
@@ -388,6 +398,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         tool_choice: str | dict | None = None,
         response_format: dict | None = None,
         loop: asyncio.AbstractEventLoop | None = None,
+        usage_accumulator: GenerationUsage | None = None,
     ) -> dict:
         # Fallback to the current event loop
         if loop is None:
@@ -435,6 +446,12 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         **choice,
                         "message": dict(choice["message"]),
                     }
+                if usage_accumulator is not None:
+                    api_usage = response_json.get("usage", {})
+                    usage_accumulator.add(
+                        api_usage.get("prompt_tokens", 0),
+                        api_usage.get("completion_tokens", 0),
+                    )
                 return message
 
         async def safe_fetch_response(
