@@ -31,4 +31,4 @@ jobs:
         uv run python tests/e2e/test_e2e.py \
           --endpoint ${{ env.VLLM_ENDPOINT }} \
           --model_name ${{ env.VLLM_MODEL }} \
-          --algorithms self-consistency
+          --algorithms self-consistency,best-of-n
