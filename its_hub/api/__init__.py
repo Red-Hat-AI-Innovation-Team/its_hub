@@ -18,11 +18,12 @@ from .errors import (
     parse_api_error,
     should_retry,
 )
+from .gateway import AbstractGateway
 from .lm import AbstractLanguageModel
 from .orchestrator import AbstractOrchestrator
 from .reward_models.orm import AbstractOutcomeRewardModel
 from .reward_models.prm import AbstractProcessRewardModel
-from .types import ChatMessage, ChatMessages, GenerationUsage
+from .types import ChatMessage, ChatMessages, GenerationUsage, ITSRequestConfig
 
 __all__ = [  # noqa: RUF022
     # Algorithm abstractions
@@ -35,10 +36,13 @@ __all__ = [  # noqa: RUF022
     "AbstractProcessRewardModel",
     # Orchestrator abstraction
     "AbstractOrchestrator",
+    # Gateway abstraction
+    "AbstractGateway",
     # Common types
     "ChatMessage",
     "ChatMessages",
     "GenerationUsage",
+    "ITSRequestConfig",
     # Error types
     "APIError",
     "RateLimitError",
