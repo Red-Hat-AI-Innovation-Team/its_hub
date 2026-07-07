@@ -28,6 +28,7 @@ dependencies = [
 
 [project.scripts]
 # its-iaas removed for MVP - will be added back in [iaas] extra if needed
+envoy-grpc = "its_hub.integration.ext_proc.processor:main"
 
 [tool.setuptools_scm]
 version_file = "its_hub/_version.py"
@@ -55,8 +56,15 @@ iaas = [
     "click>=8.1.0",
 ]
 
+ext_proc = [
+    "its_hub[lm]",
+    "grpcio>=1.60.0",
+    "grpcio-tools>=1.60.0",
+    "protobuf>=4.25.0",
+]
+
 dev = [
-    "its_hub[lm,iaas]",
+    "its_hub[lm,iaas,ext_proc]",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
@@ -91,4 +99,6 @@ include = [
     "its_hub.api.*",
     "its_hub.core",
     "its_hub.core.*",
+    "its_hub.integration",
+    "its_hub.integration.*",
 ]
