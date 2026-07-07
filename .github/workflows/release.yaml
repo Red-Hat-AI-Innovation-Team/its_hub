@@ -5,13 +5,13 @@ name: Build, test, and upload PyPI package
 on:
     push:
         branches:
-            - "v1"
+            - "main"
             - "release-**"
         tags:
             - "v*"
     pull_request:
         branches:
-            - "v1"
+            - "main"
             - "release-**"
     release:
         types:
