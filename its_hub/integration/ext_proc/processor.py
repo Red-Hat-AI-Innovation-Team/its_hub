@@ -432,10 +432,10 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
             logger.error("Failed to parse ITS headers: %s", e)
             return None
 
-    def shutdown(self):
+    async def shutdown(self):
         """Cleanup resources on service shutdown."""
         logger.info("External Processor shutting down")
-        self.gateway.shutdown()
+        await self.gateway.ashutdown()
 
 
 async def serve(port: int = 50051):
@@ -456,7 +456,7 @@ async def serve(port: int = 50051):
         await server.wait_for_termination()
     except KeyboardInterrupt:
         logger.info("Received shutdown signal")
-        processor.shutdown()
+        await processor.shutdown()
         await server.stop(grace=5)
 
 

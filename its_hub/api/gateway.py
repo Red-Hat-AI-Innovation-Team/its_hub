@@ -56,6 +56,6 @@ class AbstractGateway(ABC):
         )
 
     @abstractmethod
-    def shutdown(self) -> None:
+    async def ashutdown(self) -> None:
         """Cleanup resources on service shutdown."""
         pass

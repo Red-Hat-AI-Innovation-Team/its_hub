@@ -196,12 +196,16 @@ class ITSGateway(AbstractGateway):
             )
             raise
 
-    def clear_cache(self):
-        """Clear the LM client cache."""
-        logger.info("Clearing LM client cache (%d entries)", len(self._lm_cache))
-        self._lm_cache.clear()
+    async def ashutdown(self) -> None:
+        """Cleanup resources on service shutdown.
 
-    def shutdown(self) -> None:
-        """Cleanup resources on service shutdown."""
-        logger.info("ITSGateway shutting down")
-        self.clear_cache()
+        Closes all cached LM clients (releasing aiohttp sessions) then
+        clears the cache.
+        """
+        logger.info(
+            "ITSGateway shutting down, closing %d LM clients",
+            len(self._lm_cache),
+        )
+        for lm in self._lm_cache.values():
+            await lm.close()
+        self._lm_cache.clear()
