@@ -180,3 +180,10 @@ class ITSRequestConfig:
     def __post_init__(self):
         if self.budget < 1 or self.budget > 1000:
             raise ValueError("budget must be between 1 and 1000")
+
+    def __repr__(self) -> str:
+        return (
+            f"ITSRequestConfig(budget={self.budget}, "
+            f"api_endpoint='{self.api_endpoint}', "
+            f"model={self.model!r}, api_key={'***' if self.api_key else None})"
+        )
