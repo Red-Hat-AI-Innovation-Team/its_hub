@@ -4,6 +4,7 @@ This module provides a long-lived gateway with per-request configuration,
 similar to how HTTP services reuse client instances across requests.
 """
 
+import hashlib
 import logging
 from typing import Any
 
@@ -29,8 +30,9 @@ class ITSGateway(AbstractGateway):
     Initialized once at service startup and reused across all requests.
     Per-request configuration is passed as arguments to arun_chat_completion().
 
-    Maintains a cache of LM clients keyed by (endpoint, model) to reuse
-    HTTP connections across requests.
+    Maintains a cache of LM clients keyed by (endpoint, model, hashed_api_key)
+    to reuse HTTP connections across requests while preventing credential
+    cross-contamination.
 
     Example:
         # At service startup
@@ -59,8 +61,12 @@ class ITSGateway(AbstractGateway):
             algorithm = SelfConsistency(orchestrator=orchestrator)
         self._algorithm = algorithm
 
-        self._lm_cache: dict[tuple[str, str], OpenAICompatibleLanguageModel] = {}
+        self._lm_cache: dict[tuple[str, str, str], OpenAICompatibleLanguageModel] = {}
         logger.info("ITSGateway initialized")
+
+    @staticmethod
+    def _hash_api_key(api_key: str | None) -> str:
+        return hashlib.sha256((api_key or "").encode()).hexdigest()[:16]
 
     def _get_or_create_lm(
         self,
@@ -71,9 +77,10 @@ class ITSGateway(AbstractGateway):
     ) -> OpenAICompatibleLanguageModel:
         """Get cached LM client or create new one.
 
-        Clients are cached by (endpoint, model) to reuse HTTP connections.
+        Clients are cached by (endpoint, model, hashed_api_key) to reuse
+        HTTP connections while isolating different credentials.
         """
-        cache_key = (endpoint, model)
+        cache_key = (endpoint, model, self._hash_api_key(api_key))
         log_prefix = f"[{request_id}] " if request_id else ""
 
         if cache_key not in self._lm_cache:

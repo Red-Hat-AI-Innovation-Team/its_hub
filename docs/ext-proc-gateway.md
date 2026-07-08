@@ -64,9 +64,11 @@ Algorithm selection is not configurable per-request in this version.
 ## LM Routing
 
 Downstream LLM routing is controlled **per-request** via the `X-ITS-Endpoint` header.
-The gateway maintains an in-memory cache of LM clients keyed by `(endpoint, model)` to
-reuse HTTP connections across requests. Different requests can target different LLM
-endpoints.
+The gateway maintains an in-memory cache of LM clients keyed by
+`(endpoint, model, hashed_api_key)` to reuse HTTP connections across requests. Different
+requests can target different LLM endpoints. The API key is SHA-256 hashed (truncated to
+16 hex chars) in the cache key to prevent credential cross-contamination between requests
+using different API keys for the same endpoint/model pair.
 
 ## Concurrency Control
 
@@ -141,7 +143,7 @@ Failed ITS requests are logged at ERROR level and fall back to the upstream serv
 
 - API keys are passed via `X-ITS-API-Key` header per request. They are **never logged**.
 - API keys are not stored persistently. They exist only for the duration of the LM client
-  that uses them, cached in memory by `(endpoint, model)`.
+  that uses them, cached in memory by `(endpoint, model, hashed_api_key)`.
 - Secrets are not read from config files. The gateway has no configuration file; all
   per-request credentials come from headers.
 - `X-ITS-*` headers (including `X-ITS-API-Key`) are stripped before forwarding to
