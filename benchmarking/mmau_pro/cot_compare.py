@@ -24,9 +24,9 @@ and every generation is wrapped so one bad/long item can't abort the sweep.
         --endpoint http://localhost:8100/v1 --model-name qwen-omni \
         --data-root /home/exx/inference-time-scaling/mmau_pro_testmini \
         --subset full --select all --audio-mode local-path --concurrency 24 \
-        --jsonl benchmarking/mmau_pro/results/cot957.jsonl \
-        --csv   benchmarking/mmau_pro/results/cot957.csv \
-        --log   benchmarking/mmau_pro/results/cot957.log
+        --jsonl benchmarking/mmau_pro/results/run05_cot957/cot957.jsonl \
+        --csv   benchmarking/mmau_pro/results/run05_cot957/cot957.csv \
+        --log   benchmarking/mmau_pro/results/run05_cot957/cot957.log
 """
 
 import asyncio

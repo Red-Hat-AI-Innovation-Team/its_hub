@@ -12,7 +12,7 @@ prompt‑dependent, concentrated in hard perceptual categories** (spatial audio,
 and **does not scale with budget** — consistent with self‑certainty being a weak (fluency)
 reward signal. There is **no GRPO result on MMAU‑Pro** to compare against (see caveats).
 
-Last updated: 2026‑06‑10.
+Last updated: 2026‑07‑08.
 
 ---
 
@@ -151,9 +151,321 @@ By `length_type` (#4): EPF helps the **long / ultra‑long** clips (long 0.500�
 
 **By category (acc_all):** least‑to‑most wins on sound (0.55) & music (0.70); assistant‑prefill/format‑forcing win on speech (0.66–0.67); `open` ≈ 0.9 across the board; **spatial_audio is hard for all (0.20–0.32)**. Full matrix in `cot957_html/index.html`.
 
-**Artifacts:** `results/cot957.log` (score tables), `results/cot957.csv` (8,613 per-response rows), `results/cot957.jsonl` (resumable raw), `results/cot957_html/index.html` (summary + accuracy matrix + per-category side-by-side pages).
+**Artifacts:** `results/run05_cot957/cot957.log` (score tables), `results/run05_cot957/cot957.csv` (8,613 per-response rows), `results/run05_cot957/cot957.jsonl` (resumable raw), `results/run05_cot957/cot957_html/index.html` (summary + accuracy matrix + per-category side-by-side pages).
 
-## 8. Honest verdict
+## 8. Run 6 — EPF diversity sweep (is scaling worth it, or is the weight the bottleneck?)
+
+**Why:** Run 5 ranked prompts by *greedy* accuracy, but EPF needs **exploration**. We ran **Entropic
+Particle Filtering** on 100 stratified single-audio items × 4 prompts {**#4** plan-and-solve, **#5**
+least-to-most, **#7** format-forcing, **#9** evidence-grounded/boxed} × 2 self-certainty weights
+{`mean_logprob`, `entropy`} × budgets {1, 8, 16, 32}, instrumented with new SMC metrics
+([diversity_probe.py](benchmarking/mmau_pro/diversity_probe.py)). Config: temp **0.8**, **systematic**
+resampling, **ess_threshold 0.6**, **early_phase 0.7**. **3,200 EPF runs, 0 errors, ~35 min on both GPUs**
+(GPU0:8100 + GPU1:8101, items round-robined). n=99 gradeable (1 ungradeable).
+
+**The result is the same in all 8 (prompt × signal) cells.** Representative numbers (`mean_logprob`):
+
+*Selected accuracy (what EPF returns) — barely scales with N:*
+
+| prompt | b1 | b8 | b16 | b32 |
+|--------|---:|---:|---:|----:|
+| #4 plan-and-solve | 0.374 | 0.505 | **0.586** | 0.525 |
+| #5 least-to-most | 0.556 | 0.586 | 0.566 | 0.566 |
+| #7 format-forcing | 0.455 | 0.505 | 0.556 | 0.576 |
+| #9 evidence-grounded | 0.475 | 0.475 | 0.535 | 0.576 |
+
+*Oracle accuracy (is the correct answer in ANY particle?) — climbs strongly with N:*
+
+| prompt | b1 | b8 | b16 | b32 | gap (oracle−selected) @b32 |
+|--------|---:|---:|---:|----:|----:|
+| #4 plan-and-solve | 0.374 | 0.626 | 0.717 | 0.848 | **+0.32** |
+| #5 least-to-most | 0.556 | 0.747 | 0.747 | 0.828 | +0.26 |
+| #7 format-forcing | 0.455 | 0.667 | 0.717 | 0.798 | +0.22 |
+| #9 evidence-grounded | 0.475 | 0.778 | 0.838 | **0.929** | **+0.35** |
+
+**Same run, `entropy` signal** — selected accuracy (b1→b32):
+
+| prompt | b1 | b8 | b16 | b32 |
+|--------|---:|---:|---:|----:|
+| #4 plan-and-solve | 0.434 | 0.525 | **0.556** | 0.434 |
+| #5 least-to-most | 0.495 | 0.566 | 0.525 | 0.535 |
+| #7 format-forcing | 0.475 | 0.535 | 0.576 | **0.616** |
+| #9 evidence-grounded | 0.455 | 0.545 | 0.556 | 0.576 |
+
+`entropy` oracle accuracy (b1→b32) + gap:
+
+| prompt | b1 | b8 | b16 | b32 | gap @b32 |
+|--------|---:|---:|---:|----:|----:|
+| #4 plan-and-solve | 0.434 | 0.677 | 0.758 | 0.798 | +0.36 |
+| #5 least-to-most | 0.495 | 0.828 | 0.778 | 0.828 | +0.29 |
+| #7 format-forcing | 0.475 | 0.677 | 0.717 | 0.869 | +0.25 |
+| #9 evidence-grounded | 0.455 | 0.788 | 0.899 | **0.949** | **+0.37** |
+
+**Both signals behave identically** — oracle climbs to 0.80–0.95, selected stalls at ~0.55, gap +0.22 to
++0.37. `entropy` edges `mean_logprob` on a couple of cells (#7 selected 0.616 @b32; #9 oracle 0.949) but
+not meaningfully — **neither weight converts oracle coverage into selected accuracy.**
+
+**Findings:**
+1. **Oracle coverage climbs hard with budget** (≈0.45 → 0.85–0.95) — more particles *do* surface the
+   correct answer. Exploration is real and scales.
+2. **Selected accuracy does NOT scale** — it plateaus at ~0.52–0.62 from b8→b32 (sometimes *drops*, e.g.
+   #4 peaks at b16 then falls). **Plurality-vote (majority) is no better** (~0.50–0.60).
+3. **Huge oracle − selected gap (+0.22 to +0.37 @b32):** the right answer is in the swarm 80–95% of the
+   time but EPF returns the wrong particle. On **~40%** of items the correct answer is even a swarm
+   *minority* the self-certainty weight votes against (P9 entropy b32: 37/100 present-but-not-selected).
+4. **Diversity is real but the distinct-answer *ratio* falls with N** (0.97→0.06) — partly mechanical
+   (ratio = #unique/N), since the absolute #distinct answers actually *grows* (≈1.4 → 2.5 among 32). The
+   swarm converges its plurality onto a confident, often-wrong answer while the tail increasingly holds
+   the correct one.
+
+**Verdict → the self-certainty WEIGHT is the bottleneck, not the particle count.** This is exactly the
+"weak fluency reward, doesn't scale" prediction. Scaling N raises *oracle* but not *selected* because
+self-certainty (both `mean_logprob` and `entropy`) cannot identify the correct particle — it favors a
+confident-but-wrong plurality. **No amount of extra particles fixes selected accuracy; only a better
+weight does** → the answer-choice-confidence reward (§12).
+
+**Higher temperature?** *Not the priority.* At temp 0.8 the right answer is already present 80–95% of the
+time (oracle ≫ selected); a higher temp would mostly push oracle *higher* while selected stays stuck,
+widening the gap — reinforcing (not fixing) the weight diagnosis. Worth a small probe later, but the
+decisive lever is the weight, not exploration.
+
+**Prompt note (vindicates not picking by greedy acc):** **#9 evidence-grounded** — the *worst* greedy
+prompt (Run 5: 0.505) — has the **richest swarm** (highest oracle, 0.93–0.95 @b32; most distinct answers).
+With a competent weight, #9 + EPF has the most headroom (~0.95 oracle ceiling). #4 plan-and-solve is
+similar. So the best EPF base prompt ≠ the best greedy prompt.
+
+## 9. Run 7 — terminal answer-confidence re-rank (can a better selector recover the oracle gap?)
+
+**Why:** Run 6's gap is a *selection* failure (right answer in the swarm, EPF picks wrong). This tests the
+cheapest fix — re-rank the finished EPF swarm by **answer confidence** instead of self-certainty. Three
+scorers: **L-audio** (letter read-out, chat, *with* audio), **L-text** (letter read-out, text-only),
+**O-text** (option likelihood via `/v1/completions` echo, text-only, length-normalized) — each with two
+selection rules (**argmax-particle**, **conf-vote**), vs baselines **epf** (status quo) / **majority** /
+**oracle**. 100 stratified single-audio items × prompts {4,5,7,9} × budgets {8,16,32}; EPF mean_logprob
+swarm. **1,200 runs, 0 errors.** n=99/cell → 95% CI ≈ ±10 pp.
+(Server constraint: chat returns no `prompt_logprobs` here, so option-likelihood must use the text-only
+`/completions` echo path — hence the L-text control, to compare letter-vs-option fairly.)
+
+**Headline @budget 32 — nothing recovers the gap:**
+
+| prompt | oracle | epf (status quo) | majority | best re-rank |
+|--------|---:|---:|---:|---:|
+| #4 plan-and-solve | 0.828 | 0.505 | 0.566 | 0.556 (L-audio vote) |
+| #5 least-to-most | 0.818 | 0.586 | 0.616 | 0.616 (L-audio vote) |
+| #7 format-forcing | 0.798 | 0.566 | 0.576 | 0.576 (L-text vote) |
+| #9 evidence-grounded | 0.889 | 0.535 | 0.525 | 0.535 (L-audio vote) |
+
+Every selector — self-certainty, majority, and all six confidence re-ranks — clusters at **0.50–0.62**,
+while oracle is **0.80–0.89**. The unrecovered gap (+0.23 to +0.35) is essentially untouched; all deltas
+vs epf are within the ±10 pp noise band.
+
+**Why it fails — it reshuffles, it doesn't improve.** Decomposing the most-aggressive rule at b32
+(*recovered* = oracle-right-but-EPF-wrong items it rescues; *broken* = EPF-right items it newly loses):
+
+| prompt | rule | recovered | broken | net acc vs epf |
+|--------|------|---:|---:|---:|
+| #9 evidence-grounded | L-audio argmax | 14/35 | 16 | −0.020 |
+| #4 plan-and-solve | O-text argmax | 13/32 | 12 | +0.010 |
+
+The re-rank *does* find ~10–14 correct minority particles — but discards an equal number EPF had right.
+**One-for-one trade → net zero.** Answer-confidence is no better calibrated than self-certainty at telling
+the model's own right answers from its wrong ones.
+
+**Cross-cuts:**
+- **L-audio ≈ L-text** — re-attending the audio in the probe gives no consistent edge → the audio-less
+  constraint on option-likelihood was *not* the limiting factor (the comparison is fair).
+- **O-text ≤ L-text**, and **`otext_vote` is the worst rule** (net negative, e.g. P5/P9 −0.05 to −0.10) →
+  full-option-text likelihood did not beat single-letter; the surface-form de-bias hypothesis didn't pan out.
+- **majority** is quietly the best baseline (small positive, ≈ best re-rank) — reaffirming Run 6.
+
+**Verdict → the ceiling is calibration, and NO self-generated signal fixes it.** Fluency self-certainty
+(Runs 4/6), answer-letter confidence, and option-text likelihood all fail identically: the model is
+confidently wrong on the items it gets wrong, so any self-derived weight reshuffles rather than improves.
+Closing the oracle gap requires an **independent/external verifier** (a different judge model, or a trained
+verifier/PRM) — not a reweighting of the generator's own confidence. This is a stronger, more decisive
+negative than Run 6 (it rules out the "just pick a better self-signal" hope).
+
+## 10. Run 8 — where does the (lack of) diversity come from: generation or resampling?
+
+**Why:** even at budget 32 the EPF swarm reaches ~80% consensus (~4/5 particles agree) — is that because
+the particles were *born similar* (low generation diversity) or because resampling *collapsed* an initially
+diverse swarm? We ran two arms on the same 100 items, holding generation fixed (temp 0.8, mean_logprob) and
+toggling only resampling: **EPF** (systematic resampling ON, as deployed) vs **INDEP** (resampling OFF → N
+independent step-chunked trajectories = the generator's intrinsic diversity). Prompts {4,5,7,9} × budgets
+{8,16,32}, **2,400 runs, 0 errors**, plus a per-step ESS curve (logged free inside the loop).
+
+**Result @budget 32 (mean across the 4 prompts):**
+
+| arm | distinct | consensus | **oracle** | selected |
+|-----|---:|---:|---:|---:|
+| EPF (resample **ON**) | 0.065 | 0.813 | **0.838** | 0.558 |
+| INDEP (resample **OFF**) | 0.089 | 0.697 | **0.957** | 0.558 |
+
+Three findings, in order of importance:
+
+1. **Resampling actively *culls the correct answer* (the big one).** Turning resampling off lifts **oracle
+   +0.12 (0.838 → 0.957)** — independent N=32 sampling contains the right answer **~96%** of the time, but
+   EPF's resampling concentrates on high-self-certainty particles and discards the (lower-fluency, often
+   correct) minority *before the end*, dropping oracle to ~0.84. The penalty is **worst at low budget**
+   (P4: +0.22 @b8, +0.19 @b16, +0.14 @b32) — fewer particles, more gets culled.
+2. **Selection is still the sole binding bottleneck.** `selected` is **0.558 in *both* arms** despite INDEP
+   oracle 0.957 — preserving diversity doesn't help if the selector can't pick the right particle (Run 7).
+3. **"Born similar" is real but not the limiter.** Even INDEP is low-diversity in absolute terms (~0.089
+   distinct ≈ **~3 distinct answers among 32**, ~0.70 consensus) — the model is fairly deterministic at temp
+   0.8. But that's still *enough to contain the correct answer 96% of the time*, so low distinct-count is not
+   what's capping accuracy. (Raising temperature would add diversity, but coverage isn't the problem.)
+
+**Per-step ESS explains the mechanism.** EPF's weights peak hard mid-trajectory — ESS dips to ~0.25–0.35
+around step 2 (e.g. P7 b32: `0.83 → 0.24 → 0.33 → 0.40 → 0.46`) — i.e. strong concentration pressure that
+culls the minority — then *recovers* near the end as duplicates equalize, so the **final** ESS looks benign
+(~0.7–0.9, matching Run 6). INDEP shows the same early dip but **stays low** (`0.84 → 0.19 → 0.14 → 0.30 …`),
+revealing the underlying self-certainty weights are genuinely peaked; resampling is what acts on that peak to
+remove particles. So Run 6's healthy-looking final ESS was masking a sharp mid-trajectory cull.
+
+**Verdict:** the swarm is *born* low-diversity but still covers the answer (~96% under independent sampling);
+**EPF's resampling is net-harmful here** — it lowers the oracle ceiling by ~12 pp without improving selected
+accuracy. Within the RL-free framing, the implied pipeline is **plain best-of-N sampling (no resampling) +
+an external selector**, not particle filtering. The binding constraint is unchanged and reconfirmed: the
+**selector**, not particle count, diversity, or temperature.
+
+### Full‑957 replication (all 957 MCQ, temp 0.8)
+
+Re‑ran the identical EPF‑vs‑INDEP comparison on the **entire 957‑MCQ set** (incl. 89 multi‑audio),
+**22,968 runs, 0 errors**, n=952/cell (5 ungradeable), 95% CI ≈ ±3 pp — so this is the decisive‑scale
+version of the n=100 result above. Mean across the 4 prompts:
+
+| budget | arm | distinct | consensus | oracle | selected |
+|---|---|---:|---:|---:|---:|
+| 8 | EPF | 0.184 | 0.872 | 0.731 | 0.581 |
+| 8 | INDEP | 0.265 | 0.726 | **0.880** | 0.592 |
+| 16 | EPF | 0.107 | 0.854 | 0.803 | 0.597 |
+| 16 | INDEP | 0.155 | 0.715 | **0.936** | 0.587 |
+| 32 | EPF | 0.061 | 0.833 | 0.850 | 0.595 |
+| 32 | INDEP | 0.087 | 0.705 | **0.966** | 0.589 |
+
+**Both findings hold at full scale:** (1) turning resampling **off lifts oracle +0.149 @b8 / +0.133 @b16 /
++0.116 @b32** — EPF resampling culls the correct minority, worst at low budget; (2) **selected accuracy is
+unchanged (~0.59 in both arms, every budget)** despite INDEP oracle reaching **0.966** — the selector is the
+sole bottleneck. The ±3 pp CIs make the oracle gap unambiguous (it's ~12–15 pp). Raw: `divsource_full.*`.
+
+## 11. Run 9 — does a higher temperature (1.0) add diversity?
+
+**Why:** Run 8 showed the swarm is *born* low-diversity (even independent N=32 → ~3 distinct answers). Is
+the lever simply **temperature**? Same divsource setup (EPF vs INDEP arms, per-step ESS), 100 stratified
+items, prompts {4,5,7,9} × budgets {8,16,32}, **only the sampling temperature changed: 0.8 → 1.0** (all else
+identical). **2,400 runs, 0 errors.**
+
+**Result — temperature barely moves anything (mean across 4 prompts, `0.8 → 1.0`):**
+
+| budget | arm | distinct | consensus | oracle | selected |
+|---|---|---|---|---|---|
+| 32 | EPF | 0.065 → 0.065 | 0.81 → 0.82 | 0.838 → 0.813 | 0.558 → 0.540 |
+| 32 | INDEP | 0.089 → 0.096 | 0.70 → 0.66 | 0.957 → 0.980 | 0.558 → 0.525 |
+| 8 | EPF | 0.192 → 0.191 | 0.86 → 0.85 | 0.692 → 0.702 | 0.563 → 0.503 |
+| 8 | INDEP | 0.273 → 0.293 | 0.73 → 0.69 | 0.848 → 0.866 | 0.556 → 0.558 |
+
+(Budget 16 is the same story.) Raising the temperature **does not add meaningful diversity** — distinct/
+consensus move by ~0.01–0.04, within noise — and **selected accuracy is unchanged** (~0.55 at both temps).
+INDEP oracle nudges up ~+0.02 (slightly more spread surfaces the answer a touch more often), but the swarm
+was already covering the answer ~96%, so it's moot.
+
+**Verdict:** the model is **intrinsically low-entropy on MCQ answers** — "born similar" persists even at temp
+1.0, so temperature is **not** the lever. Combined with Runs 7–8, the bottleneck is now triply confirmed to
+be the **selector**, not particle count, not diversity, and not temperature. (Higher temps than 1.0 would
+trade coherence for spread; not worth it given oracle is already ~0.96 and selection is the wall.)
+
+## 12. Run 10 — Run 6's EPF budget sweep on the FULL 957 (4 prompts × 2 signals × {1,8,16,32})
+
+**Why:** Run 6 (the EPF diversity/scaling sweep) was only n=100. This re-runs the **entire grid on all 957
+MCQ**: prompts {4,5,7,9} × signals {mean_logprob, entropy} × budgets {1,8,16,32}, EPF only. To avoid
+recompute, the **mean_logprob {8,16,32}** cells were carried over from Run 8's full‑957 EPF arm (identical
+config, same `compute_metrics`); only **mean_logprob{1} + entropy{1,8,16,32}** were newly run. **30,624 rows,
+0 errors**, n=952 gradeable/cell (±3 pp CI).
+
+**Mean across the 4 prompts:**
+
+| signal | budget | **selected** | oracle | majority | distinct | consensus |
+|--------|---:|---:|---:|---:|---:|---:|
+| mean_logprob | 1 | 0.557 | 0.557 | 0.557 | (1 particle) | — |
+| mean_logprob | 8 | 0.581 | 0.731 | 0.589 | 0.184 | 0.872 |
+| mean_logprob | 16 | **0.597** | 0.803 | 0.614 | 0.107 | 0.854 |
+| mean_logprob | 32 | 0.595 | 0.850 | 0.614 | 0.061 | 0.833 |
+| entropy | 1 | 0.567 | 0.567 | 0.567 | (1 particle) | — |
+| entropy | 8 | 0.593 | 0.756 | 0.605 | 0.195 | 0.853 |
+| entropy | 16 | 0.582 | 0.814 | 0.605 | 0.113 | 0.835 |
+| entropy | 32 | 0.586 | 0.866 | 0.607 | 0.064 | 0.823 |
+
+**Findings (now at decisive scale):**
+1. **Selected accuracy barely scales with budget.** From the single‑trajectory anchor (b1 ≈ 0.557/0.567) it
+   gains only **~+0.03–0.04** and **saturates by budget 8–16** (mean_logprob peaks 0.597 @b16; entropy 0.593
+   @b8), then is flat/dips at 32. With ±3 pp CIs the ITS lift over b1 is marginal‑to‑borderline — **no real
+   scaling.** (Matches Run 6's noisy n=100 read, now tight.)
+2. **Oracle climbs steeply** (0.56 → 0.85–0.87 @b32) — exploration keeps surfacing the answer — but selected
+   doesn't follow → the oracle−selected gap *widens* with budget. **majority ≈ selected** (~0.59–0.61), both
+   far below oracle.
+3. **The two weight signals are equivalent.** entropy is a hair better on a couple cells (selected@b8,
+   oracle@b32) but within noise; neither escapes the plateau. So Run 6's "weak fluency reward" conclusion is
+   not specific to mean_logprob — entropy behaves the same.
+
+**Verdict:** confirms Run 6 at full scale — **EPF buys ~+0.03–0.04 selected accuracy over a single sample and
+plateaus by ~8 particles; neither self‑certainty signal scales; the oracle gap only grows.** Consistent with
+Runs 7–9: the selector is the wall. Raw: `run6_full.*` (mean_logprob{8,16,32} provenance = Run 8).
+
+## 13. Run 11 — the Run 6/10 EPF grid on the FULL MMAU-Pro test set (5,090 MCQ)
+
+**Why:** every prior run used the 957-MCQ testmini. This scales the canonical EPF grid — 4 prompts
+{4,5,7,9} × 2 signals {mean_logprob, entropy} × budgets {1,8,16,32} — to the **full MMAU-Pro test
+set**: `test` parquet, 5,305 rows → **5,090 MCQ** (incl. 497 single-choice trivial items, same
+convention as the 957 which had 106; 24 ungradeable → n=5,066/cell, **95% CI ≈ ±1.4 pp, bootstrap
+SE ≈ ±0.7 pp**). Audio from `mmau_pro_audio/` (5,787 files, max clip 600 s; 430 two-audio + 26
+three-audio items). Config identical to Run 10 (temp 0.8, systematic, ess 0.6/0.7, style logit).
+The 957 overlap was **seeded from `run6_full.jsonl`** (testmini ⊂ test; same mechanism as Run 10's
+Run-8 seeding) — the 957-slice of this run reproduces Run 10's table exactly, by construction.
+**132,256 fresh EPF runs (162,880 rows total), 0 errors, ~50 h on both GPUs**, budget-staged
+(b1 → b8 → b16 → b32, resumable JSONL).
+
+**Serving notes (required at this scale):** `--gpu-memory-utilization 0.85` (not 0.9) +
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, and `--max-inflight 24` for the budget-1 stage
+— at b1 the probe otherwise encodes 64 distinct audios per GPU simultaneously and the O(n²) audio
+encoder OOM-killed an engine (one cell had to be re-swept; final data has 0 errors). Details in
+`SETUP_GUIDE.md` §3/§10.
+
+**Mean across the 4 prompts** (bootstrap in `epf_full5090_bootstrap.html`; SE ≈ ±0.007/cell):
+
+| signal | budget | **selected** | oracle | majority |
+|--------|---:|---:|---:|---:|
+| mean_logprob | 1 | 0.557 | 0.557 | 0.557 |
+| mean_logprob | 8 | 0.585 | 0.732 | 0.596 |
+| mean_logprob | 16 | **0.590** | 0.792 | 0.605 |
+| mean_logprob | 32 | **0.590** | 0.845 | 0.613 |
+| entropy | 1 | 0.558 | 0.558 | 0.558 |
+| entropy | 8 | 0.587 | 0.754 | 0.601 |
+| entropy | 16 | 0.583 | 0.818 | 0.607 |
+| entropy | 32 | 0.586 | 0.865 | 0.608 |
+
+**Findings (the Run 6/10 story at decisive scale, now with sub-pp error bars):**
+1. **Selected accuracy saturates by budget 8.** +2.8–3.3 pp over b1, then flat: every b8→b16→b32
+   step is within ±1 pp per cell. The apparent b8→b16 bumps in Run 10 (e.g. P7 mean_logprob
+   +4.7 pp) collapse to ≈0 at full scale (−0.1 pp) — they were noise, as suspected.
+2. **Oracle keeps climbing** — 0.56 → 0.845/0.865 @b32 (mean); **P9 evidence-grounded reaches
+   0.914 with BOTH signals** — the right answer is in the swarm 91% of the time while P9's
+   selected accuracy is the *lowest* (0.565–0.577). The oracle−selected gap at b32 is +0.26 on
+   average and **+0.34 for P9**.
+3. **majority ≈ selected + ~0.02** at every budget — plurality voting doesn't close the gap either.
+4. **The two signals are equivalent** (differences within ~±0.5 pp mean; entropy slightly higher
+   oracle, mean_logprob slightly higher selected — both within noise).
+
+**Bootstrap headline** (`epf_full5090_bootstrap.html`): a 100-question eval wobbles ±0.049 on these
+cells; the reported full-set numbers are precise to ±0.0069 (~7× tighter) — and 2.3× tighter than
+the 957-run's ±0.016.
+
+**Verdict:** unchanged and now essentially beyond statistical doubt at this benchmark's full scale —
+**EPF's selected accuracy does not scale with particle count past ~8; exploration (oracle) scales
+beautifully; no self-certainty signal converts it; the selector is the wall.** This is the
+strongest-n version of the §14 verdict; the next lever remains an external/independent selector
+(§17).
+
+## 14. Honest verdict
 
 - **Best ITS number: 0.576 (#4 PF@4), ≈ +4 pp over our own baseline, no RL used** — borderline‑significant (p≈0.07), prompt‑dependent, category‑localized, and **non‑scaling** with budget.
 - It is **not** a "ITS matches GRPO for free" result. The gain is small and self‑certainty behaves like a weak, fluency‑based reward — it can't reliably steer resampling toward *correct* trajectories.
@@ -164,25 +476,36 @@ By `length_type` (#4): EPF helps the **long / ultra‑long** clips (long 0.500�
 - n=952 → ±3.3 pp CI; the #4 effect is borderline (p≈0.07), not conclusively significant.
 - `baseline` = PF at budget 1 (single self‑certainty trajectory), i.e. the same CoT prompt with no resampling.
 
-## 9. Files (`benchmarking/mmau_pro/results/`)
+## 15. Files (`benchmarking/mmau_pro/results/`)
 
-| file | what |
+Organized **one folder per run** (see `results/README.md` for the full index); cross-run figures in
+`results/plots/`. Each run folder holds `<experiment>.jsonl` (raw, resumable), `.csv`, `.log`, plus
+one-file HTML reports.
+
+| folder / file | what |
 |------|------|
-| `mmau_957_results.jsonl` | full 957 run, 5742 rows (the headline result) |
-| `mmau_957.log` | 957 run log |
-| `mmau_150_sweep.jsonl` | 150‑item budget sweep, 2100 rows |
-| `mmau_ablation.jsonl` | n=30 CoT×ITS ablation, 270 rows |
-| `cot_compare.log` | 8‑prompt CoT comparison output (n=20, smallest) |
-| `cot957.jsonl` | **Run 5**: resumable raw rows, full 957 × 9 greedy bake-off |
-| `cot957.csv` | **Run 5**: 8,613 per-(prompt,item) responses + parsed fields |
-| `cot957.log` | **Run 5**: overall + excl-trivial + by-category score tables |
-| `cot957_html/` | **Run 5**: `index.html` (summary + matrix) + per-category side-by-side pages |
-| `cot957_all.html` | **Run 5**: single-file side-by-side of all 957 questions × 9 prompts (~6 MB; open in a browser) |
-| `mmau_smoke.jsonl` | initial 8‑item pipeline smoke |
+| `run01_cot_screen/cot_compare.log` | **Run 1**: 8‑prompt CoT comparison (n=20, smallest) |
+| `run02_ablation/mmau_ablation.jsonl` | **Run 2**: n=30 CoT×ITS ablation, 270 rows |
+| `run03_sweep150/mmau_150_sweep.jsonl` | **Run 3**: 150‑item budget sweep, 2100 rows |
+| `run04_full957/mmau_957_results.jsonl` (+`.log`) | **Run 4**: full 957 run, 5742 rows (the headline result) |
+| `run05_cot957/cot957.{jsonl,csv,log}` | **Run 5**: full 957 × 9 greedy bake-off (8,613 responses) |
+| `run05_cot957/cot957_html/`, `cot957_all.html` | **Run 5**: summary+matrix pages; single-file side-by-side (~6 MB) |
+| `run06_epf_div/epf_div.{jsonl,csv,log}` | **Run 6**: EPF diversity sweep n=100 (per-item SMC metrics) |
+| `run07_rerank/rerank.{jsonl,csv,log}` | **Run 7**: terminal answer-confidence re-rank, 1,200 rows |
+| `run08_divsource/divsource.*` | **Run 8**: EPF vs INDEP + per-step ESS (n=100, temp 0.8) |
+| `run08_divsource/divsource_full.*` | **Run 8 (full)**: same on all 957 MCQ — appended to §10 |
+| `run09_divsource_t1/divsource_t1.*` | **Run 9**: EPF vs INDEP at temp 1.0 (n=100) |
+| `run10_run6_full/run6_full.*` | **Run 10**: Run 6 grid on full 957; 30,624 rows. mean_logprob{8,16,32} seeded from Run 8 |
+| `run10_run6_full/epf_div.html` | one-file report (trend heatmaps + appendix), **generated from `run6_full.csv`** |
+| `run10_run6_full/epf_div_bootstrap.html` | **Run 10**: bootstrap error bars (std100 + SE957) |
+| `run11_epf_full5090/epf_full5090.{jsonl,csv,log}` | **Run 11**: the grid on the FULL 5,090-MCQ test set; 162,880 rows (957-slice seeded from `run6_full.jsonl`) |
+| `run11_epf_full5090/epf_full5090_bootstrap.html` | **Run 11**: bootstrap error bars + interactive acc-vs-budget plot |
+| `plots/` | cross-run figures: `acc_vs_budget.{png,html}` (Run 6), `epf_acc_vs_budget.{png,html}` (Run 10), `acc_vs_budget_combined.html`, `epf_temp_*.html` (EPF × self-consistency overlays) |
+| `smoke/mmau_smoke.jsonl` | initial 8‑item pipeline smoke |
 
-Each row: `{unique_id, method, arm, budget, category, length_type, correct, latency_s, error, content}`.
+Each `run_mmau` row: `{unique_id, method, arm, budget, category, length_type, correct, latency_s, error, content}`.
 
-## 10. Reproduce
+## 16. Reproduce
 
 ```bash
 # serve (Blackwell)
@@ -199,21 +522,102 @@ conda run -n epf python -m benchmarking.mmau_pro.run_mmau \
   --data-root /home/exx/inference-time-scaling/mmau_pro_testmini --subset full \
   --prompt-methods 2,4 --arms baseline,pf,epf --budgets 4 \
   --audio-mode local-path --item-concurrency 12 \
-  --output benchmarking/mmau_pro/results/mmau_957_results.jsonl
+  --output benchmarking/mmau_pro/results/run04_full957/mmau_957_results.jsonl
 
 # Run 5: full 957 x 9 greedy bake-off (resumable) + paginated HTML
 uv run python -m benchmarking.mmau_pro.cot_compare \
   --endpoint http://localhost:8100/v1 --model-name qwen-omni \
   --data-root /home/exx/inference-time-scaling/mmau_pro_testmini \
   --subset full --select all --audio-mode local-path --concurrency 24 \
-  --jsonl benchmarking/mmau_pro/results/cot957.jsonl \
-  --csv   benchmarking/mmau_pro/results/cot957.csv \
-  --log   benchmarking/mmau_pro/results/cot957.log
+  --jsonl benchmarking/mmau_pro/results/run05_cot957/cot957.jsonl \
+  --csv   benchmarking/mmau_pro/results/run05_cot957/cot957.csv \
+  --log   benchmarking/mmau_pro/results/run05_cot957/cot957.log
 uv run python -m benchmarking.mmau_pro.make_report \
-  --in benchmarking/mmau_pro/results/cot957.csv \
-  --out-dir benchmarking/mmau_pro/results/cot957_html --paginate category
+  --in benchmarking/mmau_pro/results/run05_cot957/cot957.csv \
+  --out-dir benchmarking/mmau_pro/results/run05_cot957/cot957_html --paginate category
+
+# Run 6: EPF diversity sweep on both GPUs (start a 2nd replica on GPU1 first)
+CUDA_VISIBLE_DEVICES=1 ... vllm serve ... --port 8101   # 2nd replica (same launch cmd as :8100)
+uv run python -m benchmarking.mmau_pro.diversity_probe \
+  --endpoints http://localhost:8100/v1,http://localhost:8101/v1 --model-name qwen-omni \
+  --data-root /home/exx/inference-time-scaling/mmau_pro_testmini \
+  --prompts 4,5,7,9 --signals mean_logprob,entropy --budgets 1,8,16,32 \
+  --temp 0.8 --ess-threshold 0.6 --early-phase 0.7 --limit 100 --max-inflight 64 \
+  --jsonl benchmarking/mmau_pro/results/run06_epf_div/epf_div.jsonl \
+  --csv   benchmarking/mmau_pro/results/run06_epf_div/epf_div.csv \
+  --log   benchmarking/mmau_pro/results/run06_epf_div/epf_div.log
+
+# Run 7: terminal answer-confidence re-rank (3 scorers x 2 rules vs baselines, both GPUs)
+uv run python -m benchmarking.mmau_pro.rerank_probe \
+  --endpoints http://localhost:8100/v1,http://localhost:8101/v1 --model-name qwen-omni \
+  --data-root /home/exx/inference-time-scaling/mmau_pro_testmini \
+  --prompts 4,5,7,9 --budgets 8,16,32 --limit 100 --max-inflight 48 \
+  --jsonl benchmarking/mmau_pro/results/run07_rerank/rerank.jsonl \
+  --csv   benchmarking/mmau_pro/results/run07_rerank/rerank.csv \
+  --log   benchmarking/mmau_pro/results/run07_rerank/rerank.log
+
+# Run 8: diversity source — EPF (resample ON) vs INDEP (resample OFF) + per-step ESS
+uv run python -m benchmarking.mmau_pro.divsource_probe \
+  --endpoints http://localhost:8100/v1,http://localhost:8101/v1 --model-name qwen-omni \
+  --data-root /home/exx/inference-time-scaling/mmau_pro_testmini \
+  --prompts 4,5,7,9 --budgets 8,16,32 --limit 100 --max-inflight 64 \
+  --jsonl benchmarking/mmau_pro/results/run08_divsource/divsource.jsonl \
+  --csv   benchmarking/mmau_pro/results/run08_divsource/divsource.csv \
+  --log   benchmarking/mmau_pro/results/run08_divsource/divsource.log
+
+# Run 10: Run 6's EPF budget sweep on the FULL 957 (both signals, budgets 1/8/16/32).
+# (mean_logprob{8,16,32} were seeded from Run 8's full-957 EPF arm to avoid recompute.)
+uv run python -m benchmarking.mmau_pro.diversity_probe \
+  --endpoints http://localhost:8100/v1,http://localhost:8101/v1 --model-name qwen-omni \
+  --data-root /home/exx/inference-time-scaling/mmau_pro_testmini \
+  --prompts 4,5,7,9 --signals mean_logprob,entropy --budgets 1,8,16,32 \
+  --select all --limit 2000 --temp 0.8 --max-inflight 64 \
+  --jsonl benchmarking/mmau_pro/results/run10_run6_full/run6_full.jsonl \
+  --csv   benchmarking/mmau_pro/results/run10_run6_full/run6_full.csv \
+  --log   benchmarking/mmau_pro/results/run10_run6_full/run6_full.log
+
+# Run 11: the grid on the FULL 5,090-MCQ test set (budget-staged; b1 needs low inflight,
+# and serve with --gpu-memory-utilization 0.85 + PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# — see SETUP_GUIDE.md). Seed first: cp results/run10_run6_full/run6_full.jsonl results/run11_epf_full5090/epf_full5090.jsonl
+for B in 1 8 16 32; do INFLIGHT=64; [ "$B" -eq 1 ] && INFLIGHT=24
+  conda run -n epf python -m benchmarking.mmau_pro.diversity_probe \
+    --endpoints http://localhost:8100/v1,http://localhost:8101/v1 --model-name qwen-omni \
+    --data-root /home/exx/inference-time-scaling/mmau_pro_testmini \
+    --subset test --audio-root /home/exx/inference-time-scaling/mmau_pro_audio \
+    --prompts 4,5,7,9 --signals mean_logprob,entropy --budgets $B \
+    --select all --limit 6000 --temp 0.8 --ess-threshold 0.6 --early-phase 0.7 \
+    --max-inflight $INFLIGHT \
+    --jsonl benchmarking/mmau_pro/results/run11_epf_full5090/epf_full5090.jsonl \
+    --csv   benchmarking/mmau_pro/results/run11_epf_full5090/epf_full5090.csv \
+    --log   benchmarking/mmau_pro/results/run11_epf_full5090/epf_full5090.log
+done
+conda run -n epf python -m benchmarking.mmau_pro.epf_bootstrap --n 10000 \
+  --in  benchmarking/mmau_pro/results/run11_epf_full5090/epf_full5090.csv \
+  --out benchmarking/mmau_pro/results/run11_epf_full5090/epf_full5090_bootstrap.html
 ```
 
-## 11. Next lever (not yet run)
+## 17. Next lever
 
-The category pattern (ITS helps where perception is uncertain) motivates the **answer‑choice‑confidence reward**: weight particles by `P(correct choice | audio, question, reasoning‑so‑far)` — a *correctness* proxy rather than fluency — which is the signal most likely to be significant and to actually scale with budget. The harness/`weight_source` is already pluggable for this.
+**Run 7 ruled out the obvious self-signal fix.** We tested the answer-choice-confidence reward as a terminal
+re-rank (answer-letter confidence and option-text likelihood, with and without audio) and it does **not**
+recover the oracle gap — it reshuffles correct↔incorrect roughly one-for-one (net ≈ 0). Combined with Runs
+4/6, this rules out *any* self-generated confidence (fluency, answer-letter, option-text) as the weight: the
+generator is confidently wrong on the items it misses, so no reweighting of its own signal can separate its
+right answers from its wrong ones.
+
+**Run 8 added a second structural finding:** EPF's *resampling is net-harmful* on this task — it culls the
+correct (lower-fluency) minority and lowers the oracle ceiling ~12 pp vs plain independent sampling, with no
+gain in selected accuracy. So the EPF/PF machinery isn't earning its keep here.
+
+**The implied pipeline within the RL-free framing:** drop particle filtering for **plain best-of-N sampling**
+(no resampling → oracle ~0.96 @N=32) and spend the budget on a **better *independent* selector** — a signal
+that doesn't share the generator's blind spots:
+- a **different judge model** scoring/ranking the N finished candidates (cross-model verification), or
+- a **trained verifier / PRM** (supervised on correctness) — but that re-introduces training, leaving the
+  RL-free framing.
+
+Cheaper diagnostics worth a look before committing: (a) re-rank with a *stronger* model as judge on the
+oracle-but-EPF-wrong items to confirm an external signal *can* recover them (upper-bound check); (b) a
+self-critique/debate pass (still self-signal, likely same ceiling, but cheap to falsify). The honest read:
+within the fixed-single-model, RL-free constraint, **inference-time scaling on MMAU-Pro is selection-limited
+and that limit is the model's own calibration** — not solvable by more particles or a cleverer self-weight.

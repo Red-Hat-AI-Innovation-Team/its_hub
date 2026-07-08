@@ -11,8 +11,8 @@ Two modes:
                                        (good for the full 957 set, which is too big for one file)
 
     python -m benchmarking.mmau_pro.make_report \
-        --in benchmarking/mmau_pro/results/cot957.csv \
-        --out-dir benchmarking/mmau_pro/results/cot957_html --paginate category
+        --in benchmarking/mmau_pro/results/run05_cot957/cot957.csv \
+        --out-dir benchmarking/mmau_pro/results/run05_cot957/cot957_html --paginate category
 """
 
 import csv

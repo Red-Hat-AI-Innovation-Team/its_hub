@@ -8,6 +8,7 @@ from benchmarking.mmau_pro.scoring import match_answer_index
 SUBSET_FILES = {
     "full": "testmini-00000-of-00001.parquet",
     "le30s": "testmini_le30s-00000-of-00001.parquet",
+    "test": "test-00000-of-00001.parquet",  # the FULL MMAU-Pro test set (5,305 rows)
 }
 
 
@@ -54,8 +55,15 @@ def load_mmau_mcq(
     subset: str = "full",
     limit: int | None = None,
     require_audio_exists: bool = True,
+    audio_root: str | None = None,
 ) -> list[MCQRecord]:
-    """Read the testmini parquet and return the MCQ records (957 for `full`)."""
+    """Read the parquet and return the MCQ records (957 for `full`, 5,090 for `test`).
+
+    `audio_root` resolves the relative audio paths when the audio files live under
+    a different root than the parquet (e.g. the full `test` parquet ships in the
+    testmini repo while its audio lives in `mmau_pro_audio/`). Defaults to
+    `data_root` (the original single-root layout).
+    """
     import pandas as pd
 
     if subset not in SUBSET_FILES:
@@ -65,7 +73,7 @@ def load_mmau_mcq(
 
     records: list[MCQRecord] = []
     for _, row in df.iterrows():
-        rec = record_from_row(row.to_dict(), data_root)
+        rec = record_from_row(row.to_dict(), audio_root or data_root)
         if rec is None:
             continue
         if require_audio_exists and not all(os.path.exists(p) for p in rec.audio_paths):
