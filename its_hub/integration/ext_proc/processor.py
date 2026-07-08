@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 
 try:
     import grpc
@@ -258,7 +259,7 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
                                         )
 
                                 openai_response = {
-                                    "id": f"chatcmpl-its-{hash(request_id)}",
+                                    "id": f"chatcmpl-its-{uuid.uuid4()}",
                                     "object": "chat.completion",
                                     "created": int(time.time()),
                                     "model": its_config.model,
