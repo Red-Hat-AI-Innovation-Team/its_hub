@@ -6,6 +6,7 @@ similar to how HTTP services reuse client instances across requests.
 
 import hashlib
 import logging
+import time
 from typing import Any
 
 from its_hub.api import (
@@ -61,8 +62,9 @@ class ITSGateway(AbstractGateway):
             algorithm = SelfConsistency(orchestrator=orchestrator)
         self._algorithm = algorithm
 
+        self._algorithm_name = type(algorithm).__name__
         self._lm_cache: dict[tuple[str, str, str], OpenAICompatibleLanguageModel] = {}
-        logger.info("ITSGateway initialized")
+        logger.info("ITSGateway initialized with algorithm=%s", self._algorithm_name)
 
     @staticmethod
     def _hash_api_key(api_key: str | None) -> str:
@@ -134,8 +136,9 @@ class ITSGateway(AbstractGateway):
         )
 
         logger.info(
-            "%sRunning ITS: budget=%s, endpoint=%s, model=%s, messages=%s, tools=%s",
+            "%sRunning ITS: algorithm=%s, budget=%s, endpoint=%s, model=%s, messages=%s, tools=%s",
             log_prefix,
+            self._algorithm_name,
             config.budget,
             config.api_endpoint,
             config.model,
@@ -143,6 +146,7 @@ class ITSGateway(AbstractGateway):
             "yes" if tools else "no",
         )
 
+        t0 = time.monotonic()
         try:
             result = await self._algorithm.ainfer(
                 lm=lm,
@@ -159,12 +163,16 @@ class ITSGateway(AbstractGateway):
                     "prompt_tokens": result.usage.prompt_tokens,
                     "completion_tokens": result.usage.completion_tokens,
                     "total_tokens": result.usage.total_tokens,
+                    "num_calls": result.usage.num_calls,
                 }
+
+            duration_s = time.monotonic() - t0
 
             if return_response_only:
                 logger.info(
-                    "%sITS completed. Usage: %s",
+                    "%sITS completed in %.2fs. Usage: %s",
                     log_prefix,
+                    duration_s,
                     usage_dict,
                 )
                 return {
@@ -180,8 +188,9 @@ class ITSGateway(AbstractGateway):
                     "usage": usage_dict,
                 }
                 logger.info(
-                    "%sITS completed. Usage: %s (selected_index=%s)",
+                    "%sITS completed in %.2fs. Usage: %s (selected_index=%s)",
                     log_prefix,
+                    duration_s,
                     usage_dict,
                     result.selected_index,
                 )

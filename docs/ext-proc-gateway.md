@@ -139,6 +139,18 @@ Failed ITS requests are logged at ERROR level and fall back to the upstream serv
   gRPC stream is terminated before ITS completes, the gateway logs the error and the
   request is handled by Envoy's configured failure policy.
 
+## Trust Boundary
+
+All client-supplied inputs are treated as untrusted:
+
+- **Headers**: `X-ITS-Budget` is validated to integer within 1–1000. `X-ITS-Endpoint` and
+  `X-ITS-API-Key` are used as-is but never logged.
+- **Request body**: `model` and `messages` are passed to the algorithm without sanitization.
+  Malformed JSON is caught and results in pass-through.
+- **Tool arguments**: `tools` and `tool_choice` are forwarded to the downstream LLM as-is.
+- **Model outputs**: Downstream LLM responses are returned to the client without
+  sanitization.
+
 ## Secret Handling
 
 - API keys are passed via `X-ITS-API-Key` header per request. They are **never logged**.
