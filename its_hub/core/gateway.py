@@ -145,63 +145,49 @@ class ITSGateway(AbstractGateway):
         )
 
         t0 = time.monotonic()
-        try:
-            result = await self._algorithm.ainfer(
-                lm=lm,
-                prompt_or_messages=chat_messages,
-                budget=config.budget,
-                return_response_only=False,
-                tools=tools,
-                tool_choice=tool_choice,
-            )
+        result = await self._algorithm.ainfer(
+            lm=lm,
+            prompt_or_messages=chat_messages,
+            budget=config.budget,
+            return_response_only=False,
+            tools=tools,
+            tool_choice=tool_choice,
+        )
 
-            usage_dict = {}
-            if isinstance(result.usage, GenerationUsage):
-                usage_dict = {
-                    "prompt_tokens": result.usage.prompt_tokens,
-                    "completion_tokens": result.usage.completion_tokens,
-                    "total_tokens": result.usage.total_tokens,
-                    "num_calls": result.usage.num_calls,
-                }
+        usage_dict = {}
+        if isinstance(result.usage, GenerationUsage):
+            usage_dict = {
+                "prompt_tokens": result.usage.prompt_tokens,
+                "completion_tokens": result.usage.completion_tokens,
+                "total_tokens": result.usage.total_tokens,
+                "num_calls": result.usage.num_calls,
+            }
 
-            duration_s = time.monotonic() - t0
+        duration_s = time.monotonic() - t0
 
-            if return_response_only:
-                logger.info(
-                    "%sITS completed in %.2fs. Usage: %s",
-                    log_prefix,
-                    duration_s,
-                    usage_dict,
-                )
-                return {
-                    "message": result.the_one,
-                    "usage": usage_dict,
-                }
-            else:
-                result_dict = {
-                    "responses": result.responses,
-                    "response_counts": result.response_counts,
-                    "selected_index": result.selected_index,
-                    "the_one": result.the_one,
-                    "usage": usage_dict,
-                }
-                logger.info(
-                    "%sITS completed in %.2fs. Usage: %s (selected_index=%s)",
-                    log_prefix,
-                    duration_s,
-                    usage_dict,
-                    result.selected_index,
-                )
-                return result_dict
-
-        except Exception as e:
-            logger.error(
-                "%sITS algorithm failed: %s",
+        if return_response_only:
+            logger.info(
+                "%sITS completed in %.2fs. Usage: %s",
                 log_prefix,
-                e,
-                exc_info=True,
+                duration_s,
+                usage_dict,
             )
-            raise
+            return {"message": result.the_one, "usage": usage_dict}
+
+        logger.info(
+            "%sITS completed in %.2fs. Usage: %s (selected_index=%s)",
+            log_prefix,
+            duration_s,
+            usage_dict,
+            result.selected_index,
+        )
+        return {
+            "responses": result.responses,
+            "response_counts": result.response_counts,
+            "selected_index": result.selected_index,
+            "the_one": result.the_one,
+            "usage": usage_dict,
+        }
 
     async def ashutdown(self) -> None:
         """Cleanup resources on service shutdown.
