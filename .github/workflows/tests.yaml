@@ -41,7 +41,9 @@ jobs:
       run: uv sync --extra dev
 
     - name: Compile Envoy proto files
-      run: make proto-compile
+      run: |
+        mkdir -p its_hub/integration/ext_proc/proto
+        make proto-compile
 
     - name: Run unit tests with python ${{ matrix.python-version }}
       run: uv run pytest tests/ --ignore=tests/e2e --cov=its_hub --cov-report=xml

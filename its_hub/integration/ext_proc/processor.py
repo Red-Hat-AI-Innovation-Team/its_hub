@@ -148,9 +148,7 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
                         continue
 
                     try:
-                        yield await self._apply_its(
-                            its_config, full_body, request_id
-                        )
+                        yield await self._apply_its(its_config, full_body, request_id)
                         return
                     except Exception as e:
                         logger.error(
