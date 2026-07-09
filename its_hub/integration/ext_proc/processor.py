@@ -135,202 +135,201 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
                     body_chunk = request.request_body
                     request_body_chunks.append(body_chunk.body)
 
-                    if body_chunk.end_of_stream:
-                        logger.info("[%s] Request body complete", request_id)
-                        full_body = b"".join(request_body_chunks)
+                    if not body_chunk.end_of_stream:
+                        yield self._body_continue()
+                        continue
 
-                        if its_config:
-                            try:
-                                request_data = json.loads(full_body.decode("utf-8"))
+                    logger.info("[%s] Request body complete", request_id)
+                    full_body = b"".join(request_body_chunks)
 
-                                model = request_data.get("model")
-                                if not model:
-                                    logger.error(
-                                        "[%s] No 'model' field in request body",
-                                        request_id,
-                                    )
-                                    yield ext_proc_pb2.ProcessingResponse(
-                                        request_body=ext_proc_pb2.BodyResponse(
-                                            response=ext_proc_pb2.CommonResponse(
-                                                status=ext_proc_pb2.CommonResponse.CONTINUE
-                                            )
-                                        )
-                                    )
-                                    continue
+                    if not its_config:
+                        logger.debug("[%s] Passing through without ITS", request_id)
+                        yield self._body_continue()
+                        continue
 
-                                its_config.model = model
-
-                                messages = request_data.get("messages", [])
-                                tools = request_data.get("tools")
-                                tool_choice = request_data.get("tool_choice")
-
-                                logger.info(
-                                    "[%s] Processing %d messages with ITS (model=%s, budget=%s)",
-                                    request_id,
-                                    len(messages),
-                                    model,
-                                    its_config.budget,
-                                )
-
-                                result = await self.gateway.arun_chat_completion(
-                                    config=its_config,
-                                    messages=messages,
-                                    tools=tools,
-                                    tool_choice=tool_choice,
-                                    return_response_only=False,
-                                    request_id=request_id,
-                                )
-
-                                response_message = dict(result["the_one"])
-                                usage = result["usage"]
-                                decision_counts = result["response_counts"]
-                                selected_index = result["selected_index"]
-                                responses = result["responses"]
-
-                                response_message.pop("usage", None)
-
-                                preview = _preview_message_content(response_message)
-                                logger.info(
-                                    "[%s] ITS selected candidate #%s with usage=%s preview='%s'",
-                                    request_id,
-                                    selected_index,
-                                    usage,
-                                    preview,
-                                )
-                                logger.debug(
-                                    "[%s] Candidate vote summary: %s",
-                                    request_id,
-                                    decision_counts,
-                                )
-                                if logger.isEnabledFor(logging.DEBUG):
-                                    for idx, candidate in enumerate(responses):
-                                        logger.debug(
-                                            "[%s] Candidate %s content preview: %s",
-                                            request_id,
-                                            idx,
-                                            _preview_message_content(candidate),
-                                        )
-
-                                openai_response = {
-                                    "id": f"chatcmpl-its-{uuid.uuid4()}",
-                                    "object": "chat.completion",
-                                    "created": int(time.time()),
-                                    "model": its_config.model,
-                                    "choices": [
-                                        {
-                                            "index": 0,
-                                            "message": response_message,
-                                            "finish_reason": "stop",
-                                        }
-                                    ],
-                                    "usage": usage,
-                                }
-
-                                response_body = json.dumps(openai_response).encode(
-                                    "utf-8"
-                                )
-
-                                logger.info(
-                                    "[%s] ITS complete, returning response (%d bytes, usage=%s)",
-                                    request_id,
-                                    len(response_body),
-                                    usage,
-                                )
-
-                                yield ext_proc_pb2.ProcessingResponse(
-                                    immediate_response=ext_proc_pb2.ImmediateResponse(
-                                        status=http_status_pb2.HttpStatus(
-                                            code=http_status_pb2.OK
-                                        ),
-                                        body=response_body,
-                                        headers=ext_proc_pb2.HeaderMutation(
-                                            set_headers=[
-                                                base_pb2.HeaderValueOption(
-                                                    header=base_pb2.HeaderValue(
-                                                        key="content-type",
-                                                        raw_value=b"application/json",
-                                                    )
-                                                ),
-                                                base_pb2.HeaderValueOption(
-                                                    header=base_pb2.HeaderValue(
-                                                        key="x-its-applied",
-                                                        raw_value=b"true",
-                                                    )
-                                                ),
-                                            ]
-                                        ),
-                                    )
-                                )
-                                logger.info(
-                                    "[%s] Immediate response sent to Envoy",
-                                    request_id,
-                                )
-                                return
-
-                            except Exception as e:
-                                logger.error(
-                                    "[%s] Error processing ITS request: %s",
-                                    request_id,
-                                    e,
-                                    exc_info=True,
-                                )
-                                yield ext_proc_pb2.ProcessingResponse(
-                                    request_body=ext_proc_pb2.BodyResponse(
-                                        response=ext_proc_pb2.CommonResponse(
-                                            status=ext_proc_pb2.CommonResponse.CONTINUE
-                                        )
-                                    )
-                                )
-
-                        else:
-                            logger.debug("[%s] Passing through without ITS", request_id)
-                            yield ext_proc_pb2.ProcessingResponse(
-                                request_body=ext_proc_pb2.BodyResponse(
-                                    response=ext_proc_pb2.CommonResponse(
-                                        status=ext_proc_pb2.CommonResponse.CONTINUE
-                                    )
-                                )
-                            )
-
-                    else:
-                        yield ext_proc_pb2.ProcessingResponse(
-                            request_body=ext_proc_pb2.BodyResponse(
-                                response=ext_proc_pb2.CommonResponse(
-                                    status=ext_proc_pb2.CommonResponse.CONTINUE
-                                )
-                            )
+                    try:
+                        yield await self._apply_its(
+                            its_config, full_body, request_id
                         )
+                        return
+                    except Exception as e:
+                        logger.error(
+                            "[%s] Error processing ITS request: %s",
+                            request_id,
+                            e,
+                            exc_info=True,
+                        )
+                        yield self._body_continue()
 
                 elif request.HasField("response_headers"):
                     logger.debug(
                         "[%s] Received response headers, passing through",
                         request_id,
                     )
-                    yield ext_proc_pb2.ProcessingResponse(
-                        response_headers=ext_proc_pb2.HeadersResponse(
-                            response=ext_proc_pb2.CommonResponse(
-                                status=ext_proc_pb2.CommonResponse.CONTINUE
-                            )
-                        )
-                    )
+                    yield self._response_headers_continue()
 
                 elif request.HasField("response_body"):
                     logger.debug(
                         "[%s] Received response body, passing through",
                         request_id,
                     )
-                    yield ext_proc_pb2.ProcessingResponse(
-                        response_body=ext_proc_pb2.BodyResponse(
-                            response=ext_proc_pb2.CommonResponse(
-                                status=ext_proc_pb2.CommonResponse.CONTINUE
-                            )
-                        )
-                    )
+                    yield self._response_body_continue()
 
         except Exception as e:
             logger.error("[%s] Stream error: %s", request_id, e, exc_info=True)
 
         logger.info("[%s] Stream completed", request_id)
+
+    async def _apply_its(
+        self,
+        its_config: ITSRequestConfig,
+        body: bytes,
+        request_id: str,
+    ) -> ext_proc_pb2.ProcessingResponse:
+        """Run ITS scaling on the request body and return an immediate or continue response."""
+        request_data = json.loads(body.decode("utf-8"))
+
+        model = request_data.get("model")
+        if not model:
+            raise ValueError("No 'model' field in request body")
+
+        its_config.model = model
+        messages = request_data.get("messages", [])
+        tools = request_data.get("tools")
+        tool_choice = request_data.get("tool_choice")
+
+        logger.info(
+            "[%s] Processing %d messages with ITS (model=%s, budget=%s)",
+            request_id,
+            len(messages),
+            model,
+            its_config.budget,
+        )
+
+        result = await self.gateway.arun_chat_completion(
+            config=its_config,
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            return_response_only=False,
+            request_id=request_id,
+        )
+
+        response_message = dict(result["the_one"])
+        response_message.pop("usage", None)
+        usage = result["usage"]
+
+        self._log_its_result(request_id, result, response_message, usage)
+
+        openai_response = {
+            "id": f"chatcmpl-its-{uuid.uuid4()}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": its_config.model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": response_message,
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": usage,
+        }
+
+        response_body = json.dumps(openai_response).encode("utf-8")
+
+        logger.info(
+            "[%s] ITS complete, returning response (%d bytes, usage=%s)",
+            request_id,
+            len(response_body),
+            usage,
+        )
+
+        return ext_proc_pb2.ProcessingResponse(
+            immediate_response=ext_proc_pb2.ImmediateResponse(
+                status=http_status_pb2.HttpStatus(code=http_status_pb2.OK),
+                body=response_body,
+                headers=ext_proc_pb2.HeaderMutation(
+                    set_headers=[
+                        base_pb2.HeaderValueOption(
+                            header=base_pb2.HeaderValue(
+                                key="content-type",
+                                raw_value=b"application/json",
+                            )
+                        ),
+                        base_pb2.HeaderValueOption(
+                            header=base_pb2.HeaderValue(
+                                key="x-its-applied",
+                                raw_value=b"true",
+                            )
+                        ),
+                    ]
+                ),
+            )
+        )
+
+    def _log_its_result(
+        self,
+        request_id: str,
+        result: dict,
+        response_message: dict,
+        usage: dict,
+    ) -> None:
+        """Log ITS scaling result details."""
+        preview = _preview_message_content(response_message)
+        logger.info(
+            "[%s] ITS selected candidate #%s with usage=%s preview='%s'",
+            request_id,
+            result["selected_index"],
+            usage,
+            preview,
+        )
+        logger.debug(
+            "[%s] Candidate vote summary: %s",
+            request_id,
+            result["response_counts"],
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            for idx, candidate in enumerate(result["responses"]):
+                logger.debug(
+                    "[%s] Candidate %s content preview: %s",
+                    request_id,
+                    idx,
+                    _preview_message_content(candidate),
+                )
+
+    @staticmethod
+    def _body_continue() -> ext_proc_pb2.ProcessingResponse:
+        """Build a CONTINUE BodyResponse for pass-through."""
+        return ext_proc_pb2.ProcessingResponse(
+            request_body=ext_proc_pb2.BodyResponse(
+                response=ext_proc_pb2.CommonResponse(
+                    status=ext_proc_pb2.CommonResponse.CONTINUE
+                )
+            )
+        )
+
+    @staticmethod
+    def _response_headers_continue() -> ext_proc_pb2.ProcessingResponse:
+        """Build a CONTINUE HeadersResponse for response pass-through."""
+        return ext_proc_pb2.ProcessingResponse(
+            response_headers=ext_proc_pb2.HeadersResponse(
+                response=ext_proc_pb2.CommonResponse(
+                    status=ext_proc_pb2.CommonResponse.CONTINUE
+                )
+            )
+        )
+
+    @staticmethod
+    def _response_body_continue() -> ext_proc_pb2.ProcessingResponse:
+        """Build a CONTINUE BodyResponse for response pass-through."""
+        return ext_proc_pb2.ProcessingResponse(
+            response_body=ext_proc_pb2.BodyResponse(
+                response=ext_proc_pb2.CommonResponse(
+                    status=ext_proc_pb2.CommonResponse.CONTINUE
+                )
+            )
+        )
 
     @staticmethod
     def _headers_continue(
