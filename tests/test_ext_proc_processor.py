@@ -581,9 +581,9 @@ class TestPreviewMessageContent:
 
 class TestImportGuard:
     def test_main_exits_without_grpc(self):
-        from its_hub.integration.ext_proc.processor import main
+        from its_hub.integration.ext_proc.server import main
 
-        with patch("its_hub.integration.ext_proc.processor.grpc", None):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
-            assert exc_info.value.code == 1
+        with patch("its_hub.integration.ext_proc.server.grpc", None), \
+             pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 1
