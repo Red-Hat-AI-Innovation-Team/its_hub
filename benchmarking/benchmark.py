@@ -154,10 +154,10 @@ def display_results(df: pd.DataFrame):
     "--is_async", is_flag=True, default=False, help="whether to use async mode"
 )
 @click.option(
-    "--max_tokens",
+    "--max_completion_tokens",
     type=int,
     default=None,
-    help="max tokens to use for inference-time scaling",
+    help="max completion tokens per generation",
 )
 @click.option(
     "--temperature",
@@ -248,7 +248,7 @@ def main(
     benchmark: BenchmarkDataset,
     model_name: str,
     is_async: bool,
-    max_tokens: int,
+    max_completion_tokens: int,
     temperature: float,
     max_concurrency: int,
     endpoint: str,
@@ -345,7 +345,7 @@ def main(
             else SAL_STEP_BY_STEP_SYSTEM_PROMPT,
             is_async=is_async,
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_completion_tokens,
             max_concurrency=max_concurrency,
         )
 

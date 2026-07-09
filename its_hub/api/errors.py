@@ -132,6 +132,7 @@ def parse_api_error(status_code: int, error_text: str) -> APIError:
             "token limit",
             "context_length_exceeded",
             "max_tokens",
+            "max_completion_tokens",
         ]
     ):
         return ContextLengthError(
@@ -221,7 +222,7 @@ def format_non_retryable_error(exception: APIError) -> str:
     if isinstance(exception, ContextLengthError):
         return (
             f"❌ {exception.message}\n"
-            f"💡 Suggestion: Reduce input length, increase max_tokens, or use a model with larger context window"
+            f"💡 Suggestion: Reduce input length, increase max_completion_tokens, or use a model with larger context window"
         )
 
     if isinstance(exception, AuthenticationError):
@@ -233,7 +234,7 @@ def format_non_retryable_error(exception: APIError) -> str:
     if isinstance(exception, BadRequestError):
         return (
             f"❌ {exception.message}\n"
-            f"💡 Suggestion: Check your request parameters (temperature, max_tokens, etc.)"
+            f"💡 Suggestion: Check your request parameters (temperature, max_completion_tokens, etc.)"
         )
 
     return f"❌ {exception.message}"

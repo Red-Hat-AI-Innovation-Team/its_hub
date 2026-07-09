@@ -195,11 +195,19 @@ class TestParameterForwarding:
         assert lm.calls[0]["stop"] == "\n"
 
     @pytest.mark.asyncio
-    async def test_max_tokens_forwarded(self):
+    async def test_max_completion_tokens_forwarded(self):
         orch = LMOrchestrator(max_concurrency=4)
         lm = MockLM()
-        await orch.agenerate(lm, _make_batch(1), max_tokens=100)
-        assert lm.calls[0]["max_tokens"] == 100
+        await orch.agenerate(lm, _make_batch(1), max_completion_tokens=100)
+        assert lm.calls[0]["max_completion_tokens"] == 100
+
+    @pytest.mark.asyncio
+    async def test_max_tokens_deprecated_alias(self):
+        orch = LMOrchestrator(max_concurrency=4)
+        lm = MockLM()
+        with pytest.warns(DeprecationWarning, match="max_tokens.*deprecated"):
+            await orch.agenerate(lm, _make_batch(1), max_tokens=100)
+        assert lm.calls[0]["max_completion_tokens"] == 100
 
     @pytest.mark.asyncio
     async def test_scalar_temperature(self):
@@ -247,7 +255,7 @@ class TestParameterForwarding:
         await orch.agenerate(lm, _make_batch(1))
         call = lm.calls[0]
         assert call["stop"] is None
-        assert call["max_tokens"] is None
+        assert call["max_completion_tokens"] is None
         assert call["temperature"] is None
         assert call["include_stop_str_in_output"] is None
         assert call["tools"] is None

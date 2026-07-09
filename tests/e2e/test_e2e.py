@@ -67,7 +67,7 @@ def parse_args():
         help="Sampling temperature (default: 0.7)",
     )
     p.add_argument(
-        "--max_tokens", type=int, default=None, help="Max tokens per generation"
+        "--max_completion_tokens", type=int, default=None, help="Max completion tokens per generation"
     )
     p.add_argument(
         "--max_concurrency",
@@ -198,7 +198,7 @@ def main():
         model_name=args.model_name,
         system_prompt=system_prompt,
         temperature=args.temperature,
-        max_tokens=args.max_tokens,
+        max_completion_tokens=args.max_completion_tokens,
         max_concurrency=args.max_concurrency,
     )
 

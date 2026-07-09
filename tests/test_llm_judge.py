@@ -239,13 +239,13 @@ class TestOrchestratorResponseFormat:
         await orch.agenerate(
             lm, batch,
             temperature=0.0,
-            max_tokens=100,
+            max_completion_tokens=100,
             response_format=fmt,
         )
 
         call = lm.calls[0]
         assert call["temperature"] == 0.0
-        assert call["max_tokens"] == 100
+        assert call["max_completion_tokens"] == 100
         assert call["response_format"] == fmt
 
     @pytest.mark.asyncio

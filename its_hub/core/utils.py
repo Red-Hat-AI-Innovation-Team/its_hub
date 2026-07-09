@@ -1,4 +1,5 @@
 import json
+import warnings
 
 # the system prompt for step-by-step reasoning taken from https://github.com/huggingface/search-and-learn
 SAL_STEP_BY_STEP_SYSTEM_PROMPT = "Solve the following math problem efficiently and clearly:\n\n- For simple problems (2 steps or fewer):\nProvide a concise solution with minimal explanation.\n\n- For complex problems (3 steps or more):\nUse this step-by-step format:\n\n## Step 1: [Concise description]\n[Brief explanation and calculations]\n\n## Step 2: [Concise description]\n[Brief explanation and calculations]\n\n...\n\nRegardless of the approach, always conclude with:\n\nTherefore, the final answer is: $\\boxed{answer}$. I hope it is correct.\n\nWhere [answer] is just the final number or expression that solves the problem."
@@ -6,6 +7,26 @@ SAL_STEP_BY_STEP_SYSTEM_PROMPT = "Solve the following math problem efficiently a
 QWEN_SYSTEM_PROMPT = (
     "Please reason step by step, and put your final answer within \\boxed{}."
 )
+
+
+def resolve_max_completion_tokens(
+    max_completion_tokens: int | None,
+    max_tokens: int | None,
+) -> int | None:
+    """Resolve the deprecated max_tokens param into max_completion_tokens."""
+    if max_completion_tokens is not None and max_tokens is not None:
+        raise ValueError(
+            "Cannot specify both 'max_tokens' and 'max_completion_tokens'. "
+            "Use 'max_completion_tokens'."
+        )
+    if max_tokens is not None:
+        warnings.warn(
+            "'max_tokens' is deprecated, use 'max_completion_tokens'.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return max_tokens
+    return max_completion_tokens
 
 
 def extract_content_from_lm_response(message: dict) -> str:
