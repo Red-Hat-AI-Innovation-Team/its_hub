@@ -51,9 +51,7 @@ class AbstractGateway(ABC):
         **kwargs,
     ) -> dict[str, Any]:
         """Synchronous wrapper for arun_chat_completion."""
-        return asyncio.run(
-            self.arun_chat_completion(config, messages, **kwargs)
-        )
+        return asyncio.run(self.arun_chat_completion(config, messages, **kwargs))
 
     @abstractmethod
     async def ashutdown(self) -> None:

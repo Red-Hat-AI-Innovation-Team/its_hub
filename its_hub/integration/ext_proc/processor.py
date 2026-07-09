@@ -141,9 +141,7 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
 
                         if its_config:
                             try:
-                                request_data = json.loads(
-                                    full_body.decode("utf-8")
-                                )
+                                request_data = json.loads(full_body.decode("utf-8"))
 
                                 model = request_data.get("model")
                                 if not model:
@@ -174,15 +172,13 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
                                     its_config.budget,
                                 )
 
-                                result = (
-                                    await self.gateway.arun_chat_completion(
-                                        config=its_config,
-                                        messages=messages,
-                                        tools=tools,
-                                        tool_choice=tool_choice,
-                                        return_response_only=False,
-                                        request_id=request_id,
-                                    )
+                                result = await self.gateway.arun_chat_completion(
+                                    config=its_config,
+                                    messages=messages,
+                                    tools=tools,
+                                    tool_choice=tool_choice,
+                                    return_response_only=False,
+                                    request_id=request_id,
                                 )
 
                                 response_message = dict(result["the_one"])
@@ -193,9 +189,7 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
 
                                 response_message.pop("usage", None)
 
-                                preview = _preview_message_content(
-                                    response_message
-                                )
+                                preview = _preview_message_content(response_message)
                                 logger.info(
                                     "[%s] ITS selected candidate #%s with usage=%s preview='%s'",
                                     request_id,
@@ -232,9 +226,9 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
                                     "usage": usage,
                                 }
 
-                                response_body = json.dumps(
-                                    openai_response
-                                ).encode("utf-8")
+                                response_body = json.dumps(openai_response).encode(
+                                    "utf-8"
+                                )
 
                                 logger.info(
                                     "[%s] ITS complete, returning response (%d bytes, usage=%s)",
@@ -289,9 +283,7 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
                                 )
 
                         else:
-                            logger.debug(
-                                "[%s] Passing through without ITS", request_id
-                            )
+                            logger.debug("[%s] Passing through without ITS", request_id)
                             yield ext_proc_pb2.ProcessingResponse(
                                 request_body=ext_proc_pb2.BodyResponse(
                                     response=ext_proc_pb2.CommonResponse(
@@ -359,9 +351,7 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
             )
         )
 
-    def _parse_its_headers(
-        self, headers: dict[str, str]
-    ) -> ITSRequestConfig | None:
+    def _parse_its_headers(self, headers: dict[str, str]) -> ITSRequestConfig | None:
         """Parse ITS configuration from request headers.
 
         Model is NOT extracted from headers - it will be set from request body later.
@@ -396,5 +386,3 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
         """Cleanup resources on service shutdown."""
         logger.info("External Processor shutting down")
         await self.gateway.ashutdown()
-
-

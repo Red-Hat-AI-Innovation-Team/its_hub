@@ -131,9 +131,7 @@ class ITSGateway(AbstractGateway):
             request_id=request_id,
         )
 
-        chat_messages = ChatMessages(
-            [ChatMessage.from_dict(msg) for msg in messages]
-        )
+        chat_messages = ChatMessages([ChatMessage.from_dict(msg) for msg in messages])
 
         logger.info(
             "%sRunning ITS: algorithm=%s, budget=%s, endpoint=%s, model=%s, messages=%s, tools=%s",
