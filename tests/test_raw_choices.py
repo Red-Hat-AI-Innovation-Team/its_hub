@@ -44,21 +44,13 @@ class RawChoiceMockLM:
 class RawChoiceMockORM:
     """Mock outcome reward model that returns predetermined scores."""
 
-    def __init__(self, scores: list[float]):
-        self.scores = scores
+    def __init__(self, score_map: dict[str, float]):
+        self.score_map = score_map
         self.call_count = 0
 
-    def score(self, messages, **kwargs):
-        if isinstance(messages[0], list):
-            out = self.scores[self.call_count : self.call_count + len(messages)]
-            self.call_count += len(messages)
-            return out
-        s = self.scores[self.call_count % len(self.scores)]
-        self.call_count += 1
-        return s
-
-    async def ascore(self, messages, orchestrator=None, **kwargs):
-        return self.score(messages)
+    async def ascore(self, conversations, orchestrator=None, **kwargs):
+        self.call_count = len(conversations)
+        return [self.score_map[conv[-1].content] for conv in conversations]
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +153,7 @@ async def test_self_consistency_raw_choices_return_response_only():
 async def test_best_of_n_with_raw_choices():
     """BestOfN should work when responses contain _raw_choice."""
     lm = RawChoiceMockLM(["resp A", "resp B", "resp C"])
-    orm = RawChoiceMockORM([0.3, 0.9, 0.1])
+    orm = RawChoiceMockORM({"resp A": 0.3, "resp B": 0.9, "resp C": 0.1})
     bon = BestOfN(orm=orm)
 
     result = await bon.ainfer(lm, "test", budget=3, return_response_only=False)
@@ -176,14 +168,15 @@ async def test_best_of_n_dedup_with_raw_choices():
     """BestOfN deduplication must not break on _raw_choice metadata.
 
     Two "same" responses get deduped, so only 2 unique candidates are scored.
-    The ORM returns [0.5, 0.8] — "different" wins with score 0.8."""
-    lm = RawChoiceMockLM(["same", "same", "different"])
-    orm = RawChoiceMockORM([0.5, 0.8])
+    "answer B" scores higher (0.8 vs 0.5) and wins."""
+    lm = RawChoiceMockLM(["answer A", "answer A", "answer B"])
+    orm = RawChoiceMockORM({"answer A": 0.5, "answer B": 0.8})
     bon = BestOfN(orm=orm)
 
     result = await bon.ainfer(lm, "test", budget=3, return_response_only=False)
 
-    assert result.the_one["content"] == "different"
+    assert orm.call_count == 2
+    assert result.the_one["content"] == "answer B"
     json.dumps(result.the_one)
 
 
