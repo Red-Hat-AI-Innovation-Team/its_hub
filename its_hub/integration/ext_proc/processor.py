@@ -164,14 +164,26 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
                         "[%s] Received response headers, passing through",
                         request_id,
                     )
-                    yield self._response_headers_continue()
+                    yield ext_proc_pb2.ProcessingResponse(
+                        response_headers=ext_proc_pb2.HeadersResponse(
+                            response=ext_proc_pb2.CommonResponse(
+                                status=ext_proc_pb2.CommonResponse.CONTINUE
+                            )
+                        )
+                    )
 
                 elif request.HasField("response_body"):
                     logger.debug(
                         "[%s] Received response body, passing through",
                         request_id,
                     )
-                    yield self._response_body_continue()
+                    yield ext_proc_pb2.ProcessingResponse(
+                        response_body=ext_proc_pb2.BodyResponse(
+                            response=ext_proc_pb2.CommonResponse(
+                                status=ext_proc_pb2.CommonResponse.CONTINUE
+                            )
+                        )
+                    )
 
         except Exception as e:
             logger.error("[%s] Stream error: %s", request_id, e, exc_info=True)
@@ -217,7 +229,27 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
         response_message.pop("usage", None)
         usage = result["usage"]
 
-        self._log_its_result(request_id, result, response_message, usage)
+        preview = _preview_message_content(response_message)
+        logger.info(
+            "[%s] ITS selected candidate #%s with usage=%s preview='%s'",
+            request_id,
+            result["selected_index"],
+            usage,
+            preview,
+        )
+        logger.debug(
+            "[%s] Candidate vote summary: %s",
+            request_id,
+            result["response_counts"],
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            for idx, candidate in enumerate(result["responses"]):
+                logger.debug(
+                    "[%s] Candidate %s content preview: %s",
+                    request_id,
+                    idx,
+                    _preview_message_content(candidate),
+                )
 
         openai_response = {
             "id": f"chatcmpl-its-{uuid.uuid4()}",
@@ -266,63 +298,11 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
             )
         )
 
-    def _log_its_result(
-        self,
-        request_id: str,
-        result: dict,
-        response_message: dict,
-        usage: dict,
-    ) -> None:
-        """Log ITS scaling result details."""
-        preview = _preview_message_content(response_message)
-        logger.info(
-            "[%s] ITS selected candidate #%s with usage=%s preview='%s'",
-            request_id,
-            result["selected_index"],
-            usage,
-            preview,
-        )
-        logger.debug(
-            "[%s] Candidate vote summary: %s",
-            request_id,
-            result["response_counts"],
-        )
-        if logger.isEnabledFor(logging.DEBUG):
-            for idx, candidate in enumerate(result["responses"]):
-                logger.debug(
-                    "[%s] Candidate %s content preview: %s",
-                    request_id,
-                    idx,
-                    _preview_message_content(candidate),
-                )
-
     @staticmethod
     def _body_continue() -> ext_proc_pb2.ProcessingResponse:
         """Build a CONTINUE BodyResponse for pass-through."""
         return ext_proc_pb2.ProcessingResponse(
             request_body=ext_proc_pb2.BodyResponse(
-                response=ext_proc_pb2.CommonResponse(
-                    status=ext_proc_pb2.CommonResponse.CONTINUE
-                )
-            )
-        )
-
-    @staticmethod
-    def _response_headers_continue() -> ext_proc_pb2.ProcessingResponse:
-        """Build a CONTINUE HeadersResponse for response pass-through."""
-        return ext_proc_pb2.ProcessingResponse(
-            response_headers=ext_proc_pb2.HeadersResponse(
-                response=ext_proc_pb2.CommonResponse(
-                    status=ext_proc_pb2.CommonResponse.CONTINUE
-                )
-            )
-        )
-
-    @staticmethod
-    def _response_body_continue() -> ext_proc_pb2.ProcessingResponse:
-        """Build a CONTINUE BodyResponse for response pass-through."""
-        return ext_proc_pb2.ProcessingResponse(
-            response_body=ext_proc_pb2.BodyResponse(
                 response=ext_proc_pb2.CommonResponse(
                     status=ext_proc_pb2.CommonResponse.CONTINUE
                 )
