@@ -248,7 +248,7 @@ def main(
     benchmark: BenchmarkDataset,
     model_name: str,
     is_async: bool,
-    max_completion_tokens: int,
+    max_completion_tokens: int | None,
     temperature: float,
     max_concurrency: int,
     endpoint: str,
