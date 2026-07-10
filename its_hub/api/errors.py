@@ -42,6 +42,12 @@ class ContextLengthError(APIError):
     pass
 
 
+class MaxCompletionTokensError(APIError):
+    """Generation truncated by max_completion_tokens limit - not retryable."""
+
+    pass
+
+
 class AuthenticationError(APIError):
     """Authentication failed - not retryable."""
 
@@ -123,6 +129,13 @@ def parse_api_error(status_code: int, error_text: str) -> APIError:
             error_details=error_details,
         )
 
+    if status_code == 400 and "output limit" in error_message_lower:
+        return MaxCompletionTokensError(
+            f"Max completion tokens reached: {error_message}",
+            status_code=status_code,
+            error_details=error_details,
+        )
+
     if status_code == 400 and any(
         phrase in error_message_lower
         for phrase in [
@@ -131,8 +144,6 @@ def parse_api_error(status_code: int, error_text: str) -> APIError:
             "too long",
             "token limit",
             "context_length_exceeded",
-            "max_tokens",
-            "max_completion_tokens",
         ]
     ):
         return ContextLengthError(
@@ -222,7 +233,13 @@ def format_non_retryable_error(exception: APIError) -> str:
     if isinstance(exception, ContextLengthError):
         return (
             f"❌ {exception.message}\n"
-            f"💡 Suggestion: Reduce input length, increase max_completion_tokens, or use a model with larger context window"
+            f"💡 Suggestion: Reduce input length or use a model with a larger context window"
+        )
+
+    if isinstance(exception, MaxCompletionTokensError):
+        return (
+            f"❌ {exception.message}\n"
+            f"💡 Suggestion: Increase max_completion_tokens to allow longer responses"
         )
 
     if isinstance(exception, AuthenticationError):
