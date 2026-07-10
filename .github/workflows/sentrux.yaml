@@ -58,6 +58,11 @@ jobs:
       continue-on-error: true
       uses: ./.github/actions/compile-protos
 
+    - name: Stage proto files for Sentrux (base)
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      run: git add -f its_hub/integration/ext_proc/proto/
+
     - name: Run Sentrux on base
       if: github.event_name == 'pull_request'
       id: base
@@ -78,6 +83,10 @@ jobs:
     - name: Compile Envoy proto files (head)
       continue-on-error: true
       uses: ./.github/actions/compile-protos
+
+    - name: Stage proto files for Sentrux (head)
+      continue-on-error: true
+      run: git add -f its_hub/integration/ext_proc/proto/
 
     - name: Run Sentrux on head
       id: head
