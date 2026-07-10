@@ -55,39 +55,43 @@ class TestGatewayConstruction:
 
 
 class TestLMClientCaching:
-    def test_creates_new_client(self):
+    @pytest.mark.asyncio
+    async def test_creates_new_client(self):
         gw = ITSGateway(algorithm=MagicMock())
         with patch("its_hub.core.gateway.OpenAICompatibleLanguageModel") as lm_cls:
             lm_cls.return_value = MagicMock()
-            lm = gw._get_or_create_lm("http://a/v1", "m1", "key1")
+            lm = await gw._get_or_create_lm("http://a/v1", "m1", "key1")
             assert lm is lm_cls.return_value
             lm_cls.assert_called_once()
 
-    def test_reuses_cached_client(self):
+    @pytest.mark.asyncio
+    async def test_reuses_cached_client(self):
         gw = ITSGateway(algorithm=MagicMock())
         with patch("its_hub.core.gateway.OpenAICompatibleLanguageModel") as lm_cls:
             lm_cls.return_value = MagicMock()
-            lm1 = gw._get_or_create_lm("http://a/v1", "m1", "key1")
-            lm2 = gw._get_or_create_lm("http://a/v1", "m1", "key1")
+            lm1 = await gw._get_or_create_lm("http://a/v1", "m1", "key1")
+            lm2 = await gw._get_or_create_lm("http://a/v1", "m1", "key1")
             assert lm1 is lm2
             assert lm_cls.call_count == 1
 
-    def test_different_endpoint_creates_new_client(self):
+    @pytest.mark.asyncio
+    async def test_different_endpoint_creates_new_client(self):
         gw = ITSGateway(algorithm=MagicMock())
         with patch("its_hub.core.gateway.OpenAICompatibleLanguageModel") as lm_cls:
             lm_cls.return_value = MagicMock()
-            gw._get_or_create_lm("http://a/v1", "m1", "key1")
+            await gw._get_or_create_lm("http://a/v1", "m1", "key1")
             lm_cls.return_value = MagicMock()
-            gw._get_or_create_lm("http://b/v1", "m1", "key1")
+            await gw._get_or_create_lm("http://b/v1", "m1", "key1")
             assert lm_cls.call_count == 2
 
-    def test_different_api_key_creates_new_client(self):
+    @pytest.mark.asyncio
+    async def test_different_api_key_creates_new_client(self):
         gw = ITSGateway(algorithm=MagicMock())
         with patch("its_hub.core.gateway.OpenAICompatibleLanguageModel") as lm_cls:
             lm_cls.return_value = MagicMock()
-            gw._get_or_create_lm("http://a/v1", "m1", "key-A")
+            await gw._get_or_create_lm("http://a/v1", "m1", "key-A")
             lm_cls.return_value = MagicMock()
-            gw._get_or_create_lm("http://a/v1", "m1", "key-B")
+            await gw._get_or_create_lm("http://a/v1", "m1", "key-B")
             assert lm_cls.call_count == 2
 
     @pytest.mark.asyncio
@@ -96,11 +100,26 @@ class TestLMClientCaching:
         mock_lm = MagicMock()
         mock_lm.close = AsyncMock()
         with patch("its_hub.core.gateway.OpenAICompatibleLanguageModel", return_value=mock_lm):
-            gw._get_or_create_lm("http://a/v1", "m1", "key1")
+            await gw._get_or_create_lm("http://a/v1", "m1", "key1")
         assert len(gw._lm_cache) == 1
         await gw.ashutdown()
         mock_lm.close.assert_awaited_once()
         assert len(gw._lm_cache) == 0
+
+    @pytest.mark.asyncio
+    async def test_evicts_oldest_when_cache_full(self):
+        gw = ITSGateway(algorithm=MagicMock(), max_lm_cache_size=2)
+        mocks = []
+        with patch("its_hub.core.gateway.OpenAICompatibleLanguageModel") as lm_cls:
+            for i in range(3):
+                mock_lm = MagicMock()
+                mock_lm.close = AsyncMock()
+                lm_cls.return_value = mock_lm
+                mocks.append(mock_lm)
+                await gw._get_or_create_lm(f"http://host{i}/v1", "m1", "key1")
+
+        assert len(gw._lm_cache) == 2
+        mocks[0].close.assert_awaited_once()
 
 
 class TestRunChatCompletion:

@@ -6,8 +6,11 @@ import logging
 
 try:
     import grpc
+    from grpc_health.v1 import health, health_pb2_grpc
 except ImportError:
     grpc = None  # type: ignore[assignment]
+    health = None  # type: ignore[assignment]
+    health_pb2_grpc = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,10 @@ async def serve(port: int = 50051):
     processor = ExternalProcessorService()
 
     ext_proc_grpc.add_ExternalProcessorServicer_to_server(processor, server)
+
+    health_servicer = health.aio.HealthServicer()
+    health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
+
     server.add_insecure_port(f"[::]:{port}")
 
     logger.info("Starting External Processor on port %d", port)
@@ -66,7 +73,7 @@ async def serve(port: int = 50051):
 
     try:
         await server.wait_for_termination()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         logger.info("Received shutdown signal")
         await processor.shutdown()
         await server.stop(grace=5)

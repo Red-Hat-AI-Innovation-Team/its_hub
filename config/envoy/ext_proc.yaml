@@ -97,6 +97,12 @@ static_resources:
               routes:
               - match:
                   prefix: "/"  # Match all paths
+                # Strip X-ITS-* headers at route level so they never leak upstream,
+                # even when ext_proc is unavailable (failure_mode_allow: true).
+                request_headers_to_remove:
+                - x-its-budget
+                - x-its-endpoint
+                - x-its-api-key
                 route:
                   cluster: llm_upstream
                   # **CUSTOMIZE**: Timeout for upstream LLM requests (5 minutes default)

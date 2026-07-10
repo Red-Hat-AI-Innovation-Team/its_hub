@@ -77,7 +77,8 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
 
         This is the main entry point called by Envoy for each HTTP request.
         """
-        request_id = context.peer()
+        peer = context.peer()
+        request_id = f"{peer}-{uuid.uuid4().hex[:8]}"
         logger.info("[%s] New stream started", request_id)
 
         request_path = None
@@ -198,6 +199,9 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
     ) -> ext_proc_pb2.ProcessingResponse:
         """Run ITS scaling on the request body and return an immediate or continue response."""
         request_data = json.loads(body.decode("utf-8"))
+
+        if request_data.get("stream"):
+            raise ValueError("Streaming requests are not supported by ITS")
 
         model = request_data.get("model")
         if not model:

@@ -7,6 +7,7 @@ similar to how HTTP services reuse client instances across requests.
 import hashlib
 import logging
 import time
+from collections import OrderedDict
 from typing import Any
 
 from its_hub.api import (
@@ -49,10 +50,13 @@ class ITSGateway(AbstractGateway):
         result = await gateway.arun_chat_completion(config, messages)
     """
 
+    _DEFAULT_MAX_LM_CACHE_SIZE = 64
+
     def __init__(
         self,
         algorithm: AbstractScalingAlgorithm | None = None,
         orchestrator: AbstractOrchestrator | None = None,
+        max_lm_cache_size: int = _DEFAULT_MAX_LM_CACHE_SIZE,
     ):
         if orchestrator is None:
             orchestrator = LMOrchestrator()
@@ -63,14 +67,17 @@ class ITSGateway(AbstractGateway):
         self._algorithm = algorithm
 
         self._algorithm_name = type(algorithm).__name__
-        self._lm_cache: dict[tuple[str, str, str], OpenAICompatibleLanguageModel] = {}
+        self._max_lm_cache_size = max_lm_cache_size
+        self._lm_cache: OrderedDict[
+            tuple[str, str, str], OpenAICompatibleLanguageModel
+        ] = OrderedDict()
         logger.info("ITSGateway initialized with algorithm=%s", self._algorithm_name)
 
     @staticmethod
     def _hash_api_key(api_key: str | None) -> str:
         return hashlib.sha256((api_key or "").encode()).hexdigest()[:16]
 
-    def _get_or_create_lm(
+    async def _get_or_create_lm(
         self,
         endpoint: str,
         model: str,
@@ -85,27 +92,39 @@ class ITSGateway(AbstractGateway):
         cache_key = (endpoint, model, self._hash_api_key(api_key))
         log_prefix = f"[{request_id}] " if request_id else ""
 
-        if cache_key not in self._lm_cache:
-            logger.info(
-                "%sCreating new LM client: endpoint=%s, model=%s",
-                log_prefix,
-                endpoint,
-                model,
-            )
-            self._lm_cache[cache_key] = OpenAICompatibleLanguageModel(
-                endpoint=endpoint,
-                api_key=api_key or "",
-                model_name=model,
-            )
-        else:
+        if cache_key in self._lm_cache:
+            self._lm_cache.move_to_end(cache_key)
             logger.debug(
                 "%sReusing cached LM client: endpoint=%s, model=%s",
                 log_prefix,
                 endpoint,
                 model,
             )
+            return self._lm_cache[cache_key]
 
-        return self._lm_cache[cache_key]
+        if len(self._lm_cache) >= self._max_lm_cache_size:
+            evicted_key, evicted_lm = self._lm_cache.popitem(last=False)
+            logger.info(
+                "%sEvicting LM client from cache: endpoint=%s, model=%s",
+                log_prefix,
+                evicted_key[0],
+                evicted_key[1],
+            )
+            await evicted_lm.close()
+
+        logger.info(
+            "%sCreating new LM client: endpoint=%s, model=%s",
+            log_prefix,
+            endpoint,
+            model,
+        )
+        lm = OpenAICompatibleLanguageModel(
+            endpoint=endpoint,
+            api_key=api_key or "",
+            model_name=model,
+        )
+        self._lm_cache[cache_key] = lm
+        return lm
 
     async def arun_chat_completion(
         self,
@@ -124,7 +143,7 @@ class ITSGateway(AbstractGateway):
                 "Model must be specified in ITSRequestConfig before running"
             )
 
-        lm = self._get_or_create_lm(
+        lm = await self._get_or_create_lm(
             endpoint=config.api_endpoint,
             model=config.model,
             api_key=config.api_key,

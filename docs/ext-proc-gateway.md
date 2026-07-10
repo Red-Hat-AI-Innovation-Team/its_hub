@@ -64,11 +64,13 @@ Algorithm selection is not configurable per-request in this version.
 ## LM Routing
 
 Downstream LLM routing is controlled **per-request** via the `X-ITS-Endpoint` header.
-The gateway maintains an in-memory cache of LM clients keyed by
+The gateway maintains an LRU cache of LM clients keyed by
 `(endpoint, model, hashed_api_key)` to reuse HTTP connections across requests. Different
 requests can target different LLM endpoints. The API key is SHA-256 hashed (truncated to
 16 hex chars) in the cache key to prevent credential cross-contamination between requests
-using different API keys for the same endpoint/model pair.
+using different API keys for the same endpoint/model pair. The cache is capped at 64
+entries by default (configurable via `max_lm_cache_size`); when full, the least-recently
+used client is closed and evicted.
 
 ## Concurrency Control
 
@@ -120,6 +122,7 @@ The gateway follows a **safe fallback** policy throughout:
 | Invalid or missing activation headers | pass_through |
 | Budget out of range (1-1000) | pass_through |
 | Missing `model` in request body | pass_through |
+| `stream: true` in request body | pass_through |
 | ITS algorithm execution error | pass_through |
 | Unsupported route (not `/v1/chat/completions`) | pass_through |
 
@@ -163,8 +166,8 @@ All client-supplied inputs are treated as untrusted:
 
 ## Restart and Scaling
 
-- **State**: The gateway holds an in-memory LM client cache and algorithm instance. No
-  state is persisted to disk.
+- **State**: The gateway holds a bounded LRU cache of LM clients (default 64) and an
+  algorithm instance. No state is persisted to disk.
 - **Restart**: Restarting the service clears all cached LM clients. Pending requests are
   lost. No warm-up or state recovery is needed.
 - **Horizontal scaling**: Multiple gateway instances can run independently. Each instance
@@ -174,8 +177,8 @@ All client-supplied inputs are treated as untrusted:
 ## Streaming
 
 Streaming is not supported. If the client sends `"stream": true` in the request body,
-the gateway ignores the field and returns a non-streaming response when ITS is applied.
-Pass-through requests preserve the client's `stream` field for the upstream to handle.
+the gateway skips ITS and passes the request through to the upstream service, which
+handles streaming natively.
 
 ## Running the Service
 

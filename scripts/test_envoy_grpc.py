@@ -158,17 +158,19 @@ async def test_its_request(
                 response_count += 1
                 logger.info(f"\n--- Response {response_count} ---")
 
-                if response.HasField("request_headers"):
-                    logger.info("Response type: request_headers")
-                    logger.info(f"Status: {response.request_headers.response.status}")
+                if response.HasField("immediate_response"):
+                    ir = response.immediate_response
+                    its_applied = False
+                    if ir.HasField("headers"):
+                        for hdr in ir.headers.set_headers:
+                            if hdr.header.key == "x-its-applied":
+                                its_applied = True
+                                break
 
-                elif response.HasField("request_body"):
-                    logger.info("Response type: request_body")
-                    logger.info(f"Status: {response.request_body.response.status}")
-
-                    # Check if body was replaced (ITS applied)
-                    if response.request_body.response.status == ext_proc_pb2.CommonResponse.CONTINUE_AND_REPLACE:
-                        body = response.request_body.response.body_mutation.body.decode('utf-8')
+                    if its_applied:
+                        logger.info("Response type: immediate_response (ITS applied)")
+                        logger.info(f"Status code: {ir.status.code}")
+                        body = ir.body.decode('utf-8')
                         logger.info("✓ ITS was applied! Response body:")
                         try:
                             response_json = json.loads(body)
@@ -176,7 +178,17 @@ async def test_its_request(
                         except json.JSONDecodeError:
                             logger.info(body)
                     else:
-                        logger.info("Body passed through (no ITS)")
+                        logger.info("Response type: immediate_response (upstream)")
+                        logger.info(f"Status code: {ir.status.code}")
+
+                elif response.HasField("request_headers"):
+                    logger.info("Response type: request_headers")
+                    logger.info(f"Status: {response.request_headers.response.status}")
+
+                elif response.HasField("request_body"):
+                    logger.info("Response type: request_body")
+                    logger.info(f"Status: {response.request_body.response.status}")
+                    logger.info("Body passed through (no ITS)")
 
         except Exception as e:
             logger.error(f"Error during request: {e}", exc_info=True)
