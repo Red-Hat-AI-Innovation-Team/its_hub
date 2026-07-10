@@ -41,10 +41,7 @@ jobs:
       run: uv sync --extra dev
 
     - name: Compile Envoy proto files
-      run: |
-        mkdir -p its_hub/integration/ext_proc/proto
-        printf 'import sys\nfrom pathlib import Path\n\n_proto_dir = Path(__file__).parent\nif str(_proto_dir) not in sys.path:\n    sys.path.insert(0, str(_proto_dir))\n' > its_hub/integration/ext_proc/proto/__init__.py
-        make proto-compile
+      uses: ./.github/actions/compile-protos
 
     - name: Run unit tests with python ${{ matrix.python-version }}
       run: uv run pytest tests/ --ignore=tests/e2e --cov=its_hub --cov-report=xml

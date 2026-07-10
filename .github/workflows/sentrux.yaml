@@ -24,6 +24,15 @@ jobs:
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+    - name: Install uv and setup python version
+      uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      with:
+        python-version: "3.11"
+        enable-cache: true
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
     - name: Install Sentrux
       run: |
         curl -fsSL https://raw.githubusercontent.com/sentrux/sentrux/main/install.sh | sh
@@ -44,6 +53,11 @@ jobs:
       if: github.event_name == 'pull_request'
       run: cp -r /tmp/.sentrux-config .sentrux
 
+    - name: Compile Envoy proto files (base)
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      uses: ./.github/actions/compile-protos
+
     - name: Run Sentrux on base
       if: github.event_name == 'pull_request'
       id: base
@@ -60,6 +74,10 @@ jobs:
       with:
         ref: ${{ github.event.pull_request.head.sha }}
         clean: false
+
+    - name: Compile Envoy proto files (head)
+      continue-on-error: true
+      uses: ./.github/actions/compile-protos
 
     - name: Run Sentrux on head
       id: head
