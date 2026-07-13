@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 PROMPT_ORDER = [4, 5, 7, 9]
-BUDGET_ORDER = [1, 8, 16, 32]
+BUDGET_ORDER = [1, 8, 16, 32, 64, 128]
 # colour per prompt (colour-blind-friendly), style/marker per signal
 PROMPT_COLORS = {4: "#1b9e77", 5: "#d95f02", 7: "#7570b3", 9: "#e7298a"}
 SIGNAL_STYLE = {

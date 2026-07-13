@@ -36,7 +36,7 @@ table.items { font-size:12px; } table.items td { padding:2px 6px; }
 """
 
 PROMPT_ORDER = [4, 5, 7, 9]
-BUDGET_ORDER = [1, 8, 16, 32]
+BUDGET_ORDER = [1, 8, 16, 32, 64, 128]
 
 
 def _f(x):

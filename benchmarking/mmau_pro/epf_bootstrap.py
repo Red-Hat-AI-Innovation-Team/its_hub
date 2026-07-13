@@ -30,7 +30,7 @@ from benchmarking.mmau_pro.epf_report import _CSS
 
 METRICS = ["selected", "oracle", "majority"]
 PROMPT_ORDER = [4, 5, 7, 9]
-BUDGET_ORDER = [1, 8, 16, 32]
+BUDGET_ORDER = [1, 8, 16, 32, 64, 128]
 NAMES = {4: "plan-and-solve", 5: "least-to-most", 7: "format-forcing", 9: "evidence-grounded"}
 PROMPT_COLORS = {4: "#1b9e77", 5: "#d95f02", 7: "#7570b3", 9: "#e7298a"}
 SIGNAL_DASH = {"mean_logprob": "solid", "entropy": "dash"}
@@ -70,18 +70,21 @@ def _fmt(x, nd=3):
     return f"{x:.{nd}f}"
 
 
-def build_plot_block(stats, n_items):
-    """Interactive acc-vs-budget plot: 8 lines (4 prompts x 2 signals), toggleable per
-    prompt and per signal, with a metric radio. Error bars = the bootstrap SE_full of
-    each cell (the same +-SE reported in the tables below). Plotly.js inlined."""
-    signals = ["mean_logprob", "entropy"]
+def build_plot_block(stats, n_graded, sec=0, include_plotlyjs=True):
+    """Interactive acc-vs-budget plot: one line per (prompt, signal) present in `stats`,
+    toggleable per prompt and per signal, with a metric radio. Error bars = the bootstrap
+    SE_full of each cell (the same +-SE reported in the tables below). `sec` scopes DOM
+    ids/queries so several plots (one per model) can coexist on one page; plotly.js is
+    inlined only when `include_plotlyjs` (once per page)."""
+    signals = [s for s in ("mean_logprob", "entropy") if any(k[1] == s for k in stats)]
+    prompts = [m for m in PROMPT_ORDER if any(k[0] == m for k in stats)]
     budgets = [b for b in BUDGET_ORDER if any(k[2] == b for k in stats)]
     xcats = [str(b) for b in budgets]
 
     fig = go.Figure()
     trace_info = []
     for metric in METRICS:
-        for m in PROMPT_ORDER:
+        for m in prompts:
             for sig in signals:
                 ys, ses = [], []
                 for b in budgets:
@@ -102,74 +105,89 @@ def build_plot_block(stats, n_items):
                 ))
                 trace_info.append({"prompt": m, "signal": sig, "metric": metric})
 
+    def _metric_range(metric, pad=0.02):
+        """y-range fitted to this section's data incl. error bars (hardcoding clipped
+        low cells, e.g. 3B P5 b1 = 0.448 under a 0.50 floor)."""
+        los = [s[metric]["point"] - s[metric]["se957"] for s in stats.values()]
+        his = [s[metric]["point"] + s[metric]["se957"] for s in stats.values()]
+        return [max(0.0, min(los) - pad), min(1.0, max(his) + pad)]
+
+    metric_meta = {m: {"ytitle": METRIC_LABELS[m] + " accuracy",
+                       "range": [round(v, 3) for v in _metric_range(m)]}
+                   for m in METRICS}
+
     fig.update_layout(
         template="plotly_white",
         xaxis=dict(title="Budget (number of particles)", type="category",
                    categoryorder="array", categoryarray=xcats),
         yaxis=dict(title=METRIC_LABELS["selected"] + " accuracy",
-                   range=[0.50, 0.70], tickformat=".2f"),
+                   range=metric_meta["selected"]["range"], tickformat=".2f"),
         showlegend=False, hovermode="closest",
         margin=dict(l=70, r=30, t=20, b=50), height=520,
     )
-    plot_html = fig.to_html(include_plotlyjs=True, full_html=False, div_id="epfplot",
+    plot_html = fig.to_html(include_plotlyjs=include_plotlyjs, full_html=False,
+                            div_id=f"epfplot_{sec}",
                             config={"displaylogo": False, "responsive": True})
-
-    metric_meta = {m: {"ytitle": METRIC_LABELS[m] + " accuracy",
-                       "range": [0.50, 1.0] if m == "oracle" else [0.50, 0.70]}
-                   for m in METRICS}
     prompt_boxes = "".join(
         f'<label class="chk"><input type="checkbox" class="prompt" value="{m}" checked>'
         f'<span class="swatch" style="background:{PROMPT_COLORS[m]}"></span>'
         f'P{m} {NAMES[m]}</label>'
-        for m in PROMPT_ORDER)
+        for m in prompts)
     signal_boxes = "".join(
         f'<label class="chk"><input type="checkbox" class="signal" value="{sig}" checked>'
         f'<span class="pline {("solid" if sig == "mean_logprob" else "dashed")}"></span>'
         f'{sig}</label>'
         for sig in signals)
     metric_radios = "".join(
-        f'<label class="chk"><input type="radio" name="metric" class="metric" value="{m}"'
+        f'<label class="chk"><input type="radio" name="metric_{sec}" class="metric" value="{m}"'
         f'{" checked" if m == "selected" else ""}>{METRIC_LABELS[m]}</label>'
         for m in METRICS)
 
-    return f"""
-<h2>Accuracy vs budget (toggle prompts / signals)</h2>
+    style = """
 <style>
-  .panel {{ display:flex; flex-wrap:wrap; gap:26px; align-items:flex-start;
+  .panel { display:flex; flex-wrap:wrap; gap:26px; align-items:flex-start;
             background:#fafafa; border:1px solid #eee; border-radius:8px;
-            padding:12px 16px; margin:8px 0 4px; }}
-  .group {{ display:flex; flex-direction:column; gap:5px; }}
-  .group .ttl {{ font-size:11px; font-weight:700; letter-spacing:.04em;
-                 text-transform:uppercase; color:#888; margin-bottom:2px; }}
-  .prow {{ display:flex; gap:16px; flex-wrap:wrap; }}
-  .chk {{ font-size:13px; display:inline-flex; align-items:center; gap:6px; cursor:pointer; }}
-  .swatch {{ width:13px; height:13px; border-radius:3px; display:inline-block; }}
-  .pline {{ width:22px; height:0; display:inline-block; border-top-width:3px; }}
-  .pline.solid {{ border-top-style:solid; border-color:#555; }}
-  .pline.dashed {{ border-top-style:dashed; border-color:#555; }}
-  .btns {{ margin-left:auto; display:flex; gap:8px; align-self:center; }}
-  .btns button {{ font-size:12px; padding:4px 10px; border:1px solid #ccc; border-radius:6px;
-                  background:#fff; cursor:pointer; }}
-  .btns button:hover {{ background:#f0f0f0; }}
-</style>
+            padding:12px 16px; margin:8px 0 4px; }
+  .group { display:flex; flex-direction:column; gap:5px; }
+  .group .ttl { font-size:11px; font-weight:700; letter-spacing:.04em;
+                 text-transform:uppercase; color:#888; margin-bottom:2px; }
+  .prow { display:flex; gap:16px; flex-wrap:wrap; }
+  .chk { font-size:13px; display:inline-flex; align-items:center; gap:6px; cursor:pointer; }
+  .swatch { width:13px; height:13px; border-radius:3px; display:inline-block; }
+  .pline { width:22px; height:0; display:inline-block; border-top-width:3px; }
+  .pline.solid { border-top-style:solid; border-color:#555; }
+  .pline.dashed { border-top-style:dashed; border-color:#555; }
+  .btns { margin-left:auto; display:flex; gap:8px; align-self:center; }
+  .btns button { font-size:12px; padding:4px 10px; border:1px solid #ccc; border-radius:6px;
+                  background:#fff; cursor:pointer; }
+  .btns button:hover { background:#f0f0f0; }
+</style>""" if include_plotlyjs else ""
+
+    return f"""
+{style}
+<div id="plotsec_{sec}">
+<h3>Accuracy vs budget (toggle prompts / signals)</h3>
 <div class="panel">
   <div class="group"><span class="ttl">Metric</span><div class="prow">{metric_radios}</div></div>
   <div class="group"><span class="ttl">Prompt</span><div class="prow">{prompt_boxes}</div></div>
   <div class="group"><span class="ttl">Signal</span><div class="prow">{signal_boxes}</div></div>
-  <div class="btns"><button id="all" type="button">All on</button>
-                    <button id="none" type="button">All off</button></div>
+  <div class="btns"><button class="allbtn" type="button">All on</button>
+                    <button class="nonebtn" type="button">All off</button></div>
 </div>
 {plot_html}
 <p class="meta">colour = prompt · solid / ○ = mean_logprob · dashed / □ = entropy ·
-error bars = bootstrap ±SE<sub>{n_items}</sub> (same as the tables below). A line shows only if
+error bars = bootstrap ±SE<sub>{n_graded}</sub> (same as the tables below). A line shows only if
 its prompt <b>and</b> signal are checked and its metric is selected.</p>
+</div>
 <script>
+(function() {{
   const TRACE_INFO = {json.dumps(trace_info)};
   const METRIC_META = {json.dumps(metric_meta)};
-  const gd = document.getElementById('epfplot');
-  function selMetric() {{ return document.querySelector('input.metric:checked').value; }}
+  const root = document.getElementById('plotsec_{sec}');
+  const gd = document.getElementById('epfplot_{sec}');
+  function selMetric() {{ return root.querySelector('input.metric:checked').value; }}
   function checkedSet(cls) {{
-    return new Set(Array.from(document.querySelectorAll('input.' + cls + ':checked'))
+    return new Set(Array.from(root.querySelectorAll('input.' + cls + ':checked'))
                         .map(e => e.value));
   }}
   function apply() {{
@@ -180,64 +198,61 @@ its prompt <b>and</b> signal are checked and its metric is selected.</p>
     const mm = METRIC_META[metric];
     Plotly.relayout(gd, {{'yaxis.title.text': mm.ytitle, 'yaxis.range': mm.range}});
   }}
-  document.querySelectorAll('input.prompt, input.signal, input.metric')
-          .forEach(e => e.addEventListener('change', apply));
-  document.getElementById('all').addEventListener('click', () => {{
-    document.querySelectorAll('input.prompt, input.signal').forEach(e => e.checked = true);
+  root.querySelectorAll('input.prompt, input.signal, input.metric')
+      .forEach(e => e.addEventListener('change', apply));
+  root.querySelector('.allbtn').addEventListener('click', () => {{
+    root.querySelectorAll('input.prompt, input.signal').forEach(e => e.checked = true);
     apply();
   }});
-  document.getElementById('none').addEventListener('click', () => {{
-    document.querySelectorAll('input.prompt, input.signal').forEach(e => e.checked = false);
+  root.querySelector('.nonebtn').addEventListener('click', () => {{
+    root.querySelectorAll('input.prompt, input.signal').forEach(e => e.checked = false);
     apply();
   }});
   apply();
+}})();
 </script>
 """
 
 
-def build_html(stats, n_boot, n_items, n_graded, sub_m, checks):
-    methods = sorted({k[0] for k in stats})
-    methods = [m for m in PROMPT_ORDER if m in methods]
+def build_model_section(label, stats, n_boot, n_items, n_graded, sub_m, checks, sec):
+    """One model's block: header + headline + interactive plot + per-prompt tables."""
+    methods = [m for m in PROMPT_ORDER if m in {k[0] for k in stats}]
     signals = sorted({k[1] for k in stats})
     budgets = [b for b in BUDGET_ORDER if b in {k[2] for k in stats}]
 
-    # headline: mean std across cells
     mean_s100 = np.mean([stats[k]["selected"]["std100"] for k in stats])
     mean_se957 = np.mean([stats[k]["selected"]["se957"] for k in stats])
 
-    out = [
-        "<!doctype html><html><head><meta charset='utf-8'>",
-        f"<title>EPF accuracy bootstrap</title><style>{_CSS}"
-        " .s1{color:#b06000;} .se{color:#137333;} td.cellb{min-width:150px;}"
-        " .leg{font-size:12.5px;color:#444;background:#f7f7f7;border:1px solid #e3e3e3;"
-        "border-radius:6px;padding:10px 14px;margin:8px 0 14px;}</style></head><body>",
-        f"<h1>EPF grid accuracy — bootstrap robustness (full {n_items:,} MCQ)</h1>",
+    out = []
+    if label:
+        out.append(f"<h1 style='margin-top:{'34px' if sec else '0'}'>"
+                   f"{html.escape(label)}</h1>")
+    out += [
         f"<p class='meta'>n = {n_boot:,} resamples · {n_items:,} items ({n_graded:,} gradeable) · "
-        "EPF, temp 0.8, mean_logprob &amp; entropy.</p>",
-        f"<div class='leg'>Each cell shows <b>point</b> = full-{n_items:,} accuracy, "
+        f"EPF, temp 0.8 · prompts {', '.join('P' + str(m) for m in methods)} · "
+        f"signals {', '.join(signals)}.</p>",
+        f"<div class='leg'>Each cell shows <b>point</b> = full-set accuracy over the "
+        f"{n_graded:,} gradeable items, "
         f"<span class='s1'>±std<sub>{sub_m}</sub></span> = std of accuracy across "
         f"{n_boot:,} random <b>{sub_m}-question</b> samples (drawn without replacement — "
         f"\"how noisy is a {sub_m}-question eval\"), and "
-        f"<span class='se'>(±SE<sub>{n_items}</sub>)</span> = std across "
-        f"{n_boot:,} <b>{n_items:,}</b>-resamples with replacement = the <b>error bar on the reported "
-        f"number</b>. Read as <b>point</b> <span class='s1'>±std<sub>{sub_m}</sub></span> "
-        f"<span class='se'>(±SE<sub>{n_items}</sub>)</span>.</div>",
+        f"<span class='se'>(±SE<sub>{n_graded}</sub>)</span> = std across "
+        f"{n_boot:,} <b>{n_items:,}</b>-item resamples with replacement = the <b>error bar on the "
+        f"reported number</b>.</div>",
         f"<p class='meta'><b>Headline (selected acc):</b> a {sub_m}-question eval wobbles "
-        f"<span class='s1'>±{mean_s100:.3f}</span> on average, but the reported full-{n_items:,} numbers are "
+        f"<span class='s1'>±{mean_s100:.3f}</span> on average, but the reported full-set numbers are "
         f"precise to <span class='se'>±{mean_se957:.3f}</span> (~{mean_s100/mean_se957:.1f}&times; tighter).</p>",
+        "<p class='meta'>Validation vs closed form (binomial ± FPC): " + "; ".join(checks) + "</p>",
+        build_plot_block(stats, n_graded, sec=sec, include_plotlyjs=(sec == 0)),
     ]
-    # closed-form cross-check note
-    out.append("<p class='meta'>Validation vs closed form (binomial ± FPC): " +
-               "; ".join(checks) + "</p>")
-
-    out.append(build_plot_block(stats, n_items))
-
     for m in methods:
         out.append(f"<h2>P{m} — {html.escape(NAMES[m])}</h2>")
         out.append("<table class='matrix'><tr><th class='l'>signal</th><th>budget</th>"
                    + "".join(f"<th>{mt}</th>" for mt in METRICS) + "</tr>")
         for sig in signals:
             for b in budgets:
+                if (m, sig, b) not in stats:  # ragged grid: some prompts stop at lower budgets
+                    continue
                 cells = ""
                 for mt in METRICS:
                     s = stats[(m, sig, b)][mt]
@@ -246,17 +261,27 @@ def build_html(stats, n_boot, n_items, n_graded, sub_m, checks):
                               f"<span class='se'>(±{_fmt(s['se957'])})</span></td>")
                 out.append(f"<tr><td class='l'>{sig}</td><td>{b}</td>{cells}</tr>")
         out.append("</table>")
+    return "\n".join(out)
+
+
+def build_html(sections, n_boot, sub_m):
+    """`sections` = list of (label, stats, n_items, n_graded, checks)."""
+    out = [
+        "<!doctype html><html><head><meta charset='utf-8'>",
+        f"<title>EPF accuracy bootstrap</title><style>{_CSS}"
+        " .s1{color:#b06000;} .se{color:#137333;} td.cellb{min-width:150px;}"
+        " .leg{font-size:12.5px;color:#444;background:#f7f7f7;border:1px solid #e3e3e3;"
+        "border-radius:6px;padding:10px 14px;margin:8px 0 14px;}</style></head><body>",
+    ]
+    for sec, (label, stats, n_items, n_graded, checks) in enumerate(sections):
+        out.append(build_model_section(label, stats, n_boot, n_items, n_graded,
+                                       sub_m, checks, sec))
     out.append("</body></html>")
     return "\n".join(out)
 
 
-@click.command()
-@click.option("--in", "in_path", default="benchmarking/mmau_pro/results/run10_run6_full/run6_full.csv")
-@click.option("--out", "out_path", default="benchmarking/mmau_pro/results/run10_run6_full/epf_div_bootstrap.html")
-@click.option("--n", "n_boot", default=10000, help="number of bootstrap resamples")
-@click.option("--subsample", "sub_m", default=100, help="subsample size (questions) for std100")
-@click.option("--seed", default=0)
-def main(in_path, out_path, n_boot, sub_m, seed):
+def compute_section(in_path, n_boot, sub_m, seed):
+    """Bootstrap one grid CSV -> (stats, n_items, n_graded, checks)."""
     cells, n_items, n_graded = load_cells(in_path)
     rng = np.random.default_rng(seed)
     # shared index matrices (paired across cells): without-replacement size sub_m, with-replacement size N
@@ -264,7 +289,6 @@ def main(in_path, out_path, n_boot, sub_m, seed):
     idx_full = rng.integers(0, n_items, size=(n_boot, n_items))          # with replacement
 
     stats = {}
-    checks = []
     for key in cells:
         stats[key] = {}
         for mt in METRICS:
@@ -278,20 +302,43 @@ def main(in_path, out_path, n_boot, sub_m, seed):
                 "se957": float(np.std(b957)), "ci957": (float(np.percentile(b957, 2.5)), float(np.percentile(b957, 97.5))),
             }
 
-    # closed-form cross-check on a few selected-acc cells
+    # closed-form cross-check on a few selected-acc cells (first / middle / last present)
+    checks = []
+    keys = sorted(stats)
     fpc = math.sqrt((n_items - sub_m) / (n_items - 1))
-    for key in [(4, "mean_logprob", 8), (9, "entropy", 32), (5, "mean_logprob", 16)]:
+    for key in {keys[0], keys[len(keys) // 2], keys[-1]}:
         s = stats[key]["selected"]
         p = s["point"]
         cf100 = math.sqrt(p * (1 - p) / sub_m) * fpc
-        cf957 = math.sqrt(p * (1 - p) / n_items)
+        cf957 = math.sqrt(p * (1 - p) / n_graded)
         checks.append(f"P{key[0]} {key[1]} b{key[2]}: std{sub_m} {s['std100']:.4f}≈{cf100:.4f}, "
-                      f"SE{n_items} {s['se957']:.4f}≈{cf957:.4f}")
+                      f"SE{n_graded} {s['se957']:.4f}≈{cf957:.4f}")
         print(f"[check] {checks[-1]}")
+    return stats, n_items, n_graded, checks
+
+
+@click.command()
+@click.option("--in", "in_specs", multiple=True,
+              default=("benchmarking/mmau_pro/results/run10_run6_full/run6_full.csv",),
+              help="grid CSV(s); repeatable; 'LABEL=path' renders one titled section per model")
+@click.option("--out", "out_path", default="benchmarking/mmau_pro/results/run10_run6_full/epf_div_bootstrap.html")
+@click.option("--n", "n_boot", default=10000, help="number of bootstrap resamples")
+@click.option("--subsample", "sub_m", default=100, help="subsample size (questions) for std100")
+@click.option("--seed", default=0)
+def main(in_specs, out_path, n_boot, sub_m, seed):
+    sections = []
+    for spec in in_specs:
+        label, sep, path = spec.partition("=")
+        if not sep:  # plain path, no label
+            label, path = ("" if len(in_specs) == 1 else spec), spec
+        print(f"[section] {label or '(unlabeled)'}: {path}")
+        stats, n_items, n_graded, checks = compute_section(path, n_boot, sub_m, seed)
+        sections.append((label, stats, n_items, n_graded, checks))
 
     with open(out_path, "w") as f:
-        f.write(build_html(stats, n_boot, n_items, n_graded, sub_m, checks))
-    print(f"wrote {out_path}  ({len(cells)} cells, n={n_boot})")
+        f.write(build_html(sections, n_boot, sub_m))
+    n_cells = sum(len(s[1]) for s in sections)
+    print(f"wrote {out_path}  ({len(sections)} section(s), {n_cells} cells, n={n_boot})")
 
 
 if __name__ == "__main__":

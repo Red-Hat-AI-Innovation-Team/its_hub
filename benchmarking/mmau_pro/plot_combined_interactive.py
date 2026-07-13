@@ -23,7 +23,7 @@ import plotly.graph_objects as go
 
 # ---- EPF (Run 6) config ----
 PROMPT_ORDER = [4, 5, 7, 9]
-EPF_BUDGETS = [1, 8, 16, 32]
+EPF_BUDGETS = [1, 8, 16, 32, 64, 128]
 SIGNALS = ["mean_logprob", "entropy"]
 METRICS = [
     ("selected_correct", "Selected (what EPF returns)"),

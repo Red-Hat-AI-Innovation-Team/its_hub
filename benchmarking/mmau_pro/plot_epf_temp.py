@@ -57,7 +57,7 @@ def build_html(short, epf_cells, temp_curves, n_total, n_grade):
         for m in PROMPT_ORDER:
             for sig in SIGNALS:
                 ys, std100s, ns = epf_cells[(metric_key, m, sig)]
-                xs = [b for b in (1, 8, 16, 32)]
+                xs = [b for b in (1, 8, 16, 32, 64, 128)]
                 fig.add_trace(go.Scatter(
                     x=xs, y=ys, mode="lines+markers",
                     name=f"EPF · P{m} {short[m]} · {sig}",

@@ -17,7 +17,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 PROMPT_ORDER = [4, 5, 7, 9]
-BUDGET_ORDER = [1, 8, 16, 32]
+BUDGET_ORDER = [1, 8, 16, 32, 64, 128]
 SIGNALS = ["mean_logprob", "entropy"]
 METRICS = [
     ("selected_correct", "Selected (what EPF returns)"),
