@@ -215,8 +215,13 @@ class TestParameterForwarding:
         lm = MockLM()
         temps = [0.5, 0.8, 1.0]
         await orch.agenerate(lm, _make_batch(3), temperature=temps)
-        for call, expected_temp in zip(lm.calls, temps):
-            assert call["temperature"] == expected_temp
+        # Match by content (run_in_executor does not guarantee execution or completion order)
+        temp_by_msg = {
+            call["messages"][0].content: call["temperature"]
+            for call in lm.calls
+        }
+        for i, expected_temp in enumerate(temps):
+            assert temp_by_msg[f"msg-{i}"] == expected_temp
 
     @pytest.mark.asyncio
     async def test_include_stop_str_forwarded(self):
