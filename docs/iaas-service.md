@@ -309,7 +309,7 @@ curl -X POST http://localhost:8100/v1/chat/completions \
   -d '{
     "model": "Qwen/Qwen2.5-Math-1.5B-Instruct",
     "messages": [{"role": "user", "content": "Hello"}],
-    "max_tokens": 50
+    "max_completion_tokens": 50
   }'
 
 # Test IaaS with scaling

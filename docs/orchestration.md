@@ -105,7 +105,7 @@ async def agenerate(
     lm: AbstractLanguageModel,
     messages_lst: list[list[ChatMessage]],
     stop: str | None = None,
-    max_tokens: int | None = None,
+    max_completion_tokens: int | None = None,
     temperature: float | list[float] | None = None,
     include_stop_str_in_output: bool | None = None,
     tools: list[dict] | None = None,
