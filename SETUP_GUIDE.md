@@ -17,7 +17,7 @@ box (July 2026). Read `benchmarking/mmau_pro/RESULTS.md` for the science; this f
 - `benchmarking/mmau_pro/` — a complete audio-MCQ harness (loader, prompts, scoring, runners,
   probes, reports) built for MMAU-Pro × Qwen2.5-Omni-7B. It is the template for any new
   (model × benchmark) pair.
-- Findings so far (Runs 1–10, `RESULTS.md`): PF/EPF@4 gives a borderline +4 pp on the best prompt;
+- Findings so far (Runs 1–15, `RESULTS.md`): PF/EPF@4 gives a borderline +4 pp on the best prompt;
   selected accuracy saturates by budget ~8–16 while oracle coverage keeps climbing; resampling
   actively culls correct minorities; no self-generated signal fixes selection. New experiments
   should keep this framing in mind (the interesting axes are *selection* and *coverage*, not raw N).
@@ -33,8 +33,13 @@ conda create -n epf python=3.11 -y
 
 # Offline dev/tests can instead use uv:
 uv sync --extra dev
-uv run pytest tests/ -q --ignore=tests/e2e     # 95 tests, ~4 s, no GPU needed
+uv run pytest tests/ -q --ignore=tests/e2e     # 104 tests, ~4 s, no GPU needed
 ```
+
+**Packaged handoff:** for the scripted end-to-end path (env + pinned data/models + smoke +
+single-command driver, built for the Run-16 b64/128 extension) see
+`benchmarking/mmau_pro/run16/README.md`. ONE env serves all models there — the env is about
+the vLLM/torch stack, not the checkpoint.
 
 **PATH GOTCHA (will bite you):** `conda activate epf` does NOT win the PATH on the original box (a
 uv-managed CPython shadows it). Always call the absolute interpreter
@@ -203,7 +208,17 @@ Reference invocation — the full-MMAU-Pro EPF grid exactly as run in July 2026 
 `max(1, max_inflight // budget)`. At budget 1 that means `max_inflight` DISTINCT items encoding audio
 simultaneously per GPU — this is what OOM'd a replica at 64. Cap `--max-inflight 24` for budget-1
 stages; 64 is safe for budgets ≥ 8 (≤ 8 items/endpoint; particles of one item share the cached
-audio prefix).
+audio prefix). At budgets ≥ 64 only one item runs per endpoint, but the per-item particle fan-out
+is unthrottled (`max_concurrency=-1` in the LM client) — up to `budget` concurrent requests per
+step; vLLM queues this fine.
+
+**Trajectory-segmentation flags (added July 2026 — Runs 13/14):** `diversity_probe` accepts
+`--step-token` (per-prompt resampling boundary; e.g. `$'\n'` for single-newline `Step N:` formats
+like P9 — raise `--max-steps` accordingly), `--stop-regex` (stop only on letter-final answers, not
+any `Answer:` substring — P5's sub-answers false-trigger the default), and `--stop-on-repeat`
+(kills digit-incremented repeat-step loops). All default-off. **Empirical warning from Runs 13/14:
+enabling real multi-step resampling consistently LOWERED oracle coverage 8–12 pp with no selection
+gain** — resampling frequency is inversely related to coverage on this task family.
 
 **Run big grids budget-staged** (all cells at b=1, then 8, 16, 32) in a detached script:
 early stages give a complete low-budget picture in ~2 h and calibrate the cost model before the
@@ -241,8 +256,8 @@ final CSV/report dedupe keeps the latest row per key. Two consequences you shoul
 
 **Documentation duty:** every run gets a numbered section in `benchmarking/<bench>/RESULTS.md`
 following the existing format — *why → config (exact CLI) → n/error-count → results table →
-takeaways/verdict → artifact filenames*, plus a row in the file table (§14 there) and the exact
-reproduce command (§15 there). A run that isn't written up there effectively doesn't exist.
+takeaways/verdict → artifact filenames*, plus a row in the file table (§18 there) and the exact
+reproduce command (§19 there). A run that isn't written up there effectively doesn't exist.
 
 **Bootstrap reporting** (what the stakeholder wants to see): run `epf_bootstrap.py --in
 results/<grid>.csv --out results/<grid>_bootstrap.html`. It reports, per cell × metric,
@@ -331,7 +346,7 @@ re-verified on the reference stack (2026-07-08).
 
 ```bash
 uv run pytest tests/ -q --ignore=tests/e2e
-# expected: 95 passed in ~4 s
+# expected: 104 passed in ~4 s
 
 <env>/bin/python -c "
 from benchmarking.mmau_pro.loader import load_mmau_mcq

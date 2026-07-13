@@ -189,3 +189,4 @@ notebooks/dev.ipynb
 results/
 
 .its-hub/
+benchmarking/mmau_pro/run16/config.local.sh

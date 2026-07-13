@@ -12,7 +12,26 @@ prompt‑dependent, concentrated in hard perceptual categories** (spatial audio,
 and **does not scale with budget** — consistent with self‑certainty being a weak (fluency)
 reward signal. There is **no GRPO result on MMAU‑Pro** to compare against (see caveats).
 
-Last updated: 2026‑07‑08.
+**TL;DR 2 (the July-2026 full-scale sequel, Runs 11–14).** At full MMAU-Pro scale (5,090 MCQ,
+SE ±0.7 pp) and across two model sizes (Omni-7B & 3B): **selected accuracy saturates by ~8
+particles (~0.59 on 7B / ~0.53 on 3B); oracle coverage climbs to 0.83–0.91 and is size-invariant;
+the oracle−selected gap is the whole story and it *widens* as models shrink** (calibration degrades
+with size, exploration doesn't). Three independent manipulations of resampling frequency (off →
+Run 8; more via stop-rule fix → Run 14; more via matched delimiter → Run 13) all agree:
+**every added resampling round lowers oracle 8–12 pp and never improves selection.** Best-of-N +
+an external selector dominates PF/EPF on this task family at any step granularity (§§13–15).
+
+**TL;DR 3 (cross-family check, Run 15).** Same grid on **Qwen2-Audio-7B-Instruct** — a different
+model family (Whisper-style encoder, hard 30 s clip window → run on the 2,190-item ≤30 s subset of
+the full test set; P4+P9, the only prompts that survive its format screen). The shape replicates:
+selected saturates by b8 (~0.44–0.47, +2 pp over b1), oracle climbs to 0.64–0.67, gap 0.18–0.23 at
+b32, signals indistinguishable on selection. **New findings:** the oracle ceiling is
+*family*-dependent (0.64–0.67 vs 0.83–0.91 on Omni's matching cells — coverage was size-invariant
+within the Omni family but tracks
+base competence across families), and **plain majority vote beats self-certainty selection on P9 at
+every budget ≥ 8** — the selector-is-the-wall verdict extends to a third model (§16).
+
+Last updated: 2026‑07‑10.
 
 ---
 
@@ -222,7 +241,7 @@ not meaningfully — **neither weight converts oracle coverage into selected acc
 "weak fluency reward, doesn't scale" prediction. Scaling N raises *oracle* but not *selected* because
 self-certainty (both `mean_logprob` and `entropy`) cannot identify the correct particle — it favors a
 confident-but-wrong plurality. **No amount of extra particles fixes selected accuracy; only a better
-weight does** → the answer-choice-confidence reward (§12).
+weight does** → the answer-choice-confidence reward (tested in §9).
 
 **Higher temperature?** *Not the priority.* At temp 0.8 the right answer is already present 80–95% of the
 time (oracle ≫ selected); a higher temp would mostly push oracle *higher* while selected stays stuck,
@@ -462,10 +481,199 @@ the 957-run's ±0.016.
 **Verdict:** unchanged and now essentially beyond statistical doubt at this benchmark's full scale —
 **EPF's selected accuracy does not scale with particle count past ~8; exploration (oracle) scales
 beautifully; no self-certainty signal converts it; the selector is the wall.** This is the
-strongest-n version of the §14 verdict; the next lever remains an external/independent selector
-(§17).
+strongest-n version of the honest verdict below; the next lever remains an external/independent
+selector (§20).
 
-## 14. Honest verdict
+## 14. Run 12 — model-size ablation: Qwen2.5-Omni-**3B**, full 5,090 MCQ (P4, P5)
+
+**Why:** first non-7B model — does the EPF story (saturation, oracle climb, selection wall) depend
+on model size? Same serving stack (both GPUs, gates PASS ×2), same probe config as Runs 10/11.
+
+**Prompt screen first (important):** a 40-item chunkability screen showed **P7 and P9 mechanically
+break on 3B** — P7 gets one-word answers (3% multi-chunk; the 3B ignores the `## Step` format) and
+P9 emits its single-newline `Step N:` template with zero blank lines (1.0 chunks) → nothing for EPF
+to resample. Grid therefore ran **P4 + P5** (the two chunk-compliant prompts; both have full 7B
+reference grids). A 100-item follow-up probe (`run12_omni3b_5090/chunkprobe_3b_greedy100.csv`, same
+items scored on both models via `run05_cot957/cot957.csv`) quantified it: prompt-format compliance
+degrades with model size (P7 97%→3% multi-step; P9 both models 99% single-newline steps — 7B's 2.0
+chunks came from one incidental blank line before "Final Answer"). NOT a max-tokens issue (0–4%
+of responses near the cap). The probe also exposed a 3B-specific **repetition pathology in P5**:
+degenerate sub-question loops that re-ask the same 3–4 questions with incremented counters
+("Sub-question 8/12/16: <identical text>", up to 42 chunks/560 words before the token cap) —
+motivating the loop guard used in Run 14.
+
+**Grid:** P4,P5 × {mean_logprob, entropy} × budgets {1,8,16,32} × 5,090 MCQ, temp 0.8, ess 0.6/0.7,
+systematic/logit — **81,440 rows, 0 errors, ~21 h on both GPUs** (no seeding; new model).
+n=5,066 gradeable/cell, SE ≈ ±0.7 pp. Raw: `run12_omni3b_5090/epf3b_5090.*`.
+
+| cell | selected | oracle | majority |  | 7B ref (sel/orc @same cell) |
+|---|---:|---:|---:|---|---|
+| P4 ml b1 / b8 / b16 / b32 | .524 / .534 / .546 / .538 | .524 / .698 / .753 / .831 | — / .549 / .557 / .564 | | .549/.549 → .584/.826 |
+| P4 ent b1 / b8 / b16 / b32 | .512 / .523 / .531 / .540 | .512 / .720 / .786 / .836 | — / .555 / .555 / .559 | | .551/.551 → .575/.835 |
+| P5 ml b1 / b8 / b16 / b32 | .448 / .528 / .529 / .537 | .448 / .759 / .812 / .845 | — / .555 / .563 / .562 | | .568/.568 → .603/.815 |
+| P5 ent b1 / b8 / b16 / b32 | .449 / .486 / .478 / .478 | .449 / .791 / .847 / .875 | — / .549 / .548 / .551 | | .567/.567 → .588/.866 |
+
+**Findings:**
+1. **The trends replicate**: selected saturates by b8 (then ≤1 pp per doubling); oracle climbs
+   steeply and keeps climbing; majority ≈ selected + ~0.02.
+2. **Oracle is size-invariant, selection is not.** 3B oracle ≈ 7B oracle at every budget (±1–3 pp;
+   0.83–0.88 @b32) while 3B selected sits 2–12 pp lower → the **oracle−selected gap widens to
+   +0.29…+0.40** (7B: +0.18…+0.28). Exploration doesn't shrink with model size; calibration does.
+   The selection wall is worse for smaller models.
+3. **First signal non-equivalence:** P5×entropy underperforms P5×mean_logprob by 5–6 pp
+   (0.478 vs 0.537 @b32) — plausibly the entropy weight favoring the 3B's low-entropy
+   repetitive/terse steps. P4 signals stay equivalent.
+4. **Stop-token caveat (affects P5 both models, discovered here):** the harness stop rule
+   (`"Answer:" in step`) fires on P5's *sub-answers* — live-verified: P5 particles stop after 1–2
+   steps of 6. On 7B this is benign (4% early, 97% of reasoning kept — sub-answers rarely say
+   "Answer:"); on **3B it cuts 75% of trajectories at ~chunk 1 (42% of reasoning kept)**. So
+   Run 11/12 P5 cells measure a short-horizon EPF variant. Runs 13/14 (below) test the matched
+   fixes: per-prompt step tokens and a letter-final-answer stop rule + repeat-step loop guard.
+
+**Verdict:** the selection bottleneck is not a 7B quirk — it's *worse* at 3B with identical
+exploration, strengthening the calibration-ceiling interpretation. Combined report (both models,
+toggleable plots + bootstrap tables): `run11_epf_full5090/epf_full5090_bootstrap.html`.
+
+## 15. Runs 13–14 — step-boundary ablations (does giving EPF *real* steps help?)
+
+Run 12's format findings left two "bugs" in how trajectories are segmented: P9's steps are
+invisible to the `\n\n` delimiter (≈1 resample total), and the `"Answer:"` substring stop cuts P5
+short (1–2 steps). Both accidentally made EPF behave like best-of-N. These runs **fix each one and
+measure what true step-wise EPF is worth.** New `StepGeneration` options (default-off, unit-tested):
+`stop_regex` (letter-final-answer stop), `stop_on_repeat` (digit/case-insensitive repeat-step loop
+guard), plus the probe's `--step-token`.
+
+### Run 13 — P9 with the matched delimiter (7B, 957 items)
+
+`step_token='\n'` (one `Step N:` line per chunk, ~8–14 real resampling rounds), `max_steps=14`;
+control = Run 10's P9 cells (`\n\n`, ~1 terminal resample), same items/config. 7,656 rows, all
+errors swept. Raw: `run13_p9delim/p9delim_957.*`.
+
+| cell (mean_logprob) | selected: ctrl→matched | oracle: ctrl→matched |
+|---|---|---|
+| b8 | 0.553 → 0.575 | 0.780 → **0.688** |
+| b16 | 0.565 → 0.572 | 0.873 → **0.758** |
+| b32 | 0.577 → 0.565 | 0.911 → **0.825** |
+
+(entropy signal: same shape; selected ±2 pp noise, oracle −8…−12 pp; distinct-ratio −25%.)
+
+**Real stepping does not improve selection (all deltas within ±3 pp CI) and destroys coverage —
+oracle drops 8–12 pp at every budget.** P9's famous 0.91 oracle was largely an artifact of its
+*accidental* 1-resample regime: each extra resampling round culls more of the correct minority.
+
+### Run 14 — P5 with the fixed stop rule + loop guard (3B, 957 items)
+
+`--stop-regex 'Answer:\s*(\\boxed\{)?\(?[A-K]\b' --stop-on-repeat --max-steps 10`; control =
+Run 12's P5 cells on the same 957 (early-stop, 1–2 steps). 7,656 rows, 0 errors. Raw:
+`run14_p5stopfix/p5stopfix_957.*`.
+
+| cell (mean_logprob) | selected: ctrl→fixed | oracle: ctrl→fixed | parse: ctrl→fixed |
+|---|---|---|---|
+| b1 | 0.446 → **0.503** | — | 0.84 → 0.96 |
+| b8 | 0.511 → 0.534 | 0.747 → 0.739 | 0.91 → 0.97 |
+| b16 | 0.533 → 0.522 | 0.827 → **0.777** | 0.93 → 0.96 |
+| b32 | 0.541 → **0.503** | 0.843 → 0.824 | 0.94 → 0.96 |
+
+**The fix genuinely improves trajectories** (b1 +5.7 pp, parse 0.84→0.96, loops guarded) — **and
+the longer trajectories' extra resampling rounds still lower oracle and erase the gains by b32.**
+(entropy signal: same shape — b1 +5.0 pp, selected flat elsewhere, oracle −1…−2 pp; it stays the
+weaker P5 signal on 3B at every budget, consistent with Run 12 finding 3.)
+(Known residual: letter-shaped sub-answers still stop ~49% of trajectories early — the fix halves
+premature stopping, not eliminates it. Also documented here for completeness: the substring stop
+rule made ALL prior P5 EPF cells a 1–2-step regime — live-verified — and P9's `\n\n` cells a
+≤2-step regime, i.e. Runs 6–12's P5/P9 numbers describe near-best-of-N variants, which the
+verdict below shows is the *stronger* configuration anyway.)
+
+### Verdict (both ablations, both models)
+
+A third and fourth independent manipulation of resampling frequency, same answer as Run 8:
+**more resampling rounds → lower oracle, unchanged selection.** The step-wise machinery isn't
+merely not-earning-its-keep — every added resampling opportunity actively costs coverage. Within
+the RL-free framing this closes the case: **best-of-N sampling + a better (external) selector
+dominates particle filtering on this task family, at any step granularity.**
+
+## 16. Run 15 — cross-family swap: Qwen2-Audio-7B-Instruct on the ≤30 s test subset (P4, P9)
+
+**Why:** Runs 11–14 established the story within one model family (Qwen2.5-Omni 7B/3B). Run 15
+swaps to a **different family** — Qwen2-Audio-7B-Instruct (Whisper-large-v3-style audio encoder,
+Qwen2-7B text backbone, 8,192-token context) — to test which findings are architecture-general.
+
+**Audio-length constraint → new subset.** Qwen2-Audio's encoder has a hard **30 s window per
+clip** (longer audio is truncated, not chunk-processed like Omni; ~25 audio tokens/s, ≤750
+tokens/clip). Per the phase decision, only items whose clips *all* fit are used:
+`test_le30s-00000-of-00001.parquet` = the full 5,090-MCQ test parquet filtered by clip duration
+(soundfile) → **2,190 MCQ (2,176 gradeable, 182 single-choice)**, loader `subset="test_le30s"`.
+Category mix stays broad (sound 570, speech 303, music 262, spatial 262, voice_chat 250, multi 243).
+Gates on both replicas: logprobs-with-audio PASS, continue_final_message PASS; A/B causality: 9/15
+answers flip without audio; context audit on the 30 longest items: max 1,578 prompt tokens, 0 errors.
+
+**Prompt screens (the model breaks the old prompt set).** 9-prompt greedy screen (n=40) then a
+P4/5/7/9 screen at n=300 (stratified; SE ≈ ±0.028), both in
+`run15_qwen2audio_le30s/{chunkscreen_q2a_greedy40,greedy300_p4579}.*`:
+
+| P (n=300, greedy) | acc | acc excl-1 | reasoned | avg words | `\n\n` chunks / %≥2 | no-prediction |
+|---|---|---|---|---|---|---|
+| P4 plan-and-solve | 0.390 | 0.333 | 74% | 46 | **1.80 / 46%** | **6%** |
+| P5 least-to-most | 0.227 | 0.208 | 21% | 12 | 1.42 / 12% | **43%** |
+| P7 format-forcing | 0.383 | 0.371 | 61% | 31 | 1.32 / 9% | 18% |
+| P9 evidence-grounded | **0.407** | **0.383** | **79%** | 45 | 1.33 / 17% | 14% |
+
+Qwen2-Audio is the tersest model in the campaign — *no* prompt exceeds 2.1 avg chunks (Omni-7B:
+2.0–5.0). **P5 is unusable** (echoes a sub-question and stops; 43% of items yield no parseable
+answer) and **P7 is dominated by P9 on every metric** → grid ran **P4 + P9** (P4 = the only real
+chunker, P9 = best accuracy). Third consecutive model where format compliance reshuffles the
+usable prompt set — screen per model, always.
+
+**Config:** canonical probe grid — P4,P9 × {mean_logprob, entropy} × budgets {1,8,16,32},
+temp 0.8, ess 0.6 / early 0.7, systematic, style logit, `step_token='\n\n'`, `stop="Answer:"`,
+max_steps 6; budget-staged, b1 at `--max-inflight 24`. **35,040 rows, 0 errors**, ~4.8 h wall on
+2 GPUs (fast: short clips + terse generations). Raw: `run15_qwen2audio_le30s/epf_q2a_le30s.*`.
+
+**Results (n=2,176 gradeable; SE_full ≈ ±0.011).** selected / oracle / majority:
+
+| cell | b1 | b8 | b16 | b32 |
+|---|---|---|---|---|
+| P4 mean_logprob | .424 / .424 / .424 | .446 / .580 / .454 | .439 / .627 / .453 | .452 / .668 / .460 |
+| P4 entropy | .429 / .429 / .429 | .453 / .604 / .458 | .450 / .652 / .458 | .443 / .675 / .449 |
+| P9 mean_logprob | .447 / .447 / .447 | .466 / .584 / .480 | .468 / .613 / .486 | .461 / .645 / .487 |
+| P9 entropy | .442 / .442 / .442 | .466 / .591 / .485 | .466 / .632 / .491 | .460 / .659 / .484 |
+
+(distinct-ratio 0.17–0.19 → 0.05–0.06 from b8→b32; final ESS 0.80–0.93; parse 0.96–0.98 at b≥8,
+0.95 at P9 b1.)
+
+**Takeaways.**
+1. **The shape replicates on a third model / second family:** selected saturates by b8
+   (best cell, P9 mean_logprob b16, +2.1 pp over b1; largest gain anywhere +2.8 pp ≈ 1.8×SE —
+   none significant), oracle keeps climbing, the oracle−selected gap widens with budget to
+   0.18–0.23 at b32; the two signals are indistinguishable on selection (≤1.1 pp; entropy holds
+   a small +2–2.5 pp oracle edge on P4).
+2. **Oracle ceiling is family-dependent, not universal:** 0.64–0.67 @32 vs 0.83–0.91 on Omni-7B's
+   matching P4/P9 cells. Within the Omni family coverage was size-invariant (7B ≈ 3B); across
+   families it tracks base competence (b1 0.42–0.45 here vs 0.54–0.57 on Omni-7B's Run-11 b1
+   cells). Exploration can only surface what the model can produce at all.
+3. **Majority vote beats the self-certainty selection on P9 at every budget ≥ 8** (e.g. b16:
+   0.491 vs 0.466 entropy; margins +1.4–2.5 pp), and edges it on P4 as well (+0.6–1.3 pp, within
+   noise) — the first model where plain voting strictly dominates the EPF argmax. Self-certainty calibration is worse here than on either Omni size;
+   the selector remains the wall, and on this model even the *cheapest* external-ish signal
+   (consensus) already clears it.
+4. **Near-best-of-N regime caveat** (same as §15): with 1.3–1.8 avg chunks these cells run ~1–2
+   resampling rounds, i.e. close to best-of-N — which §15 showed is the *stronger* configuration
+   anyway. No step-boundary ablation was run here; the model's terseness leaves little room for one.
+
+### Run 16 (handoff — high-budget extension, external GPUs)
+
+Runs 11/12/15 extended to **budgets 64 and 128**, packaged for execution on a collaborator's
+machine: `benchmarking/mmau_pro/run16/` (scripted env / pinned data+model fetch / smoke /
+single-command driver; the b1–32 rows ship as gzipped seeds so only the new cells run). Scope:
+Run 11 default **P5 only** (`PROMPTS_RUN11=4,5,7,9` opts into the full grid), Runs 12/15 full
+grids. Output: `results/run16_hibudget/epf_full5090_bootstrap_b128.html` (a NEW file; the b1–32
+report stays untouched). Results to be appended here when the run lands.
+
+## 17. Honest verdict
+
+*(Written after Run 4/testmini; §§13–16 confirm and sharpen every point at full scale, across two
+model sizes and a second model family, and under step-boundary ablations. The July-2026 summary is
+TL;DR 2/3 at the top.)*
 
 - **Best ITS number: 0.576 (#4 PF@4), ≈ +4 pp over our own baseline, no RL used** — borderline‑significant (p≈0.07), prompt‑dependent, category‑localized, and **non‑scaling** with budget.
 - It is **not** a "ITS matches GRPO for free" result. The gain is small and self‑certainty behaves like a weak, fluency‑based reward — it can't reliably steer resampling toward *correct* trajectories.
@@ -476,7 +684,7 @@ strongest-n version of the §14 verdict; the next lever remains an external/inde
 - n=952 → ±3.3 pp CI; the #4 effect is borderline (p≈0.07), not conclusively significant.
 - `baseline` = PF at budget 1 (single self‑certainty trajectory), i.e. the same CoT prompt with no resampling.
 
-## 15. Files (`benchmarking/mmau_pro/results/`)
+## 18. Files (`benchmarking/mmau_pro/results/`)
 
 Organized **one folder per run** (see `results/README.md` for the full index); cross-run figures in
 `results/plots/`. Each run folder holds `<experiment>.jsonl` (raw, resumable), `.csv`, `.log`, plus
@@ -499,13 +707,20 @@ one-file HTML reports.
 | `run10_run6_full/epf_div.html` | one-file report (trend heatmaps + appendix), **generated from `run6_full.csv`** |
 | `run10_run6_full/epf_div_bootstrap.html` | **Run 10**: bootstrap error bars (std100 + SE957) |
 | `run11_epf_full5090/epf_full5090.{jsonl,csv,log}` | **Run 11**: the grid on the FULL 5,090-MCQ test set; 162,880 rows (957-slice seeded from `run6_full.jsonl`) |
-| `run11_epf_full5090/epf_full5090_bootstrap.html` | **Run 11**: bootstrap error bars + interactive acc-vs-budget plot |
+| `run11_epf_full5090/epf_full5090_bootstrap.html` | **Runs 11+12+15 combined report**: per-model sections (Omni-7B + Omni-3B + Qwen2-Audio), bootstrap error bars + interactive acc-vs-budget plots |
+| `run12_omni3b_5090/epf3b_5090.{jsonl,csv,log}` | **Run 12**: Omni-**3B** grid, P4+P5 × 2 signals × {1,8,16,32} × 5,090; 81,440 rows |
+| `run12_omni3b_5090/chunkprobe_3b_greedy100.csv` (+`chunkprobe_ids.txt`) | **Run 12 side-probe**: 100 seeded items × 9 prompts, greedy 3B responses (chunkability/format-compliance analysis; 7B counterpart = `run05_cot957/cot957.csv`) |
+| `run13_p9delim/p9delim_957.{jsonl,csv,log}` | **Run 13**: P9 × 7B × 957 with matched `\n` delimiter (control = Run 10 P9 cells) |
+| `run14_p5stopfix/p5stopfix_957.{jsonl,csv,log}` | **Run 14**: P5 × 3B × 957 with letter-answer stop regex + repeat guard (control = Run 12 P5 cells) |
+| `run15_qwen2audio_le30s/epf_q2a_le30s.{jsonl,csv,log}` | **Run 15**: Qwen2-Audio-7B-Instruct grid, P4+P9 × 2 signals × {1,8,16,32} × 2,190 (≤30 s subset); 35,040 rows, 0 errors |
+| `run15_qwen2audio_le30s/chunkscreen_q2a_greedy40.*`, `greedy300_p4579.*` | **Run 15 screens**: 9-prompt × 40 + P4/5/7/9 × 300 greedy (prompt pick; P5/P7 fail on this model) |
+| `run16_hibudget/` (created by `run16/run_all.sh`) | **Run 16**: b64/b128 extension of Runs 11/12/15 + `epf_full5090_bootstrap_b128.html`; package/seeds in `benchmarking/mmau_pro/run16/` |
 | `plots/` | cross-run figures: `acc_vs_budget.{png,html}` (Run 6), `epf_acc_vs_budget.{png,html}` (Run 10), `acc_vs_budget_combined.html`, `epf_temp_*.html` (EPF × self-consistency overlays) |
 | `smoke/mmau_smoke.jsonl` | initial 8‑item pipeline smoke |
 
 Each `run_mmau` row: `{unique_id, method, arm, budget, category, length_type, correct, latency_s, error, content}`.
 
-## 16. Reproduce
+## 19. Reproduce
 
 ```bash
 # serve (Blackwell)
@@ -594,9 +809,38 @@ done
 conda run -n epf python -m benchmarking.mmau_pro.epf_bootstrap --n 10000 \
   --in  benchmarking/mmau_pro/results/run11_epf_full5090/epf_full5090.csv \
   --out benchmarking/mmau_pro/results/run11_epf_full5090/epf_full5090_bootstrap.html
+
+# Run 12: Omni-3B grid (serve Qwen/Qwen2.5-Omni-3B on both GPUs, same flags, served name qwen-omni-3b;
+# P4,P5 only — P7/P9 don't chunk on 3B, see §14). Same staged loop as Run 11 with:
+#   --model-name qwen-omni-3b --prompts 4,5 \
+#   --jsonl/... benchmarking/mmau_pro/results/run12_omni3b_5090/epf3b_5090.{jsonl,csv,log}
+# Combined 7B+3B report (one section per --in "LABEL=path"):
+conda run -n epf python -m benchmarking.mmau_pro.epf_bootstrap --n 10000 \
+  --in "Qwen2.5-Omni-7B — Run 11 (P4,P5,P7,P9)=benchmarking/mmau_pro/results/run11_epf_full5090/epf_full5090.csv" \
+  --in "Qwen2.5-Omni-3B — Run 12 (P4,P5)=benchmarking/mmau_pro/results/run12_omni3b_5090/epf3b_5090.csv" \
+  --out benchmarking/mmau_pro/results/run11_epf_full5090/epf_full5090_bootstrap.html
+
+# Run 13 (P9 matched delimiter, 7B) / Run 14 (P5 stop-fix, 3B) — same probe, new flags:
+#   Run 13: --prompts 9 --max-steps 14 --step-token $'\n'
+#   Run 14: --prompts 5 --max-steps 10 --stop-regex 'Answer:\s*(\\boxed\{)?\(?[A-K]\b' --stop-on-repeat
+# (957 items: --subset full --select all --limit 1000; budget-1 stage at --max-inflight 24)
+
+# Run 15: Qwen2-Audio-7B-Instruct. Serve Qwen/Qwen2-Audio-7B-Instruct (served name qwen2-audio)
+# with the same template but --max-model-len 8192 (its full context; Whisper-style encoder
+# truncates clips at 30 s). Build the subset once — filter test-*.parquet to rows whose clips ALL
+# have duration ≤30 s (soundfile) → data/test_le30s-00000-of-00001.parquet (2,190 MCQ) — then the
+# same staged loop with:
+#   --model-name qwen2-audio --subset test_le30s --prompts 4,9 \
+#   --jsonl/... benchmarking/mmau_pro/results/run15_qwen2audio_le30s/epf_q2a_le30s.{jsonl,csv,log}
+# Combined 3-model report: the Run-12 epf_bootstrap command plus
+#   --in "Qwen2-Audio-7B-Instruct — Run 15 (P4,P9; le30s subset)=benchmarking/mmau_pro/results/run15_qwen2audio_le30s/epf_q2a_le30s.csv"
+
+# Run 16 (b64/b128 extension of Runs 11/12/15, any machine): fully scripted —
+#   see benchmarking/mmau_pro/run16/README.md; after setup/fetch/smoke it is one command:
+#   nohup bash benchmarking/mmau_pro/run16/run_all.sh > run16.log 2>&1 &
 ```
 
-## 17. Next lever
+## 20. Next lever
 
 **Run 7 ruled out the obvious self-signal fix.** We tested the answer-choice-confidence reward as a terminal
 re-rank (answer-letter confidence and option-text likelihood, with and without audio) and it does **not**
