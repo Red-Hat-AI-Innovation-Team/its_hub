@@ -37,7 +37,7 @@ import click
 import numpy as np
 
 from benchmarking.mmau_pro.cot_compare import _select_all, _select_items_stratified
-from benchmarking.mmau_pro.loader import load_mmau_mcq
+from benchmarking.mmau_pro.loader import SUBSET_FILES, load_mmau_mcq
 from benchmarking.mmau_pro.prompt import METHODS, build
 from benchmarking.mmau_pro.scoring import LETTERS, predicted_index
 from its_hub import (
@@ -123,8 +123,10 @@ def _base_row(rec, method, signal, budget):
     }
 
 
-def build_epf(signal, temp, max_steps, ess_threshold, early_phase):
-    sg = StepGeneration(step_token="\n\n", stop_token="Answer:", max_steps=max_steps, temperature=temp)
+def build_epf(signal, temp, max_steps, ess_threshold, early_phase, step_token="\n\n",
+              stop_regex=None, stop_on_repeat=False):
+    sg = StepGeneration(step_token=step_token, stop_token="Answer:", max_steps=max_steps,
+                        temperature=temp, stop_regex=stop_regex, stop_on_repeat=stop_on_repeat)
     return EntropicParticleFiltering(
         sg=sg,
         resampling_method="systematic",
@@ -227,7 +229,7 @@ def build_report(rows) -> str:
 @click.option("--model-name", required=True)
 @click.option("--api-key", default="NO_API_KEY")
 @click.option("--data-root", default="/home/exx/inference-time-scaling/mmau_pro_testmini")
-@click.option("--subset", type=click.Choice(["full", "le30s", "test"]), default="full",
+@click.option("--subset", type=click.Choice(list(SUBSET_FILES)), default="full",
               help="parquet subset: full = testmini (957 MCQ), test = the FULL test set (5,090 MCQ)")
 @click.option("--audio-root", default=None,
               help="root for relative audio paths when they live outside --data-root "
@@ -239,6 +241,16 @@ def build_report(rows) -> str:
 @click.option("--ess-threshold", default=0.6)
 @click.option("--early-phase", default=0.7)
 @click.option("--max-steps", default=6)
+@click.option("--step-token", default="\n\n",
+              help=r"generation/resampling boundary (default blank line; pass $'\n' for "
+                   "line-per-step prompts like P9 — raise --max-steps accordingly)")
+@click.option("--stop-regex", default=None,
+              help=r"stop a trajectory when a step matches this regex INSTEAD of the "
+                   r"'Answer:' substring (e.g. 'Answer:\s*(\\boxed\{)?\(?[A-K]\b' to only "
+                   "stop on letter-final answers, not prose sub-answers)")
+@click.option("--stop-on-repeat", is_flag=True, default=False,
+              help="kill a trajectory whose new step repeats an earlier one modulo "
+                   "digits/case/whitespace (guards degenerate sub-question loops)")
 @click.option("--max-tokens-per-step", default=300)
 @click.option("--limit", default=100, help="# items (stratified single-audio, or first-N for --select all)")
 @click.option("--select", "select_mode", type=click.Choice(["stratified", "all"]), default="stratified",
@@ -248,8 +260,9 @@ def build_report(rows) -> str:
 @click.option("--csv", "csv_path", default=None)
 @click.option("--log", "log_path", default=None)
 def main(endpoints, model_name, api_key, data_root, subset, audio_root, prompts, signals,
-         budgets, temp, ess_threshold, early_phase, max_steps, max_tokens_per_step, limit,
-         select_mode, max_inflight, jsonl_path, csv_path, log_path):
+         budgets, temp, ess_threshold, early_phase, max_steps, step_token, stop_regex,
+         stop_on_repeat, max_tokens_per_step, limit, select_mode, max_inflight,
+         jsonl_path, csv_path, log_path):
     eps = [e.strip() for e in endpoints.split(",") if e.strip()]
     methods = [int(m) for m in prompts.split(",")]
     sigs = [s.strip() for s in signals.split(",") if s.strip()]
@@ -298,7 +311,9 @@ def main(endpoints, model_name, api_key, data_root, subset, audio_root, prompts,
             for method in methods:
                 for signal in sigs:
                     for budget in buds:
-                        epf = build_epf(signal, temp, max_steps, ess_threshold, early_phase)
+                        epf = build_epf(signal, temp, max_steps, ess_threshold, early_phase,
+                                        step_token=step_token, stop_regex=stop_regex,
+                                        stop_on_repeat=stop_on_repeat)
                         per_ep = max(1, max_inflight // budget)
                         sems = [asyncio.Semaphore(per_ep) for _ in lms]
                         todo = [r for r in records
@@ -345,6 +360,7 @@ def main(endpoints, model_name, api_key, data_root, subset, audio_root, prompts,
                     f"items={len(records)}\n")
             f.write("category mix: " + ", ".join(f"{c}:{n}" for c, n in sorted(cat_mix.items())) + "\n")
             f.write(f"config: temp={temp} ess_threshold={ess_threshold} early_phase={early_phase} "
+                    f"step_token={step_token!r} max_steps={max_steps} "
                     f"systematic resampling, style=logit\n\n")
             f.write(report + "\n")
         print(f"wrote report -> {log_path}", flush=True)

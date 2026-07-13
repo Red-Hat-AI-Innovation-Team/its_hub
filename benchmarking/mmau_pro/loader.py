@@ -9,6 +9,9 @@ SUBSET_FILES = {
     "full": "testmini-00000-of-00001.parquet",
     "le30s": "testmini_le30s-00000-of-00001.parquet",
     "test": "test-00000-of-00001.parquet",  # the FULL MMAU-Pro test set (5,305 rows)
+    # full test set filtered to items whose clips ALL fit Qwen2-Audio's 30 s encoder
+    # window (built by scripts alongside Run 15; 2,190 MCQ)
+    "test_le30s": "test_le30s-00000-of-00001.parquet",
 }
 
 

@@ -39,7 +39,7 @@ from collections import defaultdict
 
 import click
 
-from benchmarking.mmau_pro.loader import load_mmau_mcq
+from benchmarking.mmau_pro.loader import SUBSET_FILES, load_mmau_mcq
 from benchmarking.mmau_pro.prompt import METHODS, build
 from benchmarking.mmau_pro.scoring import LETTERS, predicted_index
 from its_hub import OpenAICompatibleLanguageModel
@@ -247,8 +247,13 @@ def _build_score_report(rows) -> str:
 @click.option("--model-name", required=True)
 @click.option("--api-key", default="NO_API_KEY")
 @click.option("--data-root", default="/home/exx/inference-time-scaling/mmau_pro_testmini")
-@click.option("--subset", type=click.Choice(["full", "le30s"]), default="le30s")
+@click.option("--subset", type=click.Choice(list(SUBSET_FILES)), default="le30s")
+@click.option("--audio-root", default=None,
+              help="root for relative audio paths when they live outside --data-root "
+                   "(e.g. mmau_pro_audio/ for the test subsets)")
 @click.option("--select", "select_mode", type=click.Choice(["smallest", "stratified", "all"]), default="smallest")
+@click.option("--methods", default=None,
+              help="comma list of prompt numbers to run (default: all 9), e.g. 4,5,7,9")
 @click.option("--ids", default=None, help="comma list of unique_ids to run exactly (overrides --select/--limit)")
 @click.option("--limit", type=int, default=None, help="cap number of items (default: all for the chosen --select)")
 @click.option("--audio-mode", type=click.Choice(["local-path", "base64"]), default="base64")
@@ -257,9 +262,13 @@ def _build_score_report(rows) -> str:
 @click.option("--jsonl", "jsonl_path", default=None, help="resumable per-row stream (recommended for big runs)")
 @click.option("--csv", "csv_path", default=None, help="write per-(method,item) responses to this CSV")
 @click.option("--log", "log_path", default=None, help="also tee the score/metric tables to this file")
-def main(endpoint, model_name, api_key, data_root, subset, select_mode, ids, limit, audio_mode,
-         max_tokens, concurrency, jsonl_path, csv_path, log_path):
-    recs = load_mmau_mcq(data_root, subset=subset)
+def main(endpoint, model_name, api_key, data_root, subset, audio_root, select_mode, methods, ids,
+         limit, audio_mode, max_tokens, concurrency, jsonl_path, csv_path, log_path):
+    recs = load_mmau_mcq(data_root, subset=subset, audio_root=audio_root)
+    method_list = [int(x) for x in methods.split(",")] if methods else list(METHODS)
+    unknown = [m for m in method_list if m not in METHODS]
+    if unknown:
+        raise SystemExit(f"--methods not in {list(METHODS)}: {unknown}")
     if ids:
         wanted = [s.strip() for s in ids.split(",") if s.strip()]
         by_id = {r.unique_id: r for r in recs}
@@ -279,7 +288,7 @@ def main(endpoint, model_name, api_key, data_root, subset, select_mode, ids, lim
     cat_counts = defaultdict(int)
     for r in records:
         cat_counts[r.category] += 1
-    print(f"comparing {len(METHODS)} prompts over {len(records)} MCQ items "
+    print(f"comparing {len(method_list)} prompts over {len(records)} MCQ items "
           f"(subset={subset}, select={select_mode}, audio={audio_mode})", flush=True)
     print("category mix: " + ", ".join(f"{c}:{n}" for c, n in sorted(cat_counts.items())), flush=True)
 
@@ -312,7 +321,7 @@ def main(endpoint, model_name, api_key, data_root, subset, select_mode, ids, lim
         lock = asyncio.Lock()
         out = open(jsonl_path, "a") if jsonl_path else None  # noqa: SIM115 (closed in finally; spans the loop)
         try:
-            for m in METHODS:
+            for m in method_list:
                 todo = [r for r in records if (r.unique_id, m) not in done]
                 print(f"[{m}] {METHODS[m]:33s} {len(todo)} to do "
                       f"({len(records) - len(todo)} resumed)", flush=True)
@@ -351,7 +360,7 @@ def main(endpoint, model_name, api_key, data_root, subset, select_mode, ids, lim
     if log_path:
         os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
         with open(log_path, "w") as f:
-            f.write(f"{len(METHODS)} prompts over {len(records)} items "
+            f.write(f"{len(method_list)} prompts over {len(records)} items "
                     f"(subset={subset}, select={select_mode}, audio={audio_mode})\n")
             f.write("category mix: " + ", ".join(f"{c}:{n}" for c, n in sorted(cat_counts.items())) + "\n\n")
             f.write(score_report + "\n\n" + chunk_table + "\n")

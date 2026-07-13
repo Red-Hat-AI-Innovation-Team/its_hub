@@ -1,4 +1,5 @@
 import logging
+import re
 
 from its_hub.api import AbstractLanguageModel, ChatMessage
 from its_hub.core.utils import (
@@ -16,6 +17,28 @@ def rstrip_iff_entire(s: str, subs: str) -> str:
         return s
 
 
+def _normalize_for_repeat(s: str) -> str:
+    """Digit-stripped, case/whitespace-insensitive form used by the repeat guard.
+
+    Degenerate loops often re-emit the same step with an incremented counter
+    ("Sub-question 8: ..." -> "Sub-question 12: ..."), so digits must not
+    distinguish two steps.
+    """
+    return re.sub(r"\s+", " ", re.sub(r"\d+", "", s.lower())).strip()
+
+
+def _is_repeat_step(next_step: str, steps_so_far: list[str], min_len: int = 15) -> bool:
+    """True if ``next_step`` repeats any earlier step modulo digits/case/whitespace.
+
+    ``min_len`` (on the normalized text) avoids killing particles over trivially
+    short coincidences (empty steps, bare "Answer:" lines).
+    """
+    norm = _normalize_for_repeat(next_step)
+    if len(norm) < min_len:
+        return False
+    return any(norm == _normalize_for_repeat(prev) for prev in steps_so_far)
+
+
 # TODO make it robust such that one of the particle dead (e.g. due to max tokens), the whole generation is not stopped
 # TODO change stop_token to be a function called is_stopped
 class StepGeneration:
@@ -30,6 +53,8 @@ class StepGeneration:
         | None = None,  # (temperature, open_token, close_token)
         tokens_per_step: int
         | None = None,  # Maximum tokens per step when step_token is None
+        stop_regex: str | None = None,  # regex on the step text; overrides stop_token for is_stopped
+        stop_on_repeat: bool = False,  # stop a trajectory whose new step repeats an earlier one
     ):
         # Validate that exactly one of step_token or tokens_per_step is set
         if step_token is None and tokens_per_step is None:
@@ -52,6 +77,20 @@ class StepGeneration:
         self.temperature = temperature
         self.include_stop_str_in_output = include_stop_str_in_output
         self.temperature_switch = temperature_switch
+        self.stop_regex = re.compile(stop_regex) if stop_regex else None
+        self.stop_on_repeat = stop_on_repeat
+
+    def _step_is_final(self, next_step: str, steps_so_far: list[str]) -> bool:
+        """Stop conditions beyond max_steps: regex (preferred over substring) + repeat guard."""
+        if self.stop_regex is not None:
+            stopped = bool(self.stop_regex.search(next_step))
+        elif self.stop_token:
+            stopped = self.stop_token in next_step
+        else:
+            stopped = False
+        if not stopped and self.stop_on_repeat:
+            stopped = _is_repeat_step(next_step, steps_so_far)
+        return stopped
 
     def _post_process(self, steps: list[str], stopped: bool = False) -> str:
         if self.include_stop_str_in_output:
@@ -169,9 +208,8 @@ class StepGeneration:
                 **logprob_kwargs,
             )
             next_step = extract_content_from_lm_response(next_step_response)
-            is_stopped = len(steps_so_far) >= self.max_steps
-            if self.stop_token:
-                is_stopped = is_stopped or self.stop_token in next_step
+            is_stopped = (len(steps_so_far) >= self.max_steps
+                          or self._step_is_final(next_step, steps_so_far))
             if return_logprobs:
                 summary = summarize_step_logprobs(next_step_response.get("_logprobs"))
                 return next_step, is_stopped, summary
@@ -216,13 +254,9 @@ class StepGeneration:
             ]
             is_stopped = [
                 len(steps_so_far_per_prompt) >= self.max_steps
-                for steps_so_far_per_prompt in steps_so_far
+                or self._step_is_final(next_step, steps_so_far_per_prompt)
+                for steps_so_far_per_prompt, next_step in zip(steps_so_far, next_steps)
             ]
-            if self.stop_token:
-                is_stopped = [
-                    is_stopped_per_prompt or self.stop_token in next_step
-                    for is_stopped_per_prompt, next_step in zip(is_stopped, next_steps)
-                ]
             if return_logprobs:
                 summaries = [
                     summarize_step_logprobs(r.get("_logprobs"))
