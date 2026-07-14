@@ -73,6 +73,7 @@ submodule-init: $(SUBMODULE_MARKER)
 
 # Compile Envoy proto files to Python (with dependency tracking)
 $(PROTO_MARKER): $(SUBMODULE_MARKER) $(PROTO_SOURCES)
+	@mkdir -p $(PROTO_OUT_DIR)
 	@echo "Compiling Envoy proto files..."
 	uv run python -m grpc_tools.protoc \
 		--proto_path=third_party/envoy-data-plane-api \
@@ -90,7 +91,8 @@ $(PROTO_MARKER): $(SUBMODULE_MARKER) $(PROTO_SOURCES)
 		third_party/xds/xds/core/v3/*.proto \
 		third_party/xds/udpa/annotations/*.proto \
 		third_party/protoc-gen-validate/validate/validate.proto
-	find $(PROTO_OUT_DIR) -type d -exec touch {}/__init__.py \;
+	printf 'import sys\nfrom pathlib import Path\n\n_proto_dir = Path(__file__).parent\nif str(_proto_dir) not in sys.path:\n    sys.path.insert(0, str(_proto_dir))\n' > $(PROTO_OUT_DIR)/__init__.py
+	find $(PROTO_OUT_DIR) -mindepth 1 -type d -exec touch {}/__init__.py \;
 	@touch $(PROTO_MARKER)
 	@echo "✓ Proto files compiled successfully!"
 

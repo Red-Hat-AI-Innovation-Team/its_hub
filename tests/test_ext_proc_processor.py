@@ -545,13 +545,13 @@ class TestPreviewMessageContent:
     def test_short_string(self):
         from its_hub.integration.ext_proc.processor import _preview_message_content
 
-        assert _preview_message_content({"content": "hello"}) == "hello"
+        assert _preview_message_content({"role": "assistant", "content": "hello"}) == "hello"
 
     def test_long_string_truncated(self):
         from its_hub.integration.ext_proc.processor import _preview_message_content
 
         long = "a" * 200
-        result = _preview_message_content({"content": long}, limit=10)
+        result = _preview_message_content({"role": "assistant", "content": long}, limit=10)
         assert result == "a" * 10 + "…"
 
     def test_structured_content(self):
@@ -561,17 +561,17 @@ class TestPreviewMessageContent:
             {"type": "text", "text": "hello"},
             {"type": "text", "text": "world"},
         ]
-        assert _preview_message_content({"content": content}) == "hello world"
+        assert _preview_message_content({"role": "assistant", "content": content}) == "hello world"
 
     def test_none_content(self):
         from its_hub.integration.ext_proc.processor import _preview_message_content
 
-        assert _preview_message_content({"content": None}) == "<empty>"
+        assert _preview_message_content({"role": "assistant", "content": None}) == "<empty>"
 
     def test_empty_string(self):
         from its_hub.integration.ext_proc.processor import _preview_message_content
 
-        assert _preview_message_content({"content": ""}) == "<empty>"
+        assert _preview_message_content({"role": "assistant", "content": ""}) == "<empty>"
 
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ from envoy.service.ext_proc.v3 import external_processor_pb2 as ext_proc_pb2
 from envoy.service.ext_proc.v3 import external_processor_pb2_grpc as ext_proc_grpc
 from envoy.type.v3 import http_status_pb2
 
-from its_hub.api import ITSRequestConfig
+from its_hub.api import ChatMessage, ITSRequestConfig
 from its_hub.core.gateway import ITSGateway
 
 _ITS_HEADER_PREFIX = "x-its-"
@@ -28,15 +28,7 @@ logger = logging.getLogger(__name__)
 
 def _preview_message_content(message: dict, limit: int = 160) -> str:
     """Return a single-line preview of message content for logging."""
-    content = message.get("content")
-    if isinstance(content, list):
-        parts = []
-        for part in content:
-            if isinstance(part, dict) and part.get("type") == "text":
-                parts.append(part.get("text") or "")
-        content = " ".join(parts)
-    if not isinstance(content, str):
-        content = "" if content is None else str(content)
+    content = ChatMessage.from_dict(message).extract_text_content()
     preview = " ".join(content.split())
     if not preview:
         return "<empty>"
@@ -345,11 +337,6 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
 
         try:
             budget = int(budget_str)
-
-            if budget < 1 or budget > 1000:
-                logger.error("Budget out of range (1-1000): %d", budget)
-                return None
-
             api_key = headers.get("x-its-api-key")
 
             return ITSRequestConfig(
