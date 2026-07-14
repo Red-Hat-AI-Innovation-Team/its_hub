@@ -102,6 +102,7 @@ class ITSGateway(AbstractGateway):
             )
             return self._lm_cache[cache_key]
 
+        evicted_lm = None
         if len(self._lm_cache) >= self._max_lm_cache_size:
             evicted_key, evicted_lm = self._lm_cache.popitem(last=False)
             logger.info(
@@ -110,7 +111,6 @@ class ITSGateway(AbstractGateway):
                 evicted_key[0],
                 evicted_key[1],
             )
-            await evicted_lm.close()
 
         logger.info(
             "%sCreating new LM client: endpoint=%s, model=%s",
@@ -124,6 +124,10 @@ class ITSGateway(AbstractGateway):
             model_name=model,
         )
         self._lm_cache[cache_key] = lm
+
+        if evicted_lm is not None:
+            await evicted_lm.close()
+
         return lm
 
     async def arun_chat_completion(

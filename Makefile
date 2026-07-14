@@ -129,10 +129,10 @@ upgrade-protos:
 	@echo "Restoring proto submodules to pinned commits from .gitmodules..."
 	@echo ""
 	@echo "Checking out pinned commits:"
-	@ENVOY_COMMIT=$$(grep -A 2 'envoy-data-plane-api' .gitmodules | grep 'pinned-commit' | cut -d'=' -f2 | tr -d ' '); \
+	@ENVOY_COMMIT=$$(grep -A 3 'envoy-data-plane-api' .gitmodules | grep 'pinned-commit' | cut -d'=' -f2 | tr -d ' '); \
 	cd $(ENVOY_API) && git fetch && git checkout $$ENVOY_COMMIT && \
 	echo "  ✓ envoy-data-plane-api: $$ENVOY_COMMIT"
-	@XDS_COMMIT=$$(grep -A 2 'third_party/xds' .gitmodules | grep 'pinned-commit' | cut -d'=' -f2 | tr -d ' '); \
+	@XDS_COMMIT=$$(grep -A 3 'third_party/xds' .gitmodules | grep 'pinned-commit' | cut -d'=' -f2 | tr -d ' '); \
 	cd $(XDS_API) && git fetch && git checkout $$XDS_COMMIT && \
 	echo "  ✓ xds: $$XDS_COMMIT"
 	@VALIDATE_COMMIT=$$(grep -A 3 'protoc-gen-validate' .gitmodules | grep 'pinned-commit' | cut -d'=' -f2 | tr -d ' '); \
