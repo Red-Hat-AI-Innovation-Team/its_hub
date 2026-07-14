@@ -20,6 +20,7 @@ from its_hub.api import (
     parse_api_error,
     should_retry,
 )
+from its_hub.core.utils import resolve_max_completion_tokens
 
 
 class OpenAICompatibleLanguageModel(AbstractLanguageModel):
@@ -33,6 +34,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         # default runtime parameters
         stop: str | None = None,
         max_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
         temperature: float | None = None,
         max_tries: int = 3,
         max_concurrency: int = -1,
@@ -69,7 +71,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
 
         # runtime parameters
         self.stop = stop
-        self.max_tokens = max_tokens
+        self.max_completion_tokens = resolve_max_completion_tokens(
+            max_completion_tokens, max_tokens
+        )
         self.temperature = temperature
 
         # SSL configuration
@@ -165,7 +169,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         self,
         messages: list[ChatMessage],
         stop: str | None = None,
-        max_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
         temperature: float | None = None,
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
@@ -214,16 +218,16 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         # set default runtime parameters
         if self.stop is not None:
             request_data["stop"] = self.stop
-        if self.max_tokens is not None:
-            request_data["max_tokens"] = self.max_tokens
+        if self.max_completion_tokens is not None:
+            request_data["max_completion_tokens"] = self.max_completion_tokens
         if self.temperature is not None:
             request_data["temperature"] = self.temperature
 
         # override runtime parameters
         if stop is not None:
             request_data["stop"] = stop
-        if max_tokens is not None:
-            request_data["max_tokens"] = max_tokens
+        if max_completion_tokens is not None:
+            request_data["max_completion_tokens"] = max_completion_tokens
         if temperature is not None:
             request_data["temperature"] = temperature
 
@@ -243,7 +247,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         self,
         messages_lst: list[list[ChatMessage]],
         stop: str | None = None,
-        max_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
         temperature: float | None = None,
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
@@ -275,7 +279,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                     request_data = self._prepare_request_data(
                         messages,
                         stop,
-                        max_tokens,
+                        max_completion_tokens,
                         _temperature,
                         include_stop_str_in_output,
                         tools,
@@ -349,6 +353,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         messages_or_messages_lst: list[ChatMessage] | list[list[ChatMessage]],
         stop: str | None = None,
         max_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
         temperature: float | list[float] | None = None,
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
@@ -369,6 +374,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             DeprecationWarning,
             stacklevel=2,
         )
+        max_completion_tokens = resolve_max_completion_tokens(
+            max_completion_tokens, max_tokens
+        )
 
         is_single = not isinstance(messages_or_messages_lst[0], list)
         messages_lst = (
@@ -377,7 +385,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         response_or_responses = await self._agenerate(
             messages_lst,
             stop,
-            max_tokens,
+            max_completion_tokens,
             temperature,
             include_stop_str_in_output,
             tools,
@@ -392,6 +400,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         messages: list[ChatMessage],
         stop: str | None = None,
         max_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
         temperature: float | None = None,
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
@@ -400,6 +409,10 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         loop: asyncio.AbstractEventLoop | None = None,
         usage_accumulator: GenerationUsage | None = None,
     ) -> dict:
+        max_completion_tokens = resolve_max_completion_tokens(
+            max_completion_tokens, max_tokens
+        )
+
         # Fallback to the current event loop
         if loop is None:
             loop = asyncio.get_running_loop()
@@ -419,7 +432,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             request_data = self._prepare_request_data(
                 messages,
                 stop,
-                max_tokens,
+                max_completion_tokens,
                 _temperature,
                 include_stop_str_in_output,
                 tools,

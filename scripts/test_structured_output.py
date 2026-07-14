@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 
 ENDPOINT = "http://localhost:8200/v1"
 MODEL = "Qwen/Qwen3-4B"
-# Qwen3 uses thinking mode by default - needs generous max_tokens
+# Qwen3 uses thinking mode by default - needs generous max_completion_tokens
 MAX_TOKENS = 4096
 
 
@@ -39,7 +39,7 @@ async def test_raw_structured_output():
                     },
                 },
             },
-            max_tokens=MAX_TOKENS,
+            max_completion_tokens=MAX_TOKENS,
             temperature=0.6,
         )
         content = response.get("content") or ""
@@ -73,7 +73,7 @@ async def test_llm_judge_with_structured_output():
         ]
         score = await judge.ascore(
             messages=conversation,
-            max_tokens=MAX_TOKENS,
+            max_completion_tokens=MAX_TOKENS,
             temperature=0.6,
         )
         print(f"Score: {score}")
@@ -94,7 +94,7 @@ async def test_llm_judge_without_structured_output():
         ]
         score = await judge.ascore(
             messages=conversation,
-            max_tokens=MAX_TOKENS,
+            max_completion_tokens=MAX_TOKENS,
             temperature=0.6,
         )
         print(f"Score: {score}")
@@ -125,7 +125,7 @@ async def test_llm_judge_batch():
         ]
         scores = await judge.ascore(
             messages=conversations,
-            max_tokens=MAX_TOKENS,
+            max_completion_tokens=MAX_TOKENS,
             temperature=0.6,
         )
         print(f"Scores: {scores}")

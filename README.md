@@ -45,6 +45,8 @@ pip install its_hub[lm]
 
 Adds: `OpenAICompatibleLanguageModel`, `LLMJudge`, `StepGeneration` (requires `openai`, `aiohttp`, `backoff`)
 
+> **vLLM users:** its_hub uses the `max_completion_tokens` parameter (the OpenAI API standard), which requires **vLLM >= 0.6.2**. We recommend **vLLM >= 0.14.0**.
+
 ### With Experimental Algorithms
 
 For **experimental features** - includes beam search and particle filtering:

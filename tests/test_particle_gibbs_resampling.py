@@ -27,7 +27,7 @@ class MockLanguageModelForResampling(AbstractLanguageModel):
     async def agenerate(self, messages, **kwargs):
         return self.generate(messages, **kwargs)
 
-    def generate(self, messages, max_tokens=100, **kwargs):
+    def generate(self, messages, max_completion_tokens=100, **kwargs):
         # Handle both single and batch calls like OpenAICompatibleLanguageModel
         if (
             isinstance(messages, list)

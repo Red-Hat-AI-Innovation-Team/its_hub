@@ -45,7 +45,7 @@ python tests/e2e/test_e2e.py \
 | `--model_name` | *(required)* | Model name served at the endpoint |
 | `--api_key` | `NO_API_KEY` | API key |
 | `--temperature` | `0.7` | Sampling temperature |
-| `--max_tokens` | None | Max tokens per generation |
+| `--max_completion_tokens` | None | Max completion tokens per generation |
 | `--max_concurrency` | `32` | Max concurrent requests |
 | `--budget` | `4` | Computation budget per problem |
 | `--datasets` | `math500,aime2024` | Comma-separated list of datasets |

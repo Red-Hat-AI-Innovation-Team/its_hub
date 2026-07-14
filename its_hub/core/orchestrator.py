@@ -9,6 +9,7 @@ from its_hub.api import (
     ChatMessage,
     GenerationUsage,
 )
+from its_hub.core.utils import resolve_max_completion_tokens
 
 
 class _ThreadSafeAsyncSemaphore:
@@ -73,6 +74,7 @@ class LMOrchestrator(AbstractOrchestrator):
         messages_lst: list[list[ChatMessage]],
         stop: str | None = None,
         max_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
         temperature: float | list[float] | None = None,
         include_stop_str_in_output: bool | None = None,
         tools: list[dict] | None = None,
@@ -87,7 +89,7 @@ class LMOrchestrator(AbstractOrchestrator):
             lm: Language model to use for generation
             messages_lst: List of conversations to process
             stop: (Optional) Stop sequence for generation
-            max_tokens: (Optional) Maximum tokens to generate per response
+            max_completion_tokens: (Optional) Maximum tokens to generate per response
             temperature: (Optional) Temperature value(s) for sampling. Can be single float or list of floats
             include_stop_str_in_output: (Optional) Whether to include stop string in output (vLLM only)
             tools: (Optional) List of available tools
@@ -97,6 +99,10 @@ class LMOrchestrator(AbstractOrchestrator):
         Returns:
             List of response dicts in the same order as messages_lst
         """
+
+        max_completion_tokens = resolve_max_completion_tokens(
+            max_completion_tokens, max_tokens
+        )
 
         if not messages_lst:
             return []
@@ -124,7 +130,7 @@ class LMOrchestrator(AbstractOrchestrator):
                 return await lm.agenerate_single(
                     messages,
                     stop=stop,
-                    max_tokens=max_tokens,
+                    max_completion_tokens=max_completion_tokens,
                     temperature=temp,
                     include_stop_str_in_output=include_stop_str_in_output,
                     tools=tools,

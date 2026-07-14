@@ -195,11 +195,19 @@ class TestParameterForwarding:
         assert lm.calls[0]["stop"] == "\n"
 
     @pytest.mark.asyncio
-    async def test_max_tokens_forwarded(self):
+    async def test_max_completion_tokens_forwarded(self):
         orch = LMOrchestrator(max_concurrency=4)
         lm = MockLM()
-        await orch.agenerate(lm, _make_batch(1), max_tokens=100)
-        assert lm.calls[0]["max_tokens"] == 100
+        await orch.agenerate(lm, _make_batch(1), max_completion_tokens=100)
+        assert lm.calls[0]["max_completion_tokens"] == 100
+
+    @pytest.mark.asyncio
+    async def test_max_tokens_deprecated_alias(self):
+        orch = LMOrchestrator(max_concurrency=4)
+        lm = MockLM()
+        with pytest.warns(DeprecationWarning, match="max_tokens.*deprecated"):
+            await orch.agenerate(lm, _make_batch(1), max_tokens=100)
+        assert lm.calls[0]["max_completion_tokens"] == 100
 
     @pytest.mark.asyncio
     async def test_scalar_temperature(self):
@@ -215,8 +223,13 @@ class TestParameterForwarding:
         lm = MockLM()
         temps = [0.5, 0.8, 1.0]
         await orch.agenerate(lm, _make_batch(3), temperature=temps)
-        for call, expected_temp in zip(lm.calls, temps):
-            assert call["temperature"] == expected_temp
+        # Match by content (run_in_executor does not guarantee execution or completion order)
+        temp_by_msg = {
+            call["messages"][0].content: call["temperature"]
+            for call in lm.calls
+        }
+        for i, expected_temp in enumerate(temps):
+            assert temp_by_msg[f"msg-{i}"] == expected_temp
 
     @pytest.mark.asyncio
     async def test_include_stop_str_forwarded(self):
@@ -247,7 +260,7 @@ class TestParameterForwarding:
         await orch.agenerate(lm, _make_batch(1))
         call = lm.calls[0]
         assert call["stop"] is None
-        assert call["max_tokens"] is None
+        assert call["max_completion_tokens"] is None
         assert call["temperature"] is None
         assert call["include_stop_str_in_output"] is None
         assert call["tools"] is None

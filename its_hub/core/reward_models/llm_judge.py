@@ -202,7 +202,7 @@ Format: {{"score": <number>}}"""
         Args:
             messages: Single conversation or multiple conversations
             orchestrator: Orchestrator that manages parallel calls to LM
-            **kwargs: Additional parameters passed to LM (temperature, max_tokens, etc.)
+            **kwargs: Additional parameters passed to LM (temperature, max_completion_tokens, etc.)
 
         Returns:
             Single score or list of scores

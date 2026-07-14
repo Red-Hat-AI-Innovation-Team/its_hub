@@ -28,7 +28,7 @@ class AbstractOrchestrator(ABC):
             lm: Language model to use for generation
             messages_lst: List of conversations to process
             stop: (Optional) Stop sequence for generation
-            **kwargs: Additional model-specific parameters (max_tokens, temperature,
+            **kwargs: Additional model-specific parameters (max_completion_tokens, temperature,
                       tools, tool_choice, response_format, etc.)
 
         Returns:

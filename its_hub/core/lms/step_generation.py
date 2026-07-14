@@ -132,7 +132,7 @@ class StepGeneration:
             next_step_response = await lm.agenerate(
                 messages,
                 stop=self.step_token,
-                max_tokens=self.tokens_per_step,
+                max_completion_tokens=self.tokens_per_step,
                 temperature=self._get_temperature(messages),
                 include_stop_str_in_output=self.include_stop_str_in_output,
                 tools=tools,
@@ -169,7 +169,7 @@ class StepGeneration:
             next_steps_responses = await lm.agenerate(
                 messages_lst,
                 stop=self.step_token,
-                max_tokens=self.tokens_per_step,
+                max_completion_tokens=self.tokens_per_step,
                 temperature=self._get_temperature(messages_lst),
                 include_stop_str_in_output=self.include_stop_str_in_output,
                 tools=tools,

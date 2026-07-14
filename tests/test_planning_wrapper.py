@@ -47,7 +47,7 @@ class MockLanguageModel(AbstractLanguageModel):
     async def agenerate(self, messages, **kwargs):
         return self.generate(messages, **kwargs)
 
-    def generate(self, messages, stop=None, max_tokens=None, include_stop_str_in_output=False, temperature=None, **kwargs):
+    def generate(self, messages, stop=None, max_completion_tokens=None, include_stop_str_in_output=False, temperature=None, **kwargs):
         # Handle both single and batch generation
         if (
             isinstance(messages, list)
