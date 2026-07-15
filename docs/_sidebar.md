@@ -2,6 +2,7 @@
 - [Installation](installation.md)
 - [Quick Start Guide](quick-start.md)
 - [IaaS Service Guide](iaas-service.md)
+- [Ext Proc Gateway](ext-proc-gateway.md)
 - [Algorithms](algorithms.md)
   - [Particle Filtering](algorithms.md#particle-filtering)
   - [Best-of-N](algorithms.md#best-of-n)

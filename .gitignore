@@ -189,3 +189,9 @@ notebooks/dev.ipynb
 results/
 
 .its-hub/
+
+# Envoy ext_proc
+its_hub/integration/ext_proc/proto/
+third_party/.submodules-initialized
+envoy.log
+envoy-grpc.log

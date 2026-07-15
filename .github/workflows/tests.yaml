@@ -28,16 +28,21 @@ jobs:
 
     steps:
     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        submodules: true
     
     - name: Install uv and setup python version
       uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       with:
         python-version: ${{ matrix.python-version }}
         enable-cache: true
-        
+
     - name: Install dependencies
       run: uv sync --extra dev
-        
+
+    - name: Compile Envoy proto files
+      uses: ./.github/actions/compile-protos
+
     - name: Run unit tests with python ${{ matrix.python-version }}
       run: uv run pytest tests/ --ignore=tests/e2e --cov=its_hub --cov-report=xml
         
