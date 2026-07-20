@@ -76,17 +76,17 @@ Note: Currently only Self-Consistency and Best-of-N use the orchestrator. Experi
 
 ## Core Implementation
 
-### LMOrchestrator
+`its_hub` ships two LM orchestrator implementations with identical APIs. One is written in Python, and the other is written in Rust. Both accept the same `agenerate()` / `generate()` signatures and can be passed to any algorithm's `orchestrator` parameter.
 
-The `LMOrchestrator` class provides structured concurrency for parallel LM calls.
+### LMOrchestrator (Python)
+
+The pure-Python implementation using `asyncio.TaskGroup` for structured concurrency.
 
 **Key Features:**
 
 - **TaskGroups (Python 3.11+)**: Uses `asyncio.TaskGroup` for structured concurrency with automatic cleanup
 - **Thread-Safe Semaphore**: Controls concurrency across event loops
 - **Error Handling**: First exception cancels all remaining tasks
-
-### Constructor
 
 ```python
 from its_hub import LMOrchestrator
