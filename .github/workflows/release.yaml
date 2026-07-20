@@ -28,6 +28,9 @@ permissions:
     contents: read
 
 jobs:
+    # The Rust/PyO3 extension requires platform-specific wheels (the compiled
+    # .so/.dylib differs per OS and architecture). The old single build-package
+    # job is replaced by sdist + per-platform wheel jobs below.
     sdist:
         name: Build sdist
         runs-on: ubuntu-latest
@@ -54,6 +57,7 @@ jobs:
                   name: dist-sdist
                   path: dist/*.tar.gz
 
+    # Cross-compiled inside manylinux containers by maturin-action
     linux-wheels:
         name: Build Linux wheels (${{ matrix.target }})
         runs-on: ubuntu-latest
@@ -86,6 +90,8 @@ jobs:
                   name: dist-linux-${{ matrix.target }}
                   path: dist/*.whl
 
+    # macOS needs setup-python to install interpreters; --find-interpreter
+    # discovers them so maturin builds a wheel for each.
     macos-wheels:
         name: Build macOS wheels (${{ matrix.target }})
         runs-on: ${{ matrix.runner }}
