@@ -4,6 +4,7 @@
 
 - Python 3.11+
 - pip or uv package manager
+- Rust toolchain (only for development/source builds — install via [rustup](https://rustup.rs/))
 - GPU with CUDA 11.8+ (only for `[experimental]` installation)
 
 ## Installation Options
@@ -101,7 +102,12 @@ pip install its_hub[research]
 
 ## Development Installation
 
+Requires a Rust toolchain (the build backend is [maturin](https://www.maturin.rs/), which compiles the native extension automatically).
+
 ```bash
+# Install Rust (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 cd its_hub
 
