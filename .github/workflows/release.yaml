@@ -77,7 +77,8 @@ jobs:
               with:
                   target: ${{ matrix.target }}
                   manylinux: auto
-                  args: --release --out dist -i python3.11 python3.12 python3.13 python3.14
+                  # PyO3 0.24 supports up to Python 3.13; add 3.14 when PyO3 upgrades
+                  args: --release --out dist -i python3.11 python3.12 python3.13
 
             - name: "Upload wheels"
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
