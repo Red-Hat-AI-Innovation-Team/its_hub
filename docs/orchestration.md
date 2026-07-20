@@ -97,20 +97,20 @@ orchestrator = LMOrchestrator(max_concurrency=32)  # Default: 32
 **Parameters:**
 - `max_concurrency` (int, default 32): Maximum number of parallel LM calls. Set to -1 for unlimited.
 
-### RustLMOrchestrator
+### RustOrchestrator
 
-Rust-backed alternative (via PyO3) that uses Tokio for concurrency control. It exposes the same `agenerate()` and `generate()` methods, so it is a drop-in replacement for `LMOrchestrator`.
+Rust-backed alternative that uses Tokio for concurrency control. It subclasses `AbstractOrchestrator` via a thin Python wrapper around the PyO3 `RustLMOrchestrator`, so it is a drop-in replacement for `LMOrchestrator` that satisfies ABC type-checks.
 
 ```python
-from its_hub._rust import RustLMOrchestrator
+from its_hub import RustOrchestrator
 
-orchestrator = RustLMOrchestrator(max_concurrency=32)  # Default: 32
+orchestrator = RustOrchestrator(max_concurrency=32)  # Default: 32
 ```
 
 **Parameters:**
 - `max_concurrency` (int, default 32): Maximum number of parallel LM calls. Set to -1 for unlimited.
 
-> **Note:** `RustLMOrchestrator` does not subclass `AbstractOrchestrator` because PyO3 cannot inherit from Python ABCs. If ABC conformance is needed (e.g. for type-checking), create a thin Python wrapper that inherits `AbstractOrchestrator` and delegates to the Rust class.
+The raw Rust class is also available as `from its_hub._rust import RustLMOrchestrator` for cases where the ABC wrapper is not needed.
 
 ### agenerate Method
 

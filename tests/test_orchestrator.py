@@ -2,19 +2,23 @@
 
 import asyncio
 import threading
-import time
 
 import pytest
 
-from its_hub.api.types import ChatMessage
-from its_hub.core.orchestrator import LMOrchestrator, _ThreadSafeAsyncSemaphore
-
 from its_hub._rust import RustLMOrchestrator
+from its_hub.api.orchestrator import AbstractOrchestrator
+from its_hub.api.types import ChatMessage
+from its_hub.core.orchestrator import (
+    LMOrchestrator,
+    RustOrchestrator,
+    _ThreadSafeAsyncSemaphore,
+)
 
 
 @pytest.fixture(params=[
     pytest.param(LMOrchestrator, id="python"),
-    pytest.param(RustLMOrchestrator, id="rust"),
+    pytest.param(RustLMOrchestrator, id="rust-raw"),
+    pytest.param(RustOrchestrator, id="rust-abc"),
 ])
 def orchestrator_cls(request):
     """Return each orchestrator implementation so shared tests run against both."""
@@ -93,24 +97,30 @@ def _make_batch(n: int) -> list[list[ChatMessage]]:
     ]
 
 
+def _unwrap(orchestrator):
+    """Unwrap RustOrchestrator to get the underlying implementation."""
+    if hasattr(orchestrator, "_inner"):
+        return orchestrator._inner
+    return orchestrator
+
+
 def _sem_value(orchestrator) -> int:
-    """Read the semaphore counter (works for both Python and Rust implementations)."""
-    # The Rust orchestrator doesn't expose its tokio::sync::Semaphore as a Python
-    # attribute, so it provides a _semaphore_value() method instead.
-    if hasattr(orchestrator, "_semaphore_value"):
-        val = orchestrator._semaphore_value()
+    """Read the semaphore counter (works for Python, raw Rust, and wrapped Rust)."""
+    inner = _unwrap(orchestrator)
+    if hasattr(inner, "_semaphore_value"):
+        val = inner._semaphore_value()
         assert val is not None
         return val
-    assert orchestrator._semaphore is not None
-    return orchestrator._semaphore._sem._value
+    assert inner._semaphore is not None
+    return inner._semaphore._sem._value
 
 
 def _has_semaphore(orchestrator) -> bool:
     """Check whether the orchestrator has a semaphore."""
-    # Similar to _sem_value, we have a _has_semaphore function in the Rust implementation
-    if hasattr(orchestrator, "_has_semaphore"):
-        return orchestrator._has_semaphore()
-    return orchestrator._semaphore is not None
+    inner = _unwrap(orchestrator)
+    if hasattr(inner, "_has_semaphore"):
+        return inner._has_semaphore()
+    return inner._semaphore is not None
 
 
 # ===========================================================================
@@ -629,3 +639,29 @@ class TestThreadSafeAsyncSemaphore:
             t.join()
 
         assert peak <= 1
+
+
+# ===========================================================================
+# 11. ABC Conformance
+# ===========================================================================
+
+class TestABCConformance:
+    def test_python_orchestrator_is_abc_instance(self):
+        orch = LMOrchestrator()
+        assert isinstance(orch, AbstractOrchestrator)
+
+    def test_rust_raw_is_not_abc_instance(self):
+        orch = RustLMOrchestrator()
+        assert not isinstance(orch, AbstractOrchestrator)
+
+    def test_rust_wrapper_is_abc_instance(self):
+        orch = RustOrchestrator()
+        assert isinstance(orch, AbstractOrchestrator)
+
+    def test_rust_wrapper_exposes_max_concurrency(self):
+        orch = RustOrchestrator(max_concurrency=16)
+        assert orch.max_concurrency == 16
+
+    def test_rust_wrapper_default_max_concurrency(self):
+        orch = RustOrchestrator()
+        assert orch.max_concurrency == 32

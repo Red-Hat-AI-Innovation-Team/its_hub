@@ -11,6 +11,11 @@ from its_hub.api import (
 )
 from its_hub.core.utils import resolve_max_completion_tokens
 
+try:
+    from its_hub._rust import RustLMOrchestrator as _RustLMOrchestrator
+except ImportError:
+    _RustLMOrchestrator = None
+
 
 class _ThreadSafeAsyncSemaphore:
     """A semaphore that works across event loops and threads.
@@ -166,3 +171,41 @@ class LMOrchestrator(AbstractOrchestrator):
         logging.debug("LMOrchestrator: Completed batch generation")
 
         return responses
+
+
+class RustOrchestrator(AbstractOrchestrator):
+    """ABC-conformant wrapper around the PyO3 RustLMOrchestrator.
+
+    PyO3 classes cannot inherit from Python ABCs, so this thin wrapper
+    inherits AbstractOrchestrator and delegates to the Rust implementation.
+    """
+
+    def __init__(self, max_concurrency: int = 32):
+        if _RustLMOrchestrator is None:
+            raise ImportError(
+                "Rust extension not available. "
+                "Install with: pip install its_hub (requires maturin build)"
+            )
+        self._inner = _RustLMOrchestrator(max_concurrency=max_concurrency)
+
+    @property
+    def max_concurrency(self) -> int:
+        return self._inner.max_concurrency
+
+    async def agenerate(
+        self,
+        lm: AbstractLanguageModel,
+        messages_lst: list[list[ChatMessage]],
+        stop: str | None = None,
+        **kwargs,
+    ) -> list[dict]:
+        return await self._inner.agenerate(lm, messages_lst, stop=stop, **kwargs)
+
+    def generate(
+        self,
+        lm: AbstractLanguageModel,
+        messages_lst: list[list[ChatMessage]],
+        stop: str | None = None,
+        **kwargs,
+    ) -> list[dict]:
+        return self._inner.generate(lm, messages_lst, stop=stop, **kwargs)

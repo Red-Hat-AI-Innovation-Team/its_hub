@@ -8,8 +8,8 @@ use tokio::sync::Semaphore;
 /// Rust implementation of the LMOrchestrator.
 ///
 /// Does not subclass AbstractOrchestrator because PyO3 cannot inherit from
-/// Python ABCs (PyO3 issue #991). If ABC conformance is needed, create a thin
-/// Python wrapper that inherits AbstractOrchestrator and delegates here.
+/// Python ABCs (PyO3 issue #991). The Python-side `RustOrchestrator` wrapper
+/// (in `its_hub.core.orchestrator`) inherits the ABC and delegates here.
 #[pyclass]
 pub struct RustLMOrchestrator {
     #[pyo3(get)]
