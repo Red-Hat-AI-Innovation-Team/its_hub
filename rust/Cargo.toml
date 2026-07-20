@@ -1,0 +1,15 @@
+[package]
+name = "its_hub_rust"
+version = "1.1.0"
+edition = "2024"
+
+[lib]
+name = "_rust"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.24", features = ["extension-module"] }
+pyo3-async-runtimes = { version = "0.24", features = ["tokio-runtime"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync"] }
+futures-util = "0.3"
