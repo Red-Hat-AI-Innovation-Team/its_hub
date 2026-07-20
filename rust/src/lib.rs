@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -156,50 +155,36 @@ impl RustLMOrchestrator {
                 })
                 .collect();
 
-            let results = futures_util::future::join_all(futures).await;
-
-            let mut ok_results: Vec<PyObject> = Vec::with_capacity(n);
-            let mut errors: Vec<PyErr> = Vec::new();
-
-            for result in results {
-                match result {
-                    Ok(obj) => ok_results.push(obj),
-                    Err(e) => errors.push(e),
-                }
-            }
-
-            if !errors.is_empty() {
-                let mut error_types: HashMap<String, usize> = HashMap::new();
-                for err in &errors {
-                    let name = Python::with_gil(|py| {
-                        err.clone_ref(py)
+            match futures_util::future::try_join_all(futures).await {
+                Ok(results) => Python::with_gil(|py| {
+                    let list = PyList::new(py, results.iter().map(|r| r.bind(py)))?;
+                    Ok(list.unbind().into())
+                }),
+                Err(e) => {
+                    let msg = Python::with_gil(|py| {
+                        let type_name = e
                             .value(py)
                             .get_type()
                             .name()
                             .map(|n| n.to_string())
-                            .unwrap_or_else(|_| "Unknown".to_string())
+                            .unwrap_or_else(|_| "Unknown".to_string());
+                        format!(
+                            "LMOrchestrator: 1 error(s), {} cancelled out of {} generation(s) (1x {})",
+                            n - 1,
+                            n,
+                            type_name
+                        )
                     });
-                    *error_types.entry(name).or_insert(0) += 1;
+                    let runtime_err = PyErr::new::<PyRuntimeError, _>(msg);
+                    Python::with_gil(|py| {
+                        runtime_err
+                            .value(py)
+                            .setattr("__cause__", e.value(py))?;
+                        Ok::<_, PyErr>(())
+                    })?;
+                    Err(runtime_err)
                 }
-
-                let summary: String = error_types
-                    .iter()
-                    .map(|(k, v)| format!("{}x {}", v, k))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                return Err(PyErr::new::<PyRuntimeError, _>(format!(
-                    "LMOrchestrator: {} error(s), 0 cancelled out of {} generation(s) ({})",
-                    errors.len(),
-                    n,
-                    summary
-                )));
             }
-
-            Python::with_gil(|py| {
-                let list = PyList::new(py, ok_results.iter().map(|r| r.bind(py)))?;
-                Ok(list.unbind().into())
-            })
         })?;
 
         wrap_future_as_coroutine(py, &future)
