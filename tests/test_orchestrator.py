@@ -482,10 +482,6 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_error_message_includes_count(self, orchestrator_cls):
-        # Rust doesn't chain __cause__ (no ExceptionGroup); skip until parity is implemented.
-        if orchestrator_cls is not LMOrchestrator:
-            pytest.skip("Rust does not set __cause__ (no ExceptionGroup chaining yet)")
-
         orch = orchestrator_cls(max_concurrency=4)
         lm = ErrorMockLM(error_indices={0, 2})
         with pytest.raises(RuntimeError) as exc_info:
@@ -548,11 +544,6 @@ class TestSemaphoreSafety:
 
     @pytest.mark.asyncio
     async def test_semaphore_restored_after_cancellation(self, orchestrator_cls):
-        # Rust's join_all has different cancellation semantics than Python's TaskGroup;
-        # skip until Rust implements sibling-task cancellation on error.
-        if orchestrator_cls is not LMOrchestrator:
-            pytest.skip("Rust join_all does not propagate asyncio cancellation like TaskGroup")
-
         orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM(delay=1.0)  # Long delay so we can cancel
 
