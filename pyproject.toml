@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [build-system]
-requires = ["setuptools>=42", "wheel", "setuptools_scm>=8.0.0"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
 
 [project]
 name = "its_hub"
@@ -31,11 +31,6 @@ dependencies = [
 [project.scripts]
 # its-iaas removed for MVP - will be added back in [iaas] extra if needed
 envoy-grpc = "its_hub.integration.ext_proc.server:main"
-
-[tool.setuptools_scm]
-version_file = "its_hub/_version.py"
-# do not include +gREV local version, required for Test PyPI upload
-local_scheme = "no-local-version"
 
 [project.urls]
 Homepage = "https://ai-innovation.team/its_hub"
@@ -90,18 +85,7 @@ research = [
     "matplotlib>=3.5.0",   # For visualization scripts
 ]
 
-[tool.setuptools]
-package-dir = {"" = "."}
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = [
-    "its_hub",
-    "its_hub.algorithms",
-    "its_hub.api",
-    "its_hub.api.*",
-    "its_hub.core",
-    "its_hub.core.*",
-    "its_hub.integration",
-    "its_hub.integration.*",
-]
+[tool.maturin]
+manifest-path = "rust/Cargo.toml"
+module-name = "its_hub._rust"
+python-source = "."

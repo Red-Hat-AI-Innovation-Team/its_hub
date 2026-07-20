@@ -1,4 +1,4 @@
-"""Tests for LMOrchestrator and _ThreadSafeAsyncSemaphore."""
+"""Tests for LMOrchestrator, RustLMOrchestrator, and _ThreadSafeAsyncSemaphore."""
 
 import asyncio
 import threading
@@ -8,6 +8,26 @@ import pytest
 
 from its_hub.api.types import ChatMessage
 from its_hub.core.orchestrator import LMOrchestrator, _ThreadSafeAsyncSemaphore
+
+try:
+    from its_hub._rust import RustLMOrchestrator
+except ImportError:
+    RustLMOrchestrator = None
+
+
+@pytest.fixture(params=[
+    pytest.param(LMOrchestrator, id="python"),
+    pytest.param(
+        RustLMOrchestrator,
+        id="rust",
+        marks=pytest.mark.skipif(
+            RustLMOrchestrator is None, reason="Rust extension not built"
+        ),
+    ),
+])
+def orchestrator_cls(request):
+    """Return each orchestrator implementation so shared tests run against both."""
+    return request.param
 
 
 # ---------------------------------------------------------------------------
@@ -82,10 +102,21 @@ def _make_batch(n: int) -> list[list[ChatMessage]]:
     ]
 
 
-def _sem_value(orchestrator: LMOrchestrator) -> int:
-    """Read the internal threading.Semaphore counter."""
+def _sem_value(orchestrator) -> int:
+    """Read the semaphore counter (works for both Python and Rust implementations)."""
+    if hasattr(orchestrator, "_semaphore_value"):
+        val = orchestrator._semaphore_value()
+        assert val is not None
+        return val
     assert orchestrator._semaphore is not None
     return orchestrator._semaphore._sem._value
+
+
+def _has_semaphore(orchestrator) -> bool:
+    """Check whether the orchestrator has a semaphore."""
+    if hasattr(orchestrator, "_has_semaphore"):
+        return orchestrator._has_semaphore()
+    return orchestrator._semaphore is not None
 
 
 # ===========================================================================
@@ -93,32 +124,32 @@ def _sem_value(orchestrator: LMOrchestrator) -> int:
 # ===========================================================================
 
 class TestConstruction:
-    def test_default_max_concurrency(self):
-        orch = LMOrchestrator()
+    def test_default_max_concurrency(self, orchestrator_cls):
+        orch = orchestrator_cls()
         assert orch.max_concurrency == 32
-        assert orch._semaphore is not None
+        assert _has_semaphore(orch)
 
-    def test_custom_max_concurrency(self):
-        orch = LMOrchestrator(max_concurrency=10)
+    def test_custom_max_concurrency(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=10)
         assert orch.max_concurrency == 10
-        assert orch._semaphore is not None
+        assert _has_semaphore(orch)
 
-    def test_unlimited_concurrency(self):
-        orch = LMOrchestrator(max_concurrency=-1)
+    def test_unlimited_concurrency(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=-1)
         assert orch.max_concurrency == -1
-        assert orch._semaphore is None
+        assert not _has_semaphore(orch)
 
-    def test_min_concurrency(self):
-        orch = LMOrchestrator(max_concurrency=1)
+    def test_min_concurrency(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=1)
         assert orch.max_concurrency == 1
 
-    def test_zero_concurrency_raises(self):
+    def test_zero_concurrency_raises(self, orchestrator_cls):
         with pytest.raises(ValueError):
-            LMOrchestrator(max_concurrency=0)
+            orchestrator_cls(max_concurrency=0)
 
-    def test_negative_concurrency_raises(self):
+    def test_negative_concurrency_raises(self, orchestrator_cls):
         with pytest.raises(ValueError):
-            LMOrchestrator(max_concurrency=-2)
+            orchestrator_cls(max_concurrency=-2)
 
 
 # ===========================================================================
@@ -127,16 +158,16 @@ class TestConstruction:
 
 class TestBasicAgenerate:
     @pytest.mark.asyncio
-    async def test_empty_batch(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_empty_batch(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM()
         result = await orch.agenerate(lm, [])
         assert result == []
         assert lm.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_single_message(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_single_message(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM(responses=["hello"])
         batch = _make_batch(1)
         result = await orch.agenerate(lm, batch)
@@ -145,9 +176,9 @@ class TestBasicAgenerate:
         assert lm.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_batch_of_n(self):
+    async def test_batch_of_n(self, orchestrator_cls):
         n = 5
-        orch = LMOrchestrator(max_concurrency=10)
+        orch = orchestrator_cls(max_concurrency=10)
         lm = MockLM(responses=[f"r{i}" for i in range(n)])
         batch = _make_batch(n)
         result = await orch.agenerate(lm, batch)
@@ -155,10 +186,10 @@ class TestBasicAgenerate:
         assert lm.call_count == n
 
     @pytest.mark.asyncio
-    async def test_response_ordering(self):
+    async def test_response_ordering(self, orchestrator_cls):
         """Responses must match input order even with variable latency."""
         n = 6
-        orch = LMOrchestrator(max_concurrency=10)
+        orch = orchestrator_cls(max_concurrency=10)
 
         class VariableDelayLM:
             def __init__(self):
@@ -188,38 +219,38 @@ class TestBasicAgenerate:
 
 class TestParameterForwarding:
     @pytest.mark.asyncio
-    async def test_stop_forwarded(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_stop_forwarded(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM()
         await orch.agenerate(lm, _make_batch(1), stop="\n")
         assert lm.calls[0]["stop"] == "\n"
 
     @pytest.mark.asyncio
-    async def test_max_completion_tokens_forwarded(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_max_completion_tokens_forwarded(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM()
         await orch.agenerate(lm, _make_batch(1), max_completion_tokens=100)
         assert lm.calls[0]["max_completion_tokens"] == 100
 
     @pytest.mark.asyncio
-    async def test_max_tokens_deprecated_alias(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_max_tokens_deprecated_alias(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM()
         with pytest.warns(DeprecationWarning, match="max_tokens.*deprecated"):
             await orch.agenerate(lm, _make_batch(1), max_tokens=100)
         assert lm.calls[0]["max_completion_tokens"] == 100
 
     @pytest.mark.asyncio
-    async def test_scalar_temperature(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_scalar_temperature(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM()
         await orch.agenerate(lm, _make_batch(3), temperature=0.7)
         for call in lm.calls:
             assert call["temperature"] == 0.7
 
     @pytest.mark.asyncio
-    async def test_per_message_temperature(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_per_message_temperature(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM()
         temps = [0.5, 0.8, 1.0]
         await orch.agenerate(lm, _make_batch(3), temperature=temps)
@@ -232,30 +263,30 @@ class TestParameterForwarding:
             assert temp_by_msg[f"msg-{i}"] == expected_temp
 
     @pytest.mark.asyncio
-    async def test_include_stop_str_forwarded(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_include_stop_str_forwarded(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM()
         await orch.agenerate(lm, _make_batch(1), include_stop_str_in_output=True)
         assert lm.calls[0]["include_stop_str_in_output"] is True
 
     @pytest.mark.asyncio
-    async def test_tools_forwarded(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_tools_forwarded(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM()
         tools = [{"type": "function", "function": {"name": "test"}}]
         await orch.agenerate(lm, _make_batch(1), tools=tools)
         assert lm.calls[0]["tools"] == tools
 
     @pytest.mark.asyncio
-    async def test_tool_choice_forwarded(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_tool_choice_forwarded(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM()
         await orch.agenerate(lm, _make_batch(1), tool_choice="auto")
         assert lm.calls[0]["tool_choice"] == "auto"
 
     @pytest.mark.asyncio
-    async def test_all_none_defaults(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_all_none_defaults(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM()
         await orch.agenerate(lm, _make_batch(1))
         call = lm.calls[0]
@@ -272,16 +303,16 @@ class TestParameterForwarding:
 # ===========================================================================
 
 class TestSyncWrapper:
-    def test_generate_returns_same_as_agenerate(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    def test_generate_returns_same_as_agenerate(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM(delay=0.01, responses=["sync-resp"])
         batch = _make_batch(2)
         result = orch.generate(lm, batch)
         assert len(result) == 2
         assert all(r["content"] == "sync-resp" for r in result)
 
-    def test_generate_works_without_running_loop(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    def test_generate_works_without_running_loop(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM(delay=0.01)
         result = orch.generate(lm, _make_batch(1))
         assert len(result) == 1
@@ -293,9 +324,9 @@ class TestSyncWrapper:
 
 class TestLoopForwarding:
     @pytest.mark.asyncio
-    async def test_loop_forwarded_to_agenerate_single(self):
+    async def test_loop_forwarded_to_agenerate_single(self, orchestrator_cls):
         """Orchestrator passes the current event loop to agenerate_single."""
-        orch = LMOrchestrator(max_concurrency=4)
+        orch = orchestrator_cls(max_concurrency=4)
         received_loops = []
 
         class LoopCaptureLM:
@@ -310,9 +341,9 @@ class TestLoopForwarding:
         assert len(received_loops) == 3
         assert all(l is current_loop for l in received_loops)
 
-    def test_sequential_sync_calls_no_stale_loop(self):
+    def test_sequential_sync_calls_no_stale_loop(self, orchestrator_cls):
         """Repeated generate() calls must not raise RuntimeError from stale sessions."""
-        orch = LMOrchestrator(max_concurrency=4)
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM(delay=0.01, responses=["resp"])
 
         # Two sequential sync calls — each creates a new event loop via asyncio.run()
@@ -330,40 +361,40 @@ class TestLoopForwarding:
 
 class TestConcurrencyLimiting:
     @pytest.mark.asyncio
-    async def test_max_concurrency_respected(self):
-        orch = LMOrchestrator(max_concurrency=2)
+    async def test_max_concurrency_respected(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=2)
         lm = MockLM(delay=0.05)
         await orch.agenerate(lm, _make_batch(10))
         assert lm.peak <= 2
 
     @pytest.mark.asyncio
-    async def test_serial_execution(self):
-        orch = LMOrchestrator(max_concurrency=1)
+    async def test_serial_execution(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=1)
         lm = MockLM(delay=0.02)
         await orch.agenerate(lm, _make_batch(5))
         assert lm.peak == 1
 
     @pytest.mark.asyncio
-    async def test_unlimited_concurrency(self):
-        orch = LMOrchestrator(max_concurrency=-1)
+    async def test_unlimited_concurrency(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=-1)
         lm = MockLM(delay=0.05)
         n = 10
         await orch.agenerate(lm, _make_batch(n))
         assert lm.peak == n
 
     @pytest.mark.asyncio
-    async def test_concurrency_not_artificially_limited(self):
+    async def test_concurrency_not_artificially_limited(self, orchestrator_cls):
         """When max_concurrency > batch size, all run concurrently."""
-        orch = LMOrchestrator(max_concurrency=100)
+        orch = orchestrator_cls(max_concurrency=100)
         lm = MockLM(delay=0.05)
         n = 5
         await orch.agenerate(lm, _make_batch(n))
         assert lm.peak == n
 
     @pytest.mark.asyncio
-    async def test_shared_semaphore_across_sequential_calls(self):
+    async def test_shared_semaphore_across_sequential_calls(self, orchestrator_cls):
         """Two overlapping agenerate calls share the same semaphore."""
-        orch = LMOrchestrator(max_concurrency=2)
+        orch = orchestrator_cls(max_concurrency=2)
         lm = MockLM(delay=0.05)
 
         async def run_both():
@@ -380,10 +411,10 @@ class TestConcurrencyLimiting:
 # ===========================================================================
 
 class TestCrossThreadConcurrency:
-    def test_cross_thread_limit_respected(self):
+    def test_cross_thread_limit_respected(self, orchestrator_cls):
         """Two threads calling generate() share the global concurrency limit."""
         max_c = 2
-        orch = LMOrchestrator(max_concurrency=max_c)
+        orch = orchestrator_cls(max_concurrency=max_c)
         lm = MockLM(delay=0.1)
 
         def worker():
@@ -397,9 +428,9 @@ class TestCrossThreadConcurrency:
 
         assert lm.peak <= max_c
 
-    def test_cross_thread_limit_three_threads(self):
+    def test_cross_thread_limit_three_threads(self, orchestrator_cls):
         max_c = 4
-        orch = LMOrchestrator(max_concurrency=max_c)
+        orch = orchestrator_cls(max_concurrency=max_c)
         lm = MockLM(delay=0.08)
 
         def worker():
@@ -413,8 +444,8 @@ class TestCrossThreadConcurrency:
 
         assert lm.peak <= max_c
 
-    def test_cross_thread_unlimited(self):
-        orch = LMOrchestrator(max_concurrency=-1)
+    def test_cross_thread_unlimited(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=-1)
         lm = MockLM(delay=0.05)
 
         def worker():
@@ -436,8 +467,8 @@ class TestCrossThreadConcurrency:
 
 class TestErrorHandling:
     @pytest.mark.asyncio
-    async def test_single_error_propagates(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_single_error_propagates(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = ErrorMockLM(error_indices={2})
         with pytest.raises(
             RuntimeError,
@@ -446,8 +477,8 @@ class TestErrorHandling:
             await orch.agenerate(lm, _make_batch(5))
 
     @pytest.mark.asyncio
-    async def test_all_errors_propagate(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_all_errors_propagate(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = ErrorMockLM(error_indices={0, 1, 2})
         with pytest.raises(
             RuntimeError,
@@ -456,8 +487,12 @@ class TestErrorHandling:
             await orch.agenerate(lm, _make_batch(3))
 
     @pytest.mark.asyncio
-    async def test_error_message_includes_count(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_error_message_includes_count(self, orchestrator_cls):
+        # Rust doesn't chain __cause__ (no ExceptionGroup); skip until parity is implemented.
+        if orchestrator_cls is not LMOrchestrator:
+            pytest.skip("Rust does not set __cause__ (no ExceptionGroup chaining yet)")
+
+        orch = orchestrator_cls(max_concurrency=4)
         lm = ErrorMockLM(error_indices={0, 2})
         with pytest.raises(RuntimeError) as exc_info:
             await orch.agenerate(lm, _make_batch(4))
@@ -467,8 +502,8 @@ class TestErrorHandling:
         assert exc_info.value.__cause__ is not None
 
     @pytest.mark.asyncio
-    async def test_semaphore_released_after_error(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_semaphore_released_after_error(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
         lm = ErrorMockLM(error_indices={1})
 
         with pytest.raises(RuntimeError):
@@ -478,8 +513,8 @@ class TestErrorHandling:
         assert _sem_value(orch) == 4
 
     @pytest.mark.asyncio
-    async def test_next_batch_works_after_error(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_next_batch_works_after_error(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=4)
 
         # First batch: errors
         error_lm = ErrorMockLM(error_indices={0})
@@ -499,8 +534,8 @@ class TestErrorHandling:
 
 class TestSemaphoreSafety:
     @pytest.mark.asyncio
-    async def test_semaphore_restored_after_success(self):
-        orch = LMOrchestrator(max_concurrency=8)
+    async def test_semaphore_restored_after_success(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=8)
         lm = MockLM(delay=0.01)
 
         initial = _sem_value(orch)
@@ -508,8 +543,8 @@ class TestSemaphoreSafety:
         assert _sem_value(orch) == initial
 
     @pytest.mark.asyncio
-    async def test_semaphore_restored_after_failure(self):
-        orch = LMOrchestrator(max_concurrency=8)
+    async def test_semaphore_restored_after_failure(self, orchestrator_cls):
+        orch = orchestrator_cls(max_concurrency=8)
         lm = ErrorMockLM(error_indices={0, 1, 2, 3, 4})
 
         initial = _sem_value(orch)
@@ -518,8 +553,13 @@ class TestSemaphoreSafety:
         assert _sem_value(orch) == initial
 
     @pytest.mark.asyncio
-    async def test_semaphore_restored_after_cancellation(self):
-        orch = LMOrchestrator(max_concurrency=4)
+    async def test_semaphore_restored_after_cancellation(self, orchestrator_cls):
+        # Rust's join_all has different cancellation semantics than Python's TaskGroup;
+        # skip until Rust implements sibling-task cancellation on error.
+        if orchestrator_cls is not LMOrchestrator:
+            pytest.skip("Rust join_all does not propagate asyncio cancellation like TaskGroup")
+
+        orch = orchestrator_cls(max_concurrency=4)
         lm = MockLM(delay=1.0)  # Long delay so we can cancel
 
         initial = _sem_value(orch)
