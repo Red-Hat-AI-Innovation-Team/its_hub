@@ -507,6 +507,30 @@ class TestErrorHandling:
         assert _sem_value(orch) == 4
 
     @pytest.mark.asyncio
+    async def test_siblings_cancelled_on_error(self, orchestrator_cls):
+        """When one call fails, in-flight siblings must not run to completion."""
+        orch = orchestrator_cls(max_concurrency=10)
+        completed = 0
+        lock = threading.Lock()
+
+        class TrackingLM:
+            async def agenerate_single(self, messages, loop=None, **kwargs):
+                nonlocal completed
+                content = messages[0].content if hasattr(messages[0], "content") else messages[0]["content"]
+                if content == "msg-0":
+                    raise RuntimeError("fail fast")
+                await asyncio.sleep(0.2)
+                with lock:
+                    completed += 1
+                return {"role": "assistant", "content": "ok"}
+
+        with pytest.raises(RuntimeError):
+            await orch.agenerate(TrackingLM(), _make_batch(5))
+
+        await asyncio.sleep(0.4)
+        assert completed == 0, f"siblings were not cancelled: {completed} ran to completion"
+
+    @pytest.mark.asyncio
     async def test_next_batch_works_after_error(self, orchestrator_cls):
         orch = orchestrator_cls(max_concurrency=4)
 
