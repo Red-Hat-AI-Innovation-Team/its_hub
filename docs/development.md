@@ -4,7 +4,12 @@
 
 ### Development Installation
 
+Requires a Rust toolchain — the project uses [maturin](https://www.maturin.rs/) to build an extension from `rust/`.
+
 ```bash
+# Install Rust (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 cd its_hub
 pip install -e ".[dev]"
@@ -12,6 +17,7 @@ pip install -e ".[dev]"
 
 The development installation includes:
 - All core dependencies
+- Rust native extension
 - Testing frameworks (pytest, coverage)
 - Code formatting and linting tool (ruff)
 - Development tools and scripts
@@ -96,6 +102,7 @@ class AbstractProcessRewardModel:
 ```
 its_hub/
 ├── __init__.py             # Top-level exports (import from here)
+├── _rust.so                # Native extension (built by maturin)
 ├── algorithms/__init__.py  # Deprecated, backward compatibility only
 ├── api/                    # Public interfaces (stable API)
 │   ├── lm.py              # AbstractLanguageModel
@@ -121,6 +128,10 @@ its_hub/
 │   │   └── local_vllm_prm.py
 │   ├── orchestrator.py    # LMOrchestrator
 │   └── utils.py           # System prompts, helpers
+rust/
+├── Cargo.toml              # Rust crate manifest
+└── src/
+    └── lib.rs              # RustLMOrchestrator (PyO3 native extension)
 ```
 
 ## Adding New Algorithms
