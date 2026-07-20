@@ -98,9 +98,14 @@ def _make_batch(n: int) -> list[list[ChatMessage]]:
     ]
 
 
+def _unwrap(orchestrator):
+    """Get the inner implementation (unwrap RustLMOrchestrator to its delegate)."""
+    return getattr(orchestrator, "_inner", orchestrator)
+
+
 def _sem_value(orchestrator) -> int:
     """Read the semaphore counter (works for Python, raw Rust, and wrapped Rust)."""
-    inner = orchestrator._inner if hasattr(orchestrator, "_inner") else orchestrator
+    inner = _unwrap(orchestrator)
     if hasattr(inner, "_semaphore_value"):
         val = inner._semaphore_value()
         assert val is not None
@@ -111,7 +116,7 @@ def _sem_value(orchestrator) -> int:
 
 def _has_semaphore(orchestrator) -> bool:
     """Check whether the orchestrator has a semaphore."""
-    inner = orchestrator._inner if hasattr(orchestrator, "_inner") else orchestrator
+    inner = _unwrap(orchestrator)
     if hasattr(inner, "_has_semaphore"):
         return inner._has_semaphore()
     return inner._semaphore is not None

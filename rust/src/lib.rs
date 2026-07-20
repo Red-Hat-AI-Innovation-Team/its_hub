@@ -79,16 +79,9 @@ impl RustLMOrchestrator {
         let n = messages_lst.len();
 
         if n == 0 {
-            let empty = pyo3_async_runtimes::tokio::future_into_py::<_, PyObject>(
-                py,
-                async move {
-                    Python::with_gil(|py| {
-                        let list = PyList::empty(py);
-                        Ok(list.unbind().into())
-                    })
-                },
-            )?;
-            return wrap_future_as_coroutine(py, &empty);
+            let ns = PyDict::new(py);
+            py.run(c"async def _e():\n    return []\n_c = _e()", Some(&ns), Some(&ns))?;
+            return Ok(ns.get_item("_c")?.expect("empty coroutine"));
         }
 
         let resolved_mct =
@@ -119,18 +112,23 @@ impl RustLMOrchestrator {
         let sem = self.semaphore.clone();
 
         let future = pyo3_async_runtimes::tokio::future_into_py::<_, PyObject>(py, async move {
-            let futures: Vec<_> = (0..n)
-                .map(|i| {
-                    let sem = sem.clone();
-                    let (lm, msgs, base_kwargs, temp) = Python::with_gil(|py| {
+            let prepared: Vec<_> = Python::with_gil(|py| {
+                (0..n)
+                    .map(|i| {
                         (
                             lm.clone_ref(py),
                             messages[i].clone_ref(py),
                             base_kwargs.clone_ref(py),
                             temperatures[i].clone_ref(py),
                         )
-                    });
+                    })
+                    .collect()
+            });
 
+            let futures: Vec<_> = prepared
+                .into_iter()
+                .map(|(lm, msgs, base_kwargs, temp)| {
+                    let sem = sem.clone();
                     async move {
                         let _permit = match &sem {
                             Some(s) => Some(s.acquire().await.expect("semaphore never closed")),
@@ -160,30 +158,25 @@ impl RustLMOrchestrator {
                     let list = PyList::new(py, results.iter().map(|r| r.bind(py)))?;
                     Ok(list.unbind().into())
                 }),
-                Err(e) => {
-                    let msg = Python::with_gil(|py| {
-                        let type_name = e
-                            .value(py)
-                            .get_type()
-                            .name()
-                            .map(|n| n.to_string())
-                            .unwrap_or_else(|_| "Unknown".to_string());
-                        format!(
-                            "LMOrchestrator: 1 error(s), {} cancelled out of {} generation(s) (1x {})",
-                            n - 1,
-                            n,
-                            type_name
-                        )
-                    });
+                Err(e) => Python::with_gil(|py| {
+                    let type_name = e
+                        .value(py)
+                        .get_type()
+                        .name()
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|_| "Unknown".to_string());
+                    let msg = format!(
+                        "LMOrchestrator: 1 error(s), {} cancelled out of {} generation(s) (1x {})",
+                        n - 1,
+                        n,
+                        type_name
+                    );
                     let runtime_err = PyErr::new::<PyRuntimeError, _>(msg);
-                    Python::with_gil(|py| {
-                        runtime_err
-                            .value(py)
-                            .setattr("__cause__", e.value(py))?;
-                        Ok::<_, PyErr>(())
-                    })?;
+                    runtime_err
+                        .value(py)
+                        .setattr("__cause__", e.value(py))?;
                     Err(runtime_err)
-                }
+                })
             }
         })?;
 
