@@ -76,17 +76,17 @@ Note: Currently only Self-Consistency and Best-of-N use the orchestrator. Experi
 
 ## Core Implementation
 
-### LMOrchestrator
+its_hub ships two orchestrator implementations with identical APIs. Both accept the same `agenerate()` / `generate()` signatures and can be passed to any algorithm's `orchestrator` parameter.
 
-The `LMOrchestrator` class provides structured concurrency for parallel LM calls.
+### LMOrchestrator (Python)
+
+Pure-Python implementation using `asyncio.TaskGroup` for structured concurrency.
 
 **Key Features:**
 
 - **TaskGroups (Python 3.11+)**: Uses `asyncio.TaskGroup` for structured concurrency with automatic cleanup
 - **Thread-Safe Semaphore**: Controls concurrency across event loops
 - **Error Handling**: First exception cancels all remaining tasks
-
-### Constructor
 
 ```python
 from its_hub import LMOrchestrator
@@ -96,6 +96,21 @@ orchestrator = LMOrchestrator(max_concurrency=32)  # Default: 32
 
 **Parameters:**
 - `max_concurrency` (int, default 32): Maximum number of parallel LM calls. Set to -1 for unlimited.
+
+### RustLMOrchestrator
+
+Rust-backed alternative (via PyO3) that uses Tokio for concurrency control. It exposes the same `agenerate()` and `generate()` methods, so it is a drop-in replacement for `LMOrchestrator`.
+
+```python
+from its_hub._rust import RustLMOrchestrator
+
+orchestrator = RustLMOrchestrator(max_concurrency=32)  # Default: 32
+```
+
+**Parameters:**
+- `max_concurrency` (int, default 32): Maximum number of parallel LM calls. Set to -1 for unlimited.
+
+> **Note:** `RustLMOrchestrator` does not subclass `AbstractOrchestrator` because PyO3 cannot inherit from Python ABCs. If ABC conformance is needed (e.g. for type-checking), create a thin Python wrapper that inherits `AbstractOrchestrator` and delegates to the Rust class.
 
 ### agenerate Method
 
