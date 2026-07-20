@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
-# maturin replaces setuptools to compile the PyO3 Rust extension into native wheels
+# maturin replaces setuptools to compile the PyO3 Rust extension into native
+# wheels. setuptools cannot compile Rust code (only pure Python and C extensions).
+# setuptools-rust exists as an alternative but maturin is the PyO3-recommended
+# build backend and handles cargo invocation, interpreter linking, and
+# cross-compilation out of the box.
 [build-system]
 requires = ["maturin>=1.9,<2"]
 build-backend = "maturin"
