@@ -6,15 +6,20 @@ import time
 
 import pytest
 
+from its_hub.api.orchestrator import AbstractOrchestrator
 from its_hub.api.types import ChatMessage
-from its_hub.core.orchestrator import LMOrchestrator, _ThreadSafeAsyncSemaphore
-
-from its_hub._rust import RustLMOrchestrator
+from its_hub.core.orchestrator import (
+    LMOrchestrator,
+    RustLMOrchestrator,
+    _ThreadSafeAsyncSemaphore,
+)
+from its_hub._rust import _RustLMOrchestrator
 
 
 @pytest.fixture(params=[
     pytest.param(LMOrchestrator, id="python"),
-    pytest.param(RustLMOrchestrator, id="rust"),
+    pytest.param(_RustLMOrchestrator, id="rust-raw"),
+    pytest.param(RustLMOrchestrator, id="rust-abc"),
 ])
 def orchestrator_cls(request):
     """Return each orchestrator implementation so shared tests run against both."""
@@ -94,23 +99,22 @@ def _make_batch(n: int) -> list[list[ChatMessage]]:
 
 
 def _sem_value(orchestrator) -> int:
-    """Read the semaphore counter (works for both Python and Rust implementations)."""
-    # The Rust orchestrator doesn't expose its tokio::sync::Semaphore as a Python
-    # attribute, so it provides a _semaphore_value() method instead.
-    if hasattr(orchestrator, "_semaphore_value"):
-        val = orchestrator._semaphore_value()
+    """Read the semaphore counter (works for Python, raw Rust, and wrapped Rust)."""
+    inner = orchestrator._inner if hasattr(orchestrator, "_inner") else orchestrator
+    if hasattr(inner, "_semaphore_value"):
+        val = inner._semaphore_value()
         assert val is not None
         return val
-    assert orchestrator._semaphore is not None
-    return orchestrator._semaphore._sem._value
+    assert inner._semaphore is not None
+    return inner._semaphore._sem._value
 
 
 def _has_semaphore(orchestrator) -> bool:
     """Check whether the orchestrator has a semaphore."""
-    # Similar to _sem_value, we have a _has_semaphore function in the Rust implementation
-    if hasattr(orchestrator, "_has_semaphore"):
-        return orchestrator._has_semaphore()
-    return orchestrator._semaphore is not None
+    inner = orchestrator._inner if hasattr(orchestrator, "_inner") else orchestrator
+    if hasattr(inner, "_has_semaphore"):
+        return inner._has_semaphore()
+    return inner._semaphore is not None
 
 
 # ===========================================================================
@@ -333,7 +337,7 @@ class TestLoopForwarding:
 
         current_loop = asyncio.get_running_loop()
         assert len(received_loops) == 3
-        assert all(l is current_loop for l in received_loops)
+        assert all(lp is current_loop for lp in received_loops)
 
     def test_sequential_sync_calls_no_stale_loop(self, orchestrator_cls):
         """Repeated generate() calls must not raise RuntimeError from stale sessions."""
@@ -629,3 +633,26 @@ class TestThreadSafeAsyncSemaphore:
             t.join()
 
         assert peak <= 1
+
+
+# ===========================================================================
+# 11. ABC Conformance
+# ===========================================================================
+
+@pytest.fixture(params=[
+    pytest.param(LMOrchestrator, id="python"),
+    pytest.param(RustLMOrchestrator, id="rust-abc"),
+])
+def abc_orchestrator_cls(request):
+    """Orchestrator classes that should satisfy the ABC contract."""
+    return request.param
+
+
+class TestABCConformance:
+    def test_is_abc_instance(self, abc_orchestrator_cls):
+        orch = abc_orchestrator_cls()
+        assert isinstance(orch, AbstractOrchestrator)
+
+    def test_raw_rust_is_not_abc_instance(self):
+        orch = _RustLMOrchestrator()
+        assert not isinstance(orch, AbstractOrchestrator)

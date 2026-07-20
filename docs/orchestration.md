@@ -97,6 +97,21 @@ orchestrator = LMOrchestrator(max_concurrency=32)  # Default: 32
 **Parameters:**
 - `max_concurrency` (int, default 32): Maximum number of parallel LM calls. Set to -1 for unlimited.
 
+### RustLMOrchestrator
+
+Rust-backed alternative that uses Tokio for concurrency control. It subclasses `AbstractOrchestrator` via a thin Python wrapper around the PyO3 `_RustLMOrchestrator`, so it is a drop-in replacement for `LMOrchestrator` that satisfies ABC type-checks.
+
+```python
+from its_hub import RustLMOrchestrator
+
+orchestrator = RustLMOrchestrator(max_concurrency=32)  # Default: 32
+```
+
+**Parameters:**
+- `max_concurrency` (int, default 32): Maximum number of parallel LM calls. Set to -1 for unlimited.
+
+The raw Rust class is also available as `from its_hub._rust import _RustLMOrchestrator`.
+
 ### agenerate Method
 
 ```python
