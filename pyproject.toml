@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
+# maturin replaces setuptools to compile the PyO3 Rust extension into native wheels
 [build-system]
 requires = ["maturin>=1.9,<2"]
 build-backend = "maturin"
