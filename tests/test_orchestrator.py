@@ -9,21 +9,12 @@ import pytest
 from its_hub.api.types import ChatMessage
 from its_hub.core.orchestrator import LMOrchestrator, _ThreadSafeAsyncSemaphore
 
-try:
-    from its_hub._rust import RustLMOrchestrator
-except ImportError:
-    RustLMOrchestrator = None
+from its_hub._rust import RustLMOrchestrator
 
 
 @pytest.fixture(params=[
     pytest.param(LMOrchestrator, id="python"),
-    pytest.param(
-        RustLMOrchestrator,
-        id="rust",
-        marks=pytest.mark.skipif(
-            RustLMOrchestrator is None, reason="Rust extension not built"
-        ),
-    ),
+    pytest.param(RustLMOrchestrator, id="rust"),
 ])
 def orchestrator_cls(request):
     """Return each orchestrator implementation so shared tests run against both."""
