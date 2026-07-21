@@ -116,8 +116,8 @@ The Rust orchestrator is split into three layers because (a) future Rust compone
 
 | Layer | Location | Role |
 |-------|----------|------|
-| 1. Pure Rust | `rust/src/orchestrator.rs` | Semaphore + `try_join_all` fan-out. No Python dependency. |
-| 2. PyO3 bridge | `rust/src/lib.rs` | Converts Python coroutines to Rust futures, delegates to Layer 1, cancels Python tasks on error. |
+| 1. Pure Rust | `rust/src/core/orchestrator.rs` | Semaphore + `try_join_all` fan-out. No Python dependency. |
+| 2. PyO3 bridge | `rust/src/adapters/pyo3_orchestrator.rs` | Converts Python coroutines to Rust futures, delegates to Layer 1, cancels Python tasks on error. |
 | 3. ABC wrapper | `its_hub/core/orchestrator.py` | Inherits `AbstractOrchestrator`, delegates to Layer 2. |
 
 #### Two-phase cancellation
@@ -130,7 +130,7 @@ Layer 2 fixes this with explicit cancellation. Before calling `into_future`, it 
 
 #### Testing
 
-- **Layer 1:** `#[tokio::test]` in `rust/src/orchestrator.rs` (pure Rust, no Python).
+- **Layer 1:** `#[tokio::test]` in `rust/src/core/orchestrator.rs` (pure Rust, no Python).
 - **Layer 2:** Not tested directly — exercised through Layer 3.
 - **Layer 3:** `pytest tests/test_orchestrator.py`, same suite as the Python `LMOrchestrator`.
 
