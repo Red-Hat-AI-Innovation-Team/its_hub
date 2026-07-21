@@ -562,7 +562,7 @@ class TestErrorHandling:
         msg = str(exc_info.value)
         assert "out of 4 generation(s)" in msg
         # Task 0 already completed, task 1 errored — only tasks 2 and 3 were cancelled
-        assert "2 cancelled" in msg
+        assert "2 preemptively cancelled" in msg
 
     @pytest.mark.asyncio
     async def test_next_batch_works_after_error(self, orchestrator_cls):

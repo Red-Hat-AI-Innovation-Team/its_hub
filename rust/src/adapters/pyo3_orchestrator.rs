@@ -190,7 +190,7 @@ impl PyLMOrchestrator {
                         // report "1 error(s)" here. Python's TaskGroup collects all errors
                         // into an ExceptionGroup and can report the true count.
                         let msg = format!(
-                            "LMOrchestrator: error(s), {} preemptively cancelled out of {} generation(s) (first: {})",
+                            "LMOrchestrator: 1 error(s), {} preemptively cancelled out of {} generation(s) (1x {})",
                             cancelled,
                             n,
                             type_name

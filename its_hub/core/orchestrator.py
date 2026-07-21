@@ -156,7 +156,7 @@ class LMOrchestrator(AbstractOrchestrator):
             summary = ", ".join(f"{v}x {k}" for k, v in error_types.items())
             msg = (
                 f"LMOrchestrator: {len(eg.exceptions)} error(s), "
-                f"{cancelled} cancelled out of {len(messages_lst)} "
+                f"{cancelled} preemptively cancelled out of {len(messages_lst)} "
                 f"generation(s) ({summary})"
             )
             raise RuntimeError(msg) from eg
