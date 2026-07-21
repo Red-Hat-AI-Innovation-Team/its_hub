@@ -13,7 +13,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 cd its_hub
-uv sync --extra dev
+pip install -e ".[dev]"
 ```
 
 The development installation includes:

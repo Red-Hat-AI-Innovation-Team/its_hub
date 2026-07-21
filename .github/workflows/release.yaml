@@ -29,8 +29,7 @@ permissions:
 
 jobs:
     # The Rust/PyO3 extension requires platform-specific wheels (the compiled
-    # .so/.dylib differs per OS and architecture). The old single build-package
-    # job is replaced by sdist + per-platform wheel jobs below.
+    # .so/.dylib differs per OS and architecture).
     sdist:
         name: Build sdist
         runs-on: ubuntu-latest
