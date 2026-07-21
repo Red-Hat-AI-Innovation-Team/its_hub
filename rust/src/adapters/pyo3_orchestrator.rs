@@ -190,6 +190,7 @@ impl RustLMOrchestrator {
                             .name()
                             .map(|n| n.to_string())
                             .unwrap_or_else(|_| "Unknown".to_string());
+                        // try_join_all reports only the first error; Python's TaskGroup collects all.
                         let msg = format!(
                             "LMOrchestrator: 1 error(s), {} cancelled out of {} generation(s) (1x {})",
                             n - 1,
