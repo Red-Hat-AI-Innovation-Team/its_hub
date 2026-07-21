@@ -170,10 +170,12 @@ class LMOrchestrator(AbstractOrchestrator):
 
 
 class RustLMOrchestrator(AbstractOrchestrator):
-    """ABC-inheriting wrapper around the PyO3 _RustLMOrchestrator.
+    """Layer 3: Python ABC wrapper around the PyO3 _RustLMOrchestrator.
 
     PyO3 classes cannot inherit from Python ABCs, so this thin wrapper
-    inherits AbstractOrchestrator and is a thin wrapper of the Rust implementation.
+    inherits AbstractOrchestrator and delegates to the Rust implementation
+    (Layer 2, in rust/src/lib.rs) which itself delegates concurrency control
+    to the pure Rust orchestrator (Layer 1, in rust/src/orchestrator.rs).
     """
 
     def __init__(self, max_concurrency: int = 32):

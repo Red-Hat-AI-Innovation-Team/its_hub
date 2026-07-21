@@ -1,49 +1,47 @@
+// Layer 2: PyO3 bridge between Python callers and the pure Rust orchestrator.
+//
+// Handles Python<->Rust async interop and Python-specific cancellation.
+// Not meant to be used directly — Python users go through
+// RustLMOrchestrator (Layer 3, in its_hub/core/orchestrator.py), since
+// the Py03 orchestrator can't inherit the AbstractOrchestrator Python ABC
+
+mod orchestrator;
+
 use std::sync::Arc;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use tokio::sync::Semaphore;
 
-/// Rust implementation of the LMOrchestrator.
-///
-/// Does not subclass AbstractOrchestrator because PyO3 cannot inherit from
-/// Python ABCs (PyO3 issue #991). The Python-side `RustLMOrchestrator` wrapper
-/// (in `its_hub.core.orchestrator`) inherits the ABC and delegates here.
+use crate::orchestrator::LMOrchestrator;
+
 #[pyclass(name = "_RustLMOrchestrator")]
 pub struct RustLMOrchestrator {
     #[pyo3(get)]
     max_concurrency: i32,
-    semaphore: Option<Arc<Semaphore>>,
+    inner: Arc<LMOrchestrator>,
 }
 
 #[pymethods]
 impl RustLMOrchestrator {
     #[new]
     #[pyo3(signature = (max_concurrency=32))]
-    fn new(max_concurrency: i32) -> PyResult<Self> {
-        if max_concurrency < -1 || max_concurrency == 0 {
-            return Err(PyValueError::new_err(
-                "max_concurrency must be -1 (unlimited concurrency) or a positive integer",
-            ));
-        }
-        let semaphore = if max_concurrency > 0 {
-            Some(Arc::new(Semaphore::new(max_concurrency as usize)))
-        } else {
-            None
-        };
+    fn new(_py: Python<'_>, max_concurrency: i32) -> PyResult<Self> {
+        let inner = LMOrchestrator::new(max_concurrency)
+            .map_err(|e| PyValueError::new_err(e))?;
+
         Ok(Self {
             max_concurrency,
-            semaphore,
+            inner: Arc::new(inner),
         })
     }
 
     fn _semaphore_value(&self) -> Option<usize> {
-        self.semaphore.as_ref().map(|s| s.available_permits())
+        self.inner.available_permits()
     }
 
     fn _has_semaphore(&self) -> bool {
-        self.semaphore.is_some()
+        self.inner.has_semaphore()
     }
 
     #[pyo3(signature = (
@@ -95,7 +93,6 @@ impl RustLMOrchestrator {
             resolve_max_completion_tokens(py, max_completion_tokens, max_tokens)?;
         let temperatures = expand_temperatures(py, &temperature, n)?;
 
-        // Build shared kwargs once — only temperature varies per call
         let base_kwargs: Py<PyDict> = {
             let d = PyDict::new(py);
             d.set_item("stop", stop.as_ref())?;
@@ -104,39 +101,41 @@ impl RustLMOrchestrator {
             d.set_item("tools", tools.as_ref())?;
             d.set_item("tool_choice", tool_choice.as_ref())?;
             d.set_item("response_format", response_format.as_ref())?;
-            let loop_obj = py
+            let current_loop = py
                 .import("asyncio")?
                 .call_method0("get_running_loop")
                 .map(|l| l.unbind())
                 .unwrap_or_else(|_| py.None());
-            d.set_item("loop", loop_obj)?;
+            d.set_item("loop", current_loop)?;
             d.set_item("usage_accumulator", usage_accumulator.as_ref())?;
             d.unbind()
         };
 
+        let task_refs: Py<PyList> = PyList::empty(py).unbind();
+        let loop_obj = py
+            .import("asyncio")?
+            .call_method0("get_running_loop")?
+            .unbind();
         let lm = lm.unbind();
         let messages: Vec<PyObject> = messages_lst.iter().map(|m| m.unbind()).collect();
-        let sem = self.semaphore.clone();
+        let inner = self.inner.clone();
 
         let future = pyo3_async_runtimes::tokio::future_into_py::<_, PyObject>(py, async move {
-            let futures: Vec<_> = (0..n)
+            let task_fns: Vec<_> = (0..n)
                 .map(|i| {
-                    let sem = sem.clone();
-                    let (lm, msgs, base_kwargs, temp) = Python::with_gil(|py| {
-                        (
-                            lm.clone_ref(py),
-                            messages[i].clone_ref(py),
-                            base_kwargs.clone_ref(py),
-                            temperatures[i].clone_ref(py),
-                        )
-                    });
+                    let (lm, msgs, base_kwargs, temp, loop_obj_i, task_refs_i) =
+                        Python::with_gil(|py| {
+                            (
+                                lm.clone_ref(py),
+                                messages[i].clone_ref(py),
+                                base_kwargs.clone_ref(py),
+                                temperatures[i].clone_ref(py),
+                                loop_obj.clone_ref(py),
+                                task_refs.clone_ref(py),
+                            )
+                        });
 
-                    async move {
-                        let _permit = match &sem {
-                            Some(s) => Some(s.acquire().await.expect("semaphore never closed")),
-                            None => None,
-                        };
-
+                    move || async move {
                         let future = Python::with_gil(|py| {
                             let kwargs = base_kwargs.bind(py).copy()?;
                             kwargs.set_item("temperature", temp.bind(py))?;
@@ -147,7 +146,15 @@ impl RustLMOrchestrator {
                                 Some(&kwargs),
                             )?;
 
-                            pyo3_async_runtimes::tokio::into_future(coro)
+                            // Create the asyncio.Task directly so we have a
+                            // reference for cancellation. into_future's
+                            // ensure_future(task) is a no-op on an existing Task.
+                            let task = loop_obj_i
+                                .bind(py)
+                                .call_method1("create_task", (&coro,))?;
+                            task_refs_i.bind(py).append(&task)?;
+
+                            pyo3_async_runtimes::tokio::into_future(task)
                         })?;
 
                         future.await
@@ -155,13 +162,16 @@ impl RustLMOrchestrator {
                 })
                 .collect();
 
-            match futures_util::future::try_join_all(futures).await {
+            match inner.execute_all(task_fns).await {
                 Ok(results) => Python::with_gil(|py| {
                     let list = PyList::new(py, results.iter().map(|r| r.bind(py)))?;
                     Ok(list.unbind().into())
                 }),
                 Err(e) => {
                     let msg = Python::with_gil(|py| {
+                        for task in task_refs.bind(py).iter() {
+                            let _ = task.call_method0("cancel");
+                        }
                         let type_name = e
                             .value(py)
                             .get_type()
@@ -206,9 +216,6 @@ impl RustLMOrchestrator {
         if let Some(kw) = kwargs {
             call_kwargs.update(kw.as_mapping())?;
         }
-        // future_into_py (inside agenerate) requires a running event loop.
-        // Wrap in a Python async function so asyncio.run() creates the
-        // loop before agenerate is called.
         let ns = PyDict::new(py);
         ns.set_item("_orch", self_.as_any())?;
         ns.set_item("_lm", lm)?;
@@ -258,6 +265,13 @@ fn expand_temperatures(
         None => Ok((0..n).map(|_| py.None()).collect()),
         Some(temp) => {
             if let Ok(list) = temp.downcast::<PyList>() {
+                if list.len() != n {
+                    return Err(PyValueError::new_err(format!(
+                        "temperature list length ({}) must match messages_lst length ({})",
+                        list.len(),
+                        n
+                    )));
+                }
                 Ok(list.iter().map(|item| item.unbind()).collect())
             } else {
                 let val = temp.clone().unbind();
@@ -267,8 +281,6 @@ fn expand_temperatures(
     }
 }
 
-/// Wraps a `future_into_py` result (asyncio.Future) in a native coroutine
-/// so it works with `asyncio.create_task()` and `asyncio.run()`.
 fn wrap_future_as_coroutine<'py>(
     py: Python<'py>,
     future: &Bound<'py, PyAny>,
