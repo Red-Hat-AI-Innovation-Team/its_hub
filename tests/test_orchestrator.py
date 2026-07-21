@@ -1,11 +1,11 @@
-"""Tests for LMOrchestrator, RustLMOrchestrator, and _ThreadSafeAsyncSemaphore."""
+"""Tests for LMOrchestrator, RustLMOrchestrator, _PyLMOrchestrator, and _ThreadSafeAsyncSemaphore."""
 
 import asyncio
 import threading
 
 import pytest
 
-from its_hub._rust import _RustLMOrchestrator
+from its_hub._rust import _PyLMOrchestrator
 from its_hub.api.orchestrator import AbstractOrchestrator
 from its_hub.api.types import ChatMessage
 from its_hub.core.orchestrator import (
@@ -17,7 +17,7 @@ from its_hub.core.orchestrator import (
 
 @pytest.fixture(params=[
     pytest.param(LMOrchestrator, id="python"),
-    pytest.param(_RustLMOrchestrator, id="rust-raw"),
+    pytest.param(_PyLMOrchestrator, id="pyo3-raw"),
     pytest.param(RustLMOrchestrator, id="rust-abc"),
 ])
 def orchestrator_cls(request):
@@ -682,5 +682,5 @@ class TestABCConformance:
         assert isinstance(orch, AbstractOrchestrator)
 
     def test_raw_rust_is_not_abc_instance(self):
-        orch = _RustLMOrchestrator()
+        orch = _PyLMOrchestrator()
         assert not isinstance(orch, AbstractOrchestrator)

@@ -1,3 +1,3 @@
 pub mod orchestrator;
 
-pub use orchestrator::LMOrchestrator;
+pub use orchestrator::Orchestrator;

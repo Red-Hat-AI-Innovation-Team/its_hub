@@ -131,7 +131,7 @@ its_hub/
 rust/
 ├── Cargo.toml              # Rust crate manifest
 └── src/
-    └── lib.rs              # RustLMOrchestrator (PyO3 native extension)
+    └── lib.rs              # PyLMOrchestrator (PyO3 native extension)
 ```
 
 ## Adding New Algorithms

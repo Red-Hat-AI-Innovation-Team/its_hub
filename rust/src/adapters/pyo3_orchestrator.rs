@@ -3,7 +3,7 @@
 // Handles Python<->Rust async interop and Python-specific cancellation.
 // Not meant to be used directly — Python users go through
 // RustLMOrchestrator (Layer 3, in its_hub/core/orchestrator.py), since
-// the Py03 orchestrator can't inherit the AbstractOrchestrator Python ABC
+// the PyO3 bridge can't inherit the AbstractOrchestrator Python ABC
 
 use std::sync::Arc;
 
@@ -12,7 +12,7 @@ use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{PyDict, PyList};
 
-use crate::core::LMOrchestrator;
+use crate::core::Orchestrator;
 
 static COROUTINE_WRAPPER: GILOnceCell<PyObject> = GILOnceCell::new();
 
@@ -40,19 +40,19 @@ fn wrap_future_as_coroutine<'py>(
     get_coroutine_wrapper(py)?.call1((future,))
 }
 
-#[pyclass(name = "_RustLMOrchestrator")]
-pub struct RustLMOrchestrator {
+#[pyclass(name = "_PyLMOrchestrator")]
+pub struct PyLMOrchestrator {
     #[pyo3(get)]
     max_concurrency: i32,
-    inner: Arc<LMOrchestrator>,
+    inner: Arc<Orchestrator>,
 }
 
 #[pymethods]
-impl RustLMOrchestrator {
+impl PyLMOrchestrator {
     #[new]
     #[pyo3(signature = (max_concurrency=32))]
     fn new(max_concurrency: i32) -> PyResult<Self> {
-        let inner = LMOrchestrator::new(max_concurrency)
+        let inner = Orchestrator::new(max_concurrency)
             .map_err(|e| PyValueError::new_err(e))?;
 
         Ok(Self {
