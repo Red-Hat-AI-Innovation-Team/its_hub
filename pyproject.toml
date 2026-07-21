@@ -90,3 +90,4 @@ cache-keys = [{file = "pyproject.toml"}, {file = "rust/Cargo.toml"}, {file = "ru
 manifest-path = "rust/Cargo.toml"
 module-name = "its_hub._rust"
 python-source = "."
+features = ["extension-module"]
