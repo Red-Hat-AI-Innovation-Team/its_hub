@@ -535,6 +535,36 @@ class TestErrorHandling:
         assert completed == 0, f"siblings were not cancelled: {completed} ran to completion"
 
     @pytest.mark.asyncio
+    async def test_cancelled_count_accurate(self, orchestrator_cls):
+        """Error message must report actual cancellations, not assume n-1."""
+        orch = orchestrator_cls(max_concurrency=10)
+
+        class DelayedErrorLM:
+            """First task completes fast, second sleeps then errors, rest are slow."""
+            def __init__(self):
+                self._lock = threading.Lock()
+                self.call_count = 0
+
+            async def agenerate_single(self, messages, loop=None, **kwargs):
+                with self._lock:
+                    idx = self.call_count
+                    self.call_count += 1
+                if idx == 0:
+                    return {"role": "assistant", "content": "ok"}
+                if idx == 1:
+                    await asyncio.sleep(0.05)
+                    raise RuntimeError("deliberate")
+                await asyncio.sleep(10)
+                return {"role": "assistant", "content": "ok"}
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await orch.agenerate(DelayedErrorLM(), _make_batch(4))
+        msg = str(exc_info.value)
+        assert "out of 4 generation(s)" in msg
+        # Task 0 already completed, task 1 errored — only tasks 2 and 3 were cancelled
+        assert "2 cancelled" in msg
+
+    @pytest.mark.asyncio
     async def test_next_batch_works_after_error(self, orchestrator_cls):
         orch = orchestrator_cls(max_concurrency=4)
 

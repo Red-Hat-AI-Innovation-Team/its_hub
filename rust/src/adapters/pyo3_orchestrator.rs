@@ -170,8 +170,15 @@ impl PyLMOrchestrator {
                 }),
                 Err(e) => {
                     let runtime_err = Python::with_gil(|py| {
+                        let mut cancelled = 0usize;
                         for task in task_refs.bind(py).iter() {
-                            let _ = task.call_method0("cancel");
+                            if task
+                                .call_method0("cancel")
+                                .and_then(|r| r.is_truthy())
+                                .unwrap_or(false)
+                            {
+                                cancelled += 1;
+                            }
                         }
                         let type_name = e
                             .value(py)
@@ -179,10 +186,12 @@ impl PyLMOrchestrator {
                             .name()
                             .map(|n| n.to_string())
                             .unwrap_or_else(|_| "Unknown".to_string());
-                        // note that try_join_all reports only the first error; Python's TaskGroup collects all.
+                        // try_join_all short-circuits on the first error, so we always
+                        // report "1 error(s)" here. Python's TaskGroup collects all errors
+                        // into an ExceptionGroup and can report the true count.
                         let msg = format!(
-                            "LMOrchestrator: 1 error(s), {} cancelled out of {} generation(s) (1x {})",
-                            n - 1,
+                            "LMOrchestrator: error(s), {} preemptively cancelled out of {} generation(s) (first: {})",
+                            cancelled,
                             n,
                             type_name
                         );
