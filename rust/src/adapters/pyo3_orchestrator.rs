@@ -49,7 +49,7 @@ impl PyLMOrchestrator {
     #[new]
     #[pyo3(signature = (max_concurrency=32))]
     fn new(max_concurrency: i32) -> PyResult<Self> {
-        let inner = Orchestrator::new(max_concurrency).map_err(|e| PyValueError::new_err(e))?;
+        let inner = Orchestrator::new(max_concurrency).map_err(PyValueError::new_err)?;
 
         Ok(Self {
             max_concurrency,
@@ -95,14 +95,14 @@ impl PyLMOrchestrator {
     ) -> PyResult<Bound<'py, PyAny>> {
         let n = messages_lst.len();
 
+        let resolved_mct = resolve_max_completion_tokens(py, max_completion_tokens, max_tokens)?;
+
         if n == 0 {
             let fut = pyo3_async_runtimes::tokio::future_into_py::<_, PyObject>(py, async move {
                 Python::with_gil(|py| Ok(PyList::empty(py).unbind().into()))
             })?;
             return wrap_future_as_coroutine(py, &fut);
         }
-
-        let resolved_mct = resolve_max_completion_tokens(py, max_completion_tokens, max_tokens)?;
         let temperatures = expand_temperatures(py, &temperature, n)?;
 
         let loop_obj = py

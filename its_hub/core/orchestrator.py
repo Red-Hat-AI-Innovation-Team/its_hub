@@ -174,8 +174,9 @@ class RustLMOrchestrator(AbstractOrchestrator):
 
     PyO3 classes cannot inherit from Python ABCs, so this thin wrapper
     inherits AbstractOrchestrator and delegates to the Rust implementation
-    (Layer 2, in rust/src/lib.rs) which itself delegates concurrency control
-    to the pure Rust orchestrator (Layer 1, in rust/src/orchestrator.rs).
+    (Layer 2, in rust/src/adapters/pyo3_orchestrator.rs) which itself delegates
+    concurrency control to the pure Rust orchestrator (Layer 1, in
+    rust/src/core/orchestrator.rs).
     """
 
     def __init__(self, max_concurrency: int = 32):

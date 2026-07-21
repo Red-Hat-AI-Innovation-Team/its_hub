@@ -9,10 +9,11 @@ Requires a Rust toolchain — the project uses [maturin](https://www.maturin.rs/
 ```bash
 # Install Rust (if not already installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+. "$HOME/.cargo/env"
 
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 cd its_hub
-pip install -e ".[dev]"
+uv sync --extra dev
 ```
 
 The development installation includes:
