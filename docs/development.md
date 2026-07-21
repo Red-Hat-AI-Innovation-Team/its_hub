@@ -103,7 +103,7 @@ class AbstractProcessRewardModel:
 ```
 its_hub/
 ├── __init__.py             # Top-level exports (import from here)
-├── _rust.so                # Native extension (built by maturin)
+├── _rust.*                 # Native extension (built by maturin)
 ├── algorithms/__init__.py  # Deprecated, backward compatibility only
 ├── api/                    # Public interfaces (stable API)
 │   ├── lm.py              # AbstractLanguageModel
