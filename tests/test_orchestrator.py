@@ -2,10 +2,10 @@
 
 import asyncio
 import threading
-import time
 
 import pytest
 
+from its_hub._rust import _RustLMOrchestrator
 from its_hub.api.orchestrator import AbstractOrchestrator
 from its_hub.api.types import ChatMessage
 from its_hub.core.orchestrator import (
@@ -13,7 +13,6 @@ from its_hub.core.orchestrator import (
     RustLMOrchestrator,
     _ThreadSafeAsyncSemaphore,
 )
-from its_hub._rust import _RustLMOrchestrator
 
 
 @pytest.fixture(params=[
@@ -98,9 +97,14 @@ def _make_batch(n: int) -> list[list[ChatMessage]]:
     ]
 
 
+def _unwrap(orchestrator):
+    """Get the innermost implementation (unwrap Layer 3 wrapper if present)."""
+    return orchestrator._inner if hasattr(orchestrator, "_inner") else orchestrator
+
+
 def _sem_value(orchestrator) -> int:
     """Read the semaphore counter (works for Python, raw Rust, and wrapped Rust)."""
-    inner = orchestrator._inner if hasattr(orchestrator, "_inner") else orchestrator
+    inner = _unwrap(orchestrator)
     if hasattr(inner, "_semaphore_value"):
         val = inner._semaphore_value()
         assert val is not None
@@ -111,7 +115,7 @@ def _sem_value(orchestrator) -> int:
 
 def _has_semaphore(orchestrator) -> bool:
     """Check whether the orchestrator has a semaphore."""
-    inner = orchestrator._inner if hasattr(orchestrator, "_inner") else orchestrator
+    inner = _unwrap(orchestrator)
     if hasattr(inner, "_has_semaphore"):
         return inner._has_semaphore()
     return inner._semaphore is not None

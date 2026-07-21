@@ -9,9 +9,36 @@ use std::sync::Arc;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::sync::GILOnceCell;
 use pyo3::types::{PyDict, PyList};
 
 use crate::core::LMOrchestrator;
+
+static COROUTINE_WRAPPER: GILOnceCell<PyObject> = GILOnceCell::new();
+
+fn get_coroutine_wrapper(py: Python<'_>) -> PyResult<&Bound<'_, PyAny>> {
+    COROUTINE_WRAPPER
+        .get_or_try_init(py, || {
+            let ns = PyDict::new(py);
+            py.run(
+                c"async def _wrap(f):\n    return await f\n",
+                Some(&ns),
+                Some(&ns),
+            )?;
+            Ok(ns
+                .get_item("_wrap")?
+                .expect("wrapper function")
+                .unbind())
+        })
+        .map(|obj| obj.bind(py))
+}
+
+fn wrap_future_as_coroutine<'py>(
+    py: Python<'py>,
+    future: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    get_coroutine_wrapper(py)?.call1((future,))
+}
 
 #[pyclass(name = "_RustLMOrchestrator")]
 pub struct RustLMOrchestrator {
@@ -24,7 +51,7 @@ pub struct RustLMOrchestrator {
 impl RustLMOrchestrator {
     #[new]
     #[pyo3(signature = (max_concurrency=32))]
-    fn new(_py: Python<'_>, max_concurrency: i32) -> PyResult<Self> {
+    fn new(max_concurrency: i32) -> PyResult<Self> {
         let inner = LMOrchestrator::new(max_concurrency)
             .map_err(|e| PyValueError::new_err(e))?;
 
@@ -75,21 +102,23 @@ impl RustLMOrchestrator {
         let n = messages_lst.len();
 
         if n == 0 {
-            let empty = pyo3_async_runtimes::tokio::future_into_py::<_, PyObject>(
+            let fut = pyo3_async_runtimes::tokio::future_into_py::<_, PyObject>(
                 py,
                 async move {
-                    Python::with_gil(|py| {
-                        let list = PyList::empty(py);
-                        Ok(list.unbind().into())
-                    })
+                    Python::with_gil(|py| Ok(PyList::empty(py).unbind().into()))
                 },
             )?;
-            return wrap_future_as_coroutine(py, &empty);
+            return wrap_future_as_coroutine(py, &fut);
         }
 
         let resolved_mct =
             resolve_max_completion_tokens(py, max_completion_tokens, max_tokens)?;
         let temperatures = expand_temperatures(py, &temperature, n)?;
+
+        let loop_obj = py
+            .import("asyncio")?
+            .call_method0("get_running_loop")?
+            .unbind();
 
         let base_kwargs: Py<PyDict> = {
             let d = PyDict::new(py);
@@ -99,63 +128,51 @@ impl RustLMOrchestrator {
             d.set_item("tools", tools.as_ref())?;
             d.set_item("tool_choice", tool_choice.as_ref())?;
             d.set_item("response_format", response_format.as_ref())?;
-            let current_loop = py
-                .import("asyncio")?
-                .call_method0("get_running_loop")
-                .map(|l| l.unbind())
-                .unwrap_or_else(|_| py.None());
-            d.set_item("loop", current_loop)?;
+            d.set_item("loop", loop_obj.bind(py))?;
             d.set_item("usage_accumulator", usage_accumulator.as_ref())?;
             d.unbind()
         };
 
         let task_refs: Py<PyList> = PyList::empty(py).unbind();
-        let loop_obj = py
-            .import("asyncio")?
-            .call_method0("get_running_loop")?
-            .unbind();
         let lm = lm.unbind();
         let messages: Vec<PyObject> = messages_lst.iter().map(|m| m.unbind()).collect();
         let inner = self.inner.clone();
 
         let future = pyo3_async_runtimes::tokio::future_into_py::<_, PyObject>(py, async move {
-            let task_fns: Vec<_> = (0..n)
-                .map(|i| {
-                    let (lm, msgs, base_kwargs, temp, loop_obj_i, task_refs_i) =
-                        Python::with_gil(|py| {
-                            (
-                                lm.clone_ref(py),
-                                messages[i].clone_ref(py),
-                                base_kwargs.clone_ref(py),
-                                temperatures[i].clone_ref(py),
-                                loop_obj.clone_ref(py),
-                                task_refs.clone_ref(py),
-                            )
-                        });
+            let task_fns: Vec<_> = Python::with_gil(|py| {
+                (0..n)
+                    .map(|i| {
+                        let lm = lm.clone_ref(py);
+                        let msgs = messages[i].clone_ref(py);
+                        let base_kwargs = base_kwargs.clone_ref(py);
+                        let temp = temperatures[i].clone_ref(py);
+                        let loop_obj_i = loop_obj.clone_ref(py);
+                        let task_refs_i = task_refs.clone_ref(py);
 
-                    move || async move {
-                        let future = Python::with_gil(|py| {
-                            let kwargs = base_kwargs.bind(py).copy()?;
-                            kwargs.set_item("temperature", temp.bind(py))?;
+                        move || async move {
+                            let future = Python::with_gil(|py| {
+                                let kwargs = base_kwargs.bind(py).copy()?;
+                                kwargs.set_item("temperature", temp.bind(py))?;
 
-                            let coro = lm.bind(py).call_method(
-                                "agenerate_single",
-                                (msgs.bind(py),),
-                                Some(&kwargs),
-                            )?;
+                                let coro = lm.bind(py).call_method(
+                                    "agenerate_single",
+                                    (msgs.bind(py),),
+                                    Some(&kwargs),
+                                )?;
 
-                            let task = loop_obj_i
-                                .bind(py)
-                                .call_method1("create_task", (&coro,))?;
-                            task_refs_i.bind(py).append(&task)?;
+                                let task = loop_obj_i
+                                    .bind(py)
+                                    .call_method1("create_task", (&coro,))?;
+                                task_refs_i.bind(py).append(&task)?;
 
-                            pyo3_async_runtimes::tokio::into_future(task)
-                        })?;
+                                pyo3_async_runtimes::tokio::into_future(task)
+                            })?;
 
-                        future.await
-                    }
-                })
-                .collect();
+                            future.await
+                        }
+                    })
+                    .collect()
+            });
 
             match inner.execute_all(task_fns).await {
                 Ok(results) => Python::with_gil(|py| {
@@ -163,7 +180,7 @@ impl RustLMOrchestrator {
                     Ok(list.unbind().into())
                 }),
                 Err(e) => {
-                    let msg = Python::with_gil(|py| {
+                    let runtime_err = Python::with_gil(|py| {
                         for task in task_refs.bind(py).iter() {
                             let _ = task.call_method0("cancel");
                         }
@@ -173,20 +190,18 @@ impl RustLMOrchestrator {
                             .name()
                             .map(|n| n.to_string())
                             .unwrap_or_else(|_| "Unknown".to_string());
-                        format!(
+                        let msg = format!(
                             "LMOrchestrator: 1 error(s), {} cancelled out of {} generation(s) (1x {})",
                             n - 1,
                             n,
                             type_name
-                        )
+                        );
+                        let err = PyErr::new::<PyRuntimeError, _>(msg);
+                        err.value(py)
+                            .setattr("__cause__", e.value(py))
+                            .ok();
+                        err
                     });
-                    let runtime_err = PyErr::new::<PyRuntimeError, _>(msg);
-                    Python::with_gil(|py| {
-                        runtime_err
-                            .value(py)
-                            .setattr("__cause__", e.value(py))?;
-                        Ok::<_, PyErr>(())
-                    })?;
                     Err(runtime_err)
                 }
             }
@@ -274,14 +289,4 @@ fn expand_temperatures(
             }
         }
     }
-}
-
-pub fn wrap_future_as_coroutine<'py>(
-    py: Python<'py>,
-    future: &Bound<'py, PyAny>,
-) -> PyResult<Bound<'py, PyAny>> {
-    let ns = PyDict::new(py);
-    ns.set_item("_f", future)?;
-    py.run(c"async def _w():\n    return await _f\n_c = _w()", Some(&ns), Some(&ns))?;
-    Ok(ns.get_item("_c")?.expect("coroutine wrapper"))
 }
