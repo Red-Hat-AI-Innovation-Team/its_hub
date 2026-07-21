@@ -25,10 +25,7 @@ fn get_coroutine_wrapper(py: Python<'_>) -> PyResult<&Bound<'_, PyAny>> {
                 Some(&ns),
                 Some(&ns),
             )?;
-            Ok(ns
-                .get_item("_wrap")?
-                .expect("wrapper function")
-                .unbind())
+            Ok(ns.get_item("_wrap")?.expect("wrapper function").unbind())
         })
         .map(|obj| obj.bind(py))
 }
@@ -52,8 +49,7 @@ impl PyLMOrchestrator {
     #[new]
     #[pyo3(signature = (max_concurrency=32))]
     fn new(max_concurrency: i32) -> PyResult<Self> {
-        let inner = Orchestrator::new(max_concurrency)
-            .map_err(|e| PyValueError::new_err(e))?;
+        let inner = Orchestrator::new(max_concurrency).map_err(|e| PyValueError::new_err(e))?;
 
         Ok(Self {
             max_concurrency,
@@ -100,17 +96,13 @@ impl PyLMOrchestrator {
         let n = messages_lst.len();
 
         if n == 0 {
-            let fut = pyo3_async_runtimes::tokio::future_into_py::<_, PyObject>(
-                py,
-                async move {
-                    Python::with_gil(|py| Ok(PyList::empty(py).unbind().into()))
-                },
-            )?;
+            let fut = pyo3_async_runtimes::tokio::future_into_py::<_, PyObject>(py, async move {
+                Python::with_gil(|py| Ok(PyList::empty(py).unbind().into()))
+            })?;
             return wrap_future_as_coroutine(py, &fut);
         }
 
-        let resolved_mct =
-            resolve_max_completion_tokens(py, max_completion_tokens, max_tokens)?;
+        let resolved_mct = resolve_max_completion_tokens(py, max_completion_tokens, max_tokens)?;
         let temperatures = expand_temperatures(py, &temperature, n)?;
 
         let loop_obj = py
@@ -158,9 +150,8 @@ impl PyLMOrchestrator {
                                     Some(&kwargs),
                                 )?;
 
-                                let task = loop_obj_i
-                                    .bind(py)
-                                    .call_method1("create_task", (&coro,))?;
+                                let task =
+                                    loop_obj_i.bind(py).call_method1("create_task", (&coro,))?;
                                 task_refs_i.bind(py).append(&task)?;
 
                                 pyo3_async_runtimes::tokio::into_future(task)
@@ -196,9 +187,7 @@ impl PyLMOrchestrator {
                             type_name
                         );
                         let err = PyErr::new::<PyRuntimeError, _>(msg);
-                        err.value(py)
-                            .setattr("__cause__", e.value(py))
-                            .ok();
+                        err.value(py).setattr("__cause__", e.value(py)).ok();
                         err
                     });
                     Err(runtime_err)
