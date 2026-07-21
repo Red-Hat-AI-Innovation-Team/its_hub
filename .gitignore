@@ -189,6 +189,7 @@ notebooks/dev.ipynb
 results/
 
 .its-hub/
+.claude/worktrees/
 
 # Envoy ext_proc
 its_hub/integration/ext_proc/proto/
