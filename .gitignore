@@ -184,6 +184,9 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# Claude Code worktrees
+.claude/worktrees/
+
 # local dev
 notebooks/dev.ipynb
 results/
