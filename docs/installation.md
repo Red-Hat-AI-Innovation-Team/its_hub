@@ -121,6 +121,8 @@ pip install -e ".[dev]"
 **Includes**: All core + experimental + `pytest`, `ruff`, `jupyter`, notebooks
 **Use if**: Contributing, testing, or developing new features
 
+> **Rust rebuilds are automatic with uv.** The `[tool.uv] cache-keys` config in `pyproject.toml` tracks `.rs` sources and `Cargo.toml`, so `uv sync` rebuilds the native extension whenever Rust code changes — no separate `maturin develop` step required.
+
 ```bash
 # Run tests
 uv run pytest tests/

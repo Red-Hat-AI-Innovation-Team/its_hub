@@ -87,6 +87,9 @@ research = [
     "matplotlib>=3.5.0",   # For visualization scripts
 ]
 
+[tool.uv]
+cache-keys = [{file = "pyproject.toml"}, {file = "rust/Cargo.toml"}, {file = "rust/src/**/*.rs"}]
+
 [tool.maturin]
 manifest-path = "rust/Cargo.toml"
 module-name = "its_hub._rust"
