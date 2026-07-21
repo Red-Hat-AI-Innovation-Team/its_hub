@@ -41,6 +41,9 @@ jobs:
       with:
         workspaces: rust
 
+    - name: Run Rust tests
+      run: cargo test --manifest-path rust/Cargo.toml
+
     - name: Install uv and setup python version
       uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       with:
