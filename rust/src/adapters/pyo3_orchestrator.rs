@@ -81,7 +81,6 @@ impl RustLMOrchestrator {
         tool_choice = None,
         response_format = None,
         usage_accumulator = None,
-        **_kwargs
     ))]
     fn agenerate<'py>(
         &self,
@@ -97,7 +96,6 @@ impl RustLMOrchestrator {
         tool_choice: Option<PyObject>,
         response_format: Option<PyObject>,
         usage_accumulator: Option<PyObject>,
-        _kwargs: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let n = messages_lst.len();
 
@@ -190,7 +188,7 @@ impl RustLMOrchestrator {
                             .name()
                             .map(|n| n.to_string())
                             .unwrap_or_else(|_| "Unknown".to_string());
-                        // try_join_all reports only the first error; Python's TaskGroup collects all.
+                        // note that try_join_all reports only the first error; Python's TaskGroup collects all.
                         let msg = format!(
                             "LMOrchestrator: 1 error(s), {} cancelled out of {} generation(s) (1x {})",
                             n - 1,

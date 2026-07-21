@@ -1,10 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [build-system]
-# maturin is the PyO3-recommended build backend; 
-# setup setuptools would have required additional dependencies 
-# and purportedly is more involved to configure. See 
-# https://pyo3.rs/v0.24.2/getting-started#building) 
 requires = ["maturin>=1.9,<2"]
 build-backend = "maturin"
 
