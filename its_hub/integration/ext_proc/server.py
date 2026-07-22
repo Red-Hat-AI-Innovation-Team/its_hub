@@ -96,7 +96,9 @@ def _print_config() -> None:
 
 def main():
     """Entry point for the external processor service."""
-    if "--print-config" in sys.argv:
+    args = _parse_args()
+
+    if args.print_config:
         _print_config()
         return
 
@@ -112,7 +114,6 @@ def main():
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    args = _parse_args()
     _configure_logging(args.log_level)
     try:
         asyncio.run(serve(port=args.port))

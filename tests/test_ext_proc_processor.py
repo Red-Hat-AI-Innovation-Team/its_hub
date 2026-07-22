@@ -584,6 +584,7 @@ class TestImportGuard:
         from its_hub.integration.ext_proc.server import main
 
         with patch("its_hub.integration.ext_proc.server.grpc", None), \
+             patch("sys.argv", ["envoy-grpc"]), \
              pytest.raises(SystemExit) as exc_info:
             main()
         assert exc_info.value.code == 1

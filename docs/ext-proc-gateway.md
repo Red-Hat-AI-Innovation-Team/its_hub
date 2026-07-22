@@ -315,25 +315,38 @@ The config file includes detailed comments with `**CUSTOMIZE**` markers. Common 
 
 1. **Change Envoy listening port** (default: 8108)
    ```yaml
-   listeners[0].address.socket_address.port_value: 8108
+   listeners:
+   - address:
+       socket_address:
+         port_value: 8108
    ```
 
 2. **Point to your LLM endpoint** (examples provided for vLLM, Kubernetes, remote)
    ```yaml
-   clusters[llm_upstream].load_assignment.endpoints[0].lb_endpoints[0].endpoint.address.socket_address:
-     address: 127.0.0.1  # Your LLM host
-     port_value: 8100    # Your LLM port
+   clusters:
+   - name: llm_upstream
+     load_assignment:
+       endpoints:
+       - lb_endpoints:
+         - endpoint:
+             address:
+               socket_address:
+                 address: 127.0.0.1  # Your LLM host
+                 port_value: 8100    # Your LLM port
    ```
 
 3. **Adjust ITS processing timeout** (increase for large budgets)
    ```yaml
-   http_filters[ext_proc].timeout: 120s
-   http_filters[ext_proc].message_timeout: 120s
+   # Inside the ext_proc filter config:
+   grpc_service:
+     timeout: 120s
+   message_timeout: 120s
    ```
 
 4. **Change failure behavior** (reject requests when ext_proc is down)
    ```yaml
-   http_filters[ext_proc].failure_mode_allow: false
+   # Inside the ext_proc filter config:
+   failure_mode_allow: false
    ```
 
 **Configuration File Structure:**
