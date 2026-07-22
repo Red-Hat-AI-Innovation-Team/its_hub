@@ -5,48 +5,47 @@ from collections.abc import Callable
 from its_hub.api import (
     AbstractLanguageModel,
     AbstractOrchestrator,
-    AbstractScalingAlgorithm,
     ChatMessage,
     ChatMessages,
     GenerationUsage,
 )
 from its_hub.core.algorithms.self_consistency import (
+    SelfConsistency,
     SelfConsistencyResult,
-    _default_projection_func,
-    _select_hierarchical_most_common_or_random,
-    _select_most_common_or_random,
 )
-from its_hub.core.orchestrator import LMOrchestrator
-from its_hub.core.utils import extract_content_from_lm_response
 
 logger = logging.getLogger(__name__)
 
 
-class AdaptiveSelfConsistency(AbstractScalingAlgorithm):
+class AdaptiveSelfConsistency(SelfConsistency):
     """Self-consistency with exponential doubling and early stopping.
 
     Starts with 2 samples, checks if a supermajority (default 75%) agree,
     and doubles the sample count each round until the budget is reached.
     Previous samples are kept across rounds — no resampling.
+
+    Inherits tool_vote, exclude_args, and projection support from
+    SelfConsistency.
     """
 
     def __init__(
         self,
         threshold: float = 0.75,
         consistency_space_projection_func: Callable | None = None,
+        tool_vote: str | None = None,
+        exclude_args: list[str] | None = None,
         orchestrator: AbstractOrchestrator | None = None,
     ):
         if not 0.5 < threshold <= 1.0:
             raise ValueError(f"threshold must be in (0.5, 1.0], got: {threshold}")
 
-        self.threshold = threshold
-        self.consistency_space_projection_func = (
-            consistency_space_projection_func or _default_projection_func
+        super().__init__(
+            consistency_space_projection_func=consistency_space_projection_func,
+            tool_vote=tool_vote,
+            exclude_args=exclude_args,
+            orchestrator=orchestrator,
         )
-
-        if orchestrator is None:
-            orchestrator = LMOrchestrator()
-        self.orchestrator = orchestrator
+        self.threshold = threshold
 
     async def ainfer(
         self,
@@ -81,26 +80,23 @@ class AdaptiveSelfConsistency(AbstractScalingAlgorithm):
             if len(all_responses) >= budget:
                 break
 
-            projected = [
-                self.consistency_space_projection_func(
-                    extract_content_from_lm_response(r)
-                )
-                for r in all_responses
-            ]
-            counts = Counter(projected)
-            top_count = counts.most_common(1)[0][1]
-            agreement = top_count / len(all_responses)
+            eligible_indices, projected = self._project_responses(all_responses)
 
-            if agreement >= self.threshold:
-                logger.info(
-                    "Early stop at round %d: %d/%d samples agree (%.0f%% >= %.0f%%)",
-                    round_num,
-                    top_count,
-                    len(all_responses),
-                    agreement * 100,
-                    self.threshold * 100,
-                )
-                break
+            if eligible_indices:
+                counts = Counter(projected)
+                top_count = counts.most_common(1)[0][1]
+                agreement = top_count / len(eligible_indices)
+
+                if agreement >= self.threshold:
+                    logger.info(
+                        "Early stop at round %d: %d/%d samples agree (%.0f%% >= %.0f%%)",
+                        round_num,
+                        top_count,
+                        len(eligible_indices),
+                        agreement * 100,
+                        self.threshold * 100,
+                    )
+                    break
 
             # Double: next batch size equals current total
             next_batch_size = len(all_responses)
@@ -113,29 +109,3 @@ class AdaptiveSelfConsistency(AbstractScalingAlgorithm):
         )
 
         return self._process_responses(all_responses, return_response_only, usage)
-
-    def _process_responses(
-        self,
-        responses: list[dict],
-        return_response_only: bool = True,
-        usage: GenerationUsage | None = None,
-    ) -> dict | SelfConsistencyResult:
-        projected = [
-            self.consistency_space_projection_func(extract_content_from_lm_response(r))
-            for r in responses
-        ]
-
-        if projected and isinstance(projected[0], tuple):
-            counts, selected_index = _select_hierarchical_most_common_or_random(
-                projected
-            )
-        else:
-            counts, selected_index = _select_most_common_or_random(projected)
-
-        result = SelfConsistencyResult(
-            responses=responses,
-            response_counts=counts,
-            selected_index=selected_index,
-            usage=usage,
-        )
-        return result.the_one if return_response_only else result

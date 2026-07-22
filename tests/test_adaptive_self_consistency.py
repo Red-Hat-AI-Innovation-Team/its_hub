@@ -16,7 +16,7 @@ from its_hub.core.orchestrator import LMOrchestrator
 class SequentialMockLM:
     """Mock LM that returns responses in sequential order, thread-safe."""
 
-    def __init__(self, responses: list[str]):
+    def __init__(self, responses: list):
         self.responses = responses
         self.call_count = 0
         self._lock = threading.Lock()
@@ -25,7 +25,10 @@ class SequentialMockLM:
         with self._lock:
             idx = self.call_count % len(self.responses)
             self.call_count += 1
-        return {"role": "assistant", "content": self.responses[idx]}
+        resp = self.responses[idx]
+        if isinstance(resp, dict):
+            return resp
+        return {"role": "assistant", "content": resp}
 
 
 class TestAdaptiveSelfConsistencyInit:
@@ -261,3 +264,79 @@ class TestAdaptiveSelfConsistencyInterface:
         # Should have stopped at 4 samples with 3x "42" and 1x "24"
         assert result.response_counts["42"] == 3
         assert result.response_counts["24"] == 1
+
+    def test_inherits_from_self_consistency(self):
+        from its_hub.core.algorithms.self_consistency import SelfConsistency
+
+        asc = AdaptiveSelfConsistency()
+        assert isinstance(asc, SelfConsistency)
+
+
+class TestAdaptiveSelfConsistencyToolCalls:
+    """Test tool-call voting with early stopping."""
+
+    def _make_tool_response(self, name, args):
+        return {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"function": {"name": name, "arguments": args}}],
+        }
+
+    @pytest.mark.asyncio
+    async def test_tool_vote_name_early_stop(self):
+        """Early stop when tool name agrees across samples."""
+        resp = self._make_tool_response("get_weather", '{"city": "NYC"}')
+        resp_diff = self._make_tool_response("get_time", '{"tz": "UTC"}')
+        lm = SequentialMockLM([resp, resp, resp_diff] + [resp] * 5)
+        asc = AdaptiveSelfConsistency(threshold=0.75, tool_vote="tool_name")
+
+        result = await asc.ainfer(lm, "test", budget=8, return_response_only=False)
+
+        # Round 1: 2 samples, both "get_weather" → 100% → STOP
+        assert len(result.responses) == 2
+        assert result.the_one["tool_calls"][0]["function"]["name"] == "get_weather"
+
+    @pytest.mark.asyncio
+    async def test_tool_vote_args_no_early_stop(self):
+        """Different args prevent early stopping."""
+        r1 = self._make_tool_response("search", '{"q": "cats"}')
+        r2 = self._make_tool_response("search", '{"q": "dogs"}')
+        r3 = self._make_tool_response("search", '{"q": "cats"}')
+        r4 = self._make_tool_response("search", '{"q": "cats"}')
+        lm = SequentialMockLM([r1, r2, r3, r4])
+        asc = AdaptiveSelfConsistency(threshold=0.75, tool_vote="tool_args")
+
+        result = await asc.ainfer(lm, "test", budget=4, return_response_only=False)
+
+        # Round 1: ["cats", "dogs"] → 50% < 75% → continue
+        # Round 2: 3x "cats", 1x "dogs" → 75% → STOP
+        assert len(result.responses) == 4
+
+    @pytest.mark.asyncio
+    async def test_tool_vote_hierarchical_early_stop(self):
+        """Hierarchical tool vote: name + args must agree."""
+        resp = self._make_tool_response("calc", '{"expr": "2+2"}')
+        lm = SequentialMockLM([resp] * 8)
+        asc = AdaptiveSelfConsistency(threshold=0.75, tool_vote="tool_hierarchical")
+
+        result = await asc.ainfer(lm, "test", budget=8, return_response_only=False)
+
+        # All identical → stops at round 1
+        assert len(result.responses) == 2
+
+    @pytest.mark.asyncio
+    async def test_exclude_args_in_tool_voting(self):
+        """exclude_args filters non-semantic args before comparison."""
+        r1 = self._make_tool_response("search", '{"q": "cats", "request_id": "abc"}')
+        r2 = self._make_tool_response("search", '{"q": "cats", "request_id": "xyz"}')
+        lm = SequentialMockLM([r1, r2] + [r1] * 6)
+        asc = AdaptiveSelfConsistency(
+            threshold=0.75,
+            tool_vote="tool_args",
+            exclude_args=["request_id"],
+        )
+
+        result = await asc.ainfer(lm, "test", budget=8, return_response_only=False)
+
+        # After excluding request_id, both have args {"q": "cats"} → 100% → STOP
+        assert len(result.responses) == 2
