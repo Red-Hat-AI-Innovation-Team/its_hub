@@ -115,6 +115,17 @@ def build_tool_call_prompt(task: dict) -> tuple[str, list[dict]]:
     return prompt, tools
 
 
+MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", "3"))
+_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_semaphore() -> asyncio.Semaphore:
+    global _semaphore
+    if _semaphore is None:
+        _semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+    return _semaphore
+
+
 async def _litellm_sample(
     model: str,
     messages: list[dict],
@@ -123,33 +134,48 @@ async def _litellm_sample(
 ) -> tuple[list[dict], CostInfo]:
     """Sample N completions via litellm and return (responses, cost).
 
-    Calls litellm.acompletion N times concurrently (litellm doesn't
-    support n>1 for all providers).
+    Calls litellm.acompletion N times with concurrency limited by
+    MAX_CONCURRENT (default 3) to avoid quota exhaustion. Retries
+    on 429/rate-limit errors with exponential backoff.
     """
+    sem = _get_semaphore()
+
     async def _single_call() -> tuple[dict, int, int]:
-        resp = await litellm.acompletion(
-            model=model,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto",
-            temperature=0.7,
-        )
-        choice = resp.choices[0].message  # type: ignore[union-attr]
-        msg: dict = {"role": "assistant", "content": choice.content}
-        if choice.tool_calls:
-            msg["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
-                }
-                for tc in choice.tool_calls
-            ]
-        usage = resp.usage  # type: ignore[union-attr]
-        return msg, usage.prompt_tokens, usage.completion_tokens
+        max_retries = 5
+        for attempt in range(max_retries):
+            async with sem:
+                try:
+                    resp = await litellm.acompletion(
+                        model=model,
+                        messages=messages,
+                        tools=tools,
+                        tool_choice="auto",
+                        temperature=0.7,
+                    )
+                    choice = resp.choices[0].message  # type: ignore[union-attr]
+                    msg: dict = {"role": "assistant", "content": choice.content}
+                    if choice.tool_calls:
+                        msg["tool_calls"] = [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                },
+                            }
+                            for tc in choice.tool_calls
+                        ]
+                    usage = resp.usage  # type: ignore[union-attr]
+                    return msg, usage.prompt_tokens, usage.completion_tokens
+                except Exception as e:
+                    if "429" in str(e) or "rate" in str(e).lower():
+                        wait = 2 ** attempt * 5
+                        logger.warning("Rate limited, retrying in %ds...", wait)
+                        await asyncio.sleep(wait)
+                    else:
+                        raise
+        raise RuntimeError(f"Failed after {max_retries} retries")
 
     tasks = [_single_call() for _ in range(n)]
     results = await asyncio.gather(*tasks)
