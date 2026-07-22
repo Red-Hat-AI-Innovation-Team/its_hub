@@ -1,7 +1,6 @@
 """Sampling harness for tool-call voting checkpoint.
 
-Wires up its_hub's OpenAICompatibleLanguageModel to pull N completions per
-BFCL task from configured models, then compares:
+Uses litellm to call LLMs (including Vertex AI Claude) and compares:
 
   1. Field-aware scorer (roll_up_scorer.score_tool_calls)
   2. Naive exact-match baseline (SelfConsistency with tool_vote="tool_hierarchical")
@@ -23,14 +22,13 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import litellm
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 from roll_up_scorer import ScoredToolCall, score_tool_calls
 
-from its_hub.api import ChatMessages, GenerationUsage
 from its_hub.core.algorithms.self_consistency import SelfConsistency, SelfConsistencyResult
-from its_hub.core.lms.openai_lm import OpenAICompatibleLanguageModel
-from its_hub.core.orchestrator import LMOrchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +37,6 @@ BFCL_DATA_DIR = Path(__file__).parent / "data"
 
 @dataclass
 class ModelConfig:
-    endpoint: str
-    api_key: str
     model_name: str
 
 
@@ -79,16 +75,32 @@ def load_bfcl_tasks(filename: str) -> list[dict]:
 def build_tool_call_prompt(task: dict) -> tuple[str, list[dict]]:
     """Extract the user prompt and tool definitions from a BFCL task.
 
+    Handles both v3 format (task["prompt"]) and v4 format
+    (task["question"] — a list of message-lists).
+
     Returns:
         (prompt_text, tools_list) ready for LM inference.
     """
     prompt = ""
-    for msg in task.get("prompt", []):
-        if isinstance(msg, dict) and msg.get("role") == "user":
-            prompt = msg.get("content", "")
-            break
+
+    # v4 format: "question" is a list of turn-lists, each containing message dicts
+    question = task.get("question") or task.get("prompt") or []
+    if isinstance(question, list):
+        for item in question:
+            # v4: item is a list of message dicts (one turn)
+            if isinstance(item, list):
+                for msg in item:
+                    if isinstance(msg, dict) and msg.get("role") == "user":
+                        prompt = msg.get("content", "")
+                        break
+            # v3: item is a message dict directly
+            elif isinstance(item, dict) and item.get("role") == "user":
+                prompt = item.get("content", "")
+            if prompt:
+                break
+
     if not prompt:
-        prompt = str(task.get("prompt", ""))
+        prompt = str(question)
 
     functions = task.get("function", [])
     tools = []
@@ -103,36 +115,67 @@ def build_tool_call_prompt(task: dict) -> tuple[str, list[dict]]:
     return prompt, tools
 
 
+async def _litellm_sample(
+    model: str,
+    messages: list[dict],
+    tools: list[dict],
+    n: int,
+) -> tuple[list[dict], CostInfo]:
+    """Sample N completions via litellm and return (responses, cost).
+
+    Calls litellm.acompletion N times concurrently (litellm doesn't
+    support n>1 for all providers).
+    """
+    async def _single_call() -> tuple[dict, int, int]:
+        resp = await litellm.acompletion(
+            model=model,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            temperature=0.7,
+        )
+        choice = resp.choices[0].message  # type: ignore[union-attr]
+        msg: dict = {"role": "assistant", "content": choice.content}
+        if choice.tool_calls:
+            msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in choice.tool_calls
+            ]
+        usage = resp.usage  # type: ignore[union-attr]
+        return msg, usage.prompt_tokens, usage.completion_tokens
+
+    tasks = [_single_call() for _ in range(n)]
+    results = await asyncio.gather(*tasks)
+
+    responses = [r[0] for r in results]
+    cost = CostInfo(
+        prompt_tokens=sum(r[1] for r in results),
+        completion_tokens=sum(r[2] for r in results),
+        total_tokens=sum(r[1] + r[2] for r in results),
+        num_calls=n,
+    )
+    return responses, cost
+
+
 async def sample_and_score(
-    lm: OpenAICompatibleLanguageModel,
+    model: str,
     task: dict,
     budget: int,
     threshold: float = 0.75,
 ) -> TaskResult:
     """Sample N tool calls for a single task and score with both methods."""
     prompt, tools = build_tool_call_prompt(task)
-    chat_messages = ChatMessages(prompt)
     task_id = task.get("id", "unknown")
 
-    orchestrator = LMOrchestrator()
-    usage = GenerationUsage()
-
-    # Sample N completions
-    responses = await orchestrator.agenerate(
-        lm,
-        chat_messages.to_batch(budget),
-        tools=tools,
-        tool_choice="auto",
-        usage_accumulator=usage,
-    )
-
-    # Track cost
-    cost = CostInfo(
-        prompt_tokens=usage.prompt_tokens,
-        completion_tokens=usage.completion_tokens,
-        total_tokens=usage.prompt_tokens + usage.completion_tokens,
-        num_calls=budget,
-    )
+    messages = [{"role": "user", "content": prompt}]
+    responses, cost = await _litellm_sample(model, messages, tools, budget)
 
     # Extract tool calls from responses
     raw_tool_calls = []
@@ -158,7 +201,7 @@ async def sample_and_score(
         )
 
     # Method 2: Baseline — reuse SelfConsistency with tool_hierarchical
-    sc = SelfConsistency(tool_vote="tool_hierarchical", orchestrator=orchestrator)
+    sc = SelfConsistency(tool_vote="tool_hierarchical")
     baseline_result = sc._process_responses(responses, return_response_only=False)
 
     return TaskResult(
@@ -173,7 +216,7 @@ async def sample_and_score(
 
 async def run_checkpoint(
     model_config: ModelConfig,
-    bfcl_file: str = "BFCL_v3_simple.json",
+    bfcl_file: str = "BFCL_v4_simple_python.json",
     budget: int = 8,
     max_tasks: int | None = None,
     threshold: float = 0.75,
@@ -183,20 +226,14 @@ async def run_checkpoint(
     if max_tasks:
         tasks = tasks[:max_tasks]
 
-    async with OpenAICompatibleLanguageModel(
-        endpoint=model_config.endpoint,
-        api_key=model_config.api_key,
-        model_name=model_config.model_name,
-        temperature=0.7,
-    ) as lm:
-        results = []
-        for i, task in enumerate(tasks):
-            logger.info("Task %d/%d: %s", i + 1, len(tasks), task.get("id", "?"))
-            try:
-                result = await sample_and_score(lm, task, budget, threshold)
-                results.append(result)
-            except Exception:
-                logger.exception("Failed on task %s", task.get("id", "?"))
+    results = []
+    for i, task in enumerate(tasks):
+        logger.info("Task %d/%d: %s", i + 1, len(tasks), task.get("id", "?"))
+        try:
+            result = await sample_and_score(model_config.model_name, task, budget, threshold)
+            results.append(result)
+        except Exception:
+            logger.exception("Failed on task %s", task.get("id", "?"))
 
     # Summary
     high_conf = sum(
@@ -224,25 +261,16 @@ async def run_checkpoint(
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-    config = ModelConfig(
-        endpoint=os.environ.get("ITS_ENDPOINT", "http://localhost:8100/v1"),
-        api_key=os.environ.get("ITS_API_KEY", "NO_API_KEY"),
-        model_name=os.environ.get("ITS_MODEL", ""),
-    )
+    model = os.environ.get("FORECAST_MODEL", "vertex_ai/claude-sonnet-4@20250514")
+    config = ModelConfig(model_name=model)
 
-    if not config.model_name:
-        print(
-            "Set ITS_MODEL to the model name (e.g. 'meta-llama/Llama-3.1-8B-Instruct').\n"
-            "Optionally set ITS_ENDPOINT (default: http://localhost:8100/v1) and ITS_API_KEY.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    print(f"Model: {config.model_name}")
 
     asyncio.run(
         run_checkpoint(
             config,
-            bfcl_file=os.environ.get("BFCL_FILE", "BFCL_v3_simple.json"),
-            budget=int(os.environ.get("BUDGET", "8")),
+            bfcl_file=os.environ.get("BFCL_FILE", "BFCL_v4_simple_python.json"),
+            budget=int(os.environ.get("BUDGET", "5")),
             max_tasks=int(os.environ.get("MAX_TASKS", "10")),
             threshold=float(os.environ.get("THRESHOLD", "0.75")),
         )
