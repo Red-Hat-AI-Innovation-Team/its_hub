@@ -49,6 +49,15 @@ jobs:
                   fetch-depth: 0
                   submodules: true
 
+            - name: "Install uv and setup python version"
+              uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+              with:
+                  python-version: "3.11"
+                  enable-cache: true
+
+            - name: "Install ext_proc build dependencies"
+              run: uv sync --extra ext_proc
+
             - name: "Compile Envoy proto files"
               uses: ./.github/actions/compile-protos
 
