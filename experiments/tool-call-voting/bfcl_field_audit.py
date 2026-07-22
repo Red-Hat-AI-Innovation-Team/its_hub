@@ -23,18 +23,11 @@ BFCL_REPO_URL = (
     "main/berkeley-function-call-leaderboard/data/"
 )
 
-SINGLE_TURN_FILES_V3 = [
-    "BFCL_v3_simple.json",
-    "BFCL_v3_multiple.json",
-    "BFCL_v3_parallel.json",
-    "BFCL_v3_parallel_multiple.json",
-]
-
-# BFCL v4 may use different filenames when released; override via
-# BFCL_VERSION env var (e.g. "v4") to look for BFCL_v4_*.json instead.
-BFCL_VERSION = os.environ.get("BFCL_VERSION", "v3")
 SINGLE_TURN_FILES = [
-    f.replace("v3", BFCL_VERSION) for f in SINGLE_TURN_FILES_V3
+    "BFCL_v4_simple_python.json",
+    "BFCL_v4_multiple.json",
+    "BFCL_v4_parallel.json",
+    "BFCL_v4_parallel_multiple.json",
 ]
 
 
