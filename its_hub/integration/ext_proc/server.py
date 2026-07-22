@@ -88,7 +88,9 @@ async def serve(port: int = 50051):
 
 def _print_config() -> None:
     """Print the bundled sample Envoy config to stdout."""
-    config = resources.files("its_hub.integration.ext_proc").joinpath("envoy_config.yaml")
+    config = resources.files("its_hub.integration.ext_proc").joinpath(
+        "envoy_config.yaml"
+    )
     sys.stdout.write(config.read_text())
 
 
