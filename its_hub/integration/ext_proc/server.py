@@ -3,6 +3,8 @@
 import argparse
 import asyncio
 import logging
+import sys
+from importlib import resources
 
 try:
     import grpc
@@ -45,6 +47,11 @@ def _parse_args() -> argparse.Namespace:
         default="INFO",
         help="Logging level (e.g., DEBUG, INFO, WARNING)",
     )
+    parser.add_argument(
+        "--print-config",
+        action="store_true",
+        help="Print the sample Envoy config to stdout and exit",
+    )
     return parser.parse_args()
 
 
@@ -79,8 +86,18 @@ async def serve(port: int = 50051):
         await server.stop(grace=5)
 
 
+def _print_config() -> None:
+    """Print the bundled sample Envoy config to stdout."""
+    config = resources.files("its_hub.integration.ext_proc").joinpath("envoy_config.yaml")
+    sys.stdout.write(config.read_text())
+
+
 def main():
     """Entry point for the external processor service."""
+    if "--print-config" in sys.argv:
+        _print_config()
+        return
+
     if grpc is None:
         print(
             "Error: ext_proc dependencies not installed.\n"

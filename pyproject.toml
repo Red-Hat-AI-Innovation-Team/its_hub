@@ -90,6 +90,10 @@ research = [
     "matplotlib>=3.5.0",   # For visualization scripts
 ]
 
+[tool.setuptools.package-data]
+"its_hub.integration.ext_proc.proto" = ["**/*.py"]
+"its_hub.integration.ext_proc" = ["envoy_config.yaml"]
+
 [tool.setuptools]
 package-dir = {"" = "."}
 
