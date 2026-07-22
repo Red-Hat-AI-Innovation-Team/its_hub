@@ -13,6 +13,7 @@ from roll_up_scorer import (
     FieldVote,
     ScoredToolCall,
     make_hashable,
+    normalize_tool_name,
     parse_tool_args,
     score_tool_calls,
 )
@@ -255,3 +256,118 @@ class TestSelectedIndex:
 
         # Merged should be x=a, y=1 → index 0 or 2
         assert result.selected_index in (0, 2)
+
+
+class TestToolNameNormalization:
+    def test_normalize_basic(self):
+        assert normalize_tool_name("get_weather") == "get_weather"
+
+    def test_normalize_case(self):
+        assert normalize_tool_name("GET_WEATHER") == "get_weather"
+        assert normalize_tool_name("Get_Weather") == "get_weather"
+
+    def test_normalize_hyphens(self):
+        assert normalize_tool_name("get-weather") == "get_weather"
+
+    def test_normalize_mixed(self):
+        assert normalize_tool_name("Get-Weather") == "get_weather"
+        assert normalize_tool_name("GET--WEATHER") == "get_weather"
+
+    def test_normalize_whitespace(self):
+        assert normalize_tool_name("  get_weather  ") == "get_weather"
+
+    def test_normalized_names_match_in_voting(self, make_tool_call):
+        calls = [
+            make_tool_call("get_weather", {"city": "NYC"}),
+            make_tool_call("Get_Weather", {"city": "NYC"}),
+            make_tool_call("get-weather", {"city": "NYC"}),
+        ]
+        result = score_tool_calls(calls)
+
+        assert result.tool_name_vote_count == 3
+        assert not result.tool_name_is_tie
+        assert result.confidence == "high_confidence"
+
+    def test_normalized_names_exclude_dissenter(self, make_tool_call):
+        calls = [
+            make_tool_call("get_weather", {"city": "NYC"}),
+            make_tool_call("GET_WEATHER", {"city": "NYC"}),
+            make_tool_call("search_api", {"city": "LA"}),
+        ]
+        result = score_tool_calls(calls)
+
+        assert normalize_tool_name(result.tool_name) == "get_weather"
+        assert result.tool_name_vote_count == 2
+        assert result.merged_args == {"city": "NYC"}
+
+
+class TestToolNameTieForced:
+    def test_tie_always_forced(self, make_tool_call):
+        """Tool-name tie → forced regardless of per-field agreement."""
+        calls = [
+            make_tool_call("alpha", {"x": "same"}),
+            make_tool_call("beta", {"x": "same"}),
+        ]
+        result = score_tool_calls(calls)
+
+        assert result.tool_name_is_tie
+        assert result.confidence == "forced"
+
+    def test_three_way_tie_forced(self, make_tool_call):
+        calls = [
+            make_tool_call("a", {"x": 1}),
+            make_tool_call("b", {"x": 1}),
+            make_tool_call("c", {"x": 1}),
+        ]
+        result = score_tool_calls(calls)
+
+        assert result.tool_name_is_tie
+        assert result.confidence == "forced"
+
+    def test_no_tie_with_clear_majority(self, make_tool_call):
+        calls = [
+            make_tool_call("search", {"q": "a"}),
+            make_tool_call("search", {"q": "a"}),
+            make_tool_call("lookup", {"q": "a"}),
+        ]
+        result = score_tool_calls(calls)
+
+        assert not result.tool_name_is_tie
+        assert result.confidence == "high_confidence"
+
+
+class TestAbstainFlag:
+    def test_abstain_returns_none_on_forced(self, make_tool_call):
+        calls = [
+            make_tool_call("f", {"x": "a"}),
+            make_tool_call("f", {"x": "b"}),
+        ]
+        result = score_tool_calls(calls, threshold=0.75, allow_abstain=True)
+        assert result is None
+
+    def test_abstain_returns_result_on_high_confidence(self, make_tool_call):
+        calls = [
+            make_tool_call("f", {"x": "a"}),
+            make_tool_call("f", {"x": "a"}),
+            make_tool_call("f", {"x": "a"}),
+        ]
+        result = score_tool_calls(calls, threshold=0.75, allow_abstain=True)
+        assert result is not None
+        assert result.confidence == "high_confidence"
+
+    def test_no_abstain_by_default(self, make_tool_call):
+        calls = [
+            make_tool_call("f", {"x": "a"}),
+            make_tool_call("f", {"x": "b"}),
+        ]
+        result = score_tool_calls(calls, threshold=0.75)
+        assert result is not None
+        assert result.confidence == "forced"
+
+    def test_abstain_on_name_tie(self, make_tool_call):
+        calls = [
+            make_tool_call("alpha", {"x": "same"}),
+            make_tool_call("beta", {"x": "same"}),
+        ]
+        result = score_tool_calls(calls, allow_abstain=True)
+        assert result is None

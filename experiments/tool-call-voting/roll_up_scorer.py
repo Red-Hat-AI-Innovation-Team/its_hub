@@ -1,13 +1,17 @@
 """Field-aware tool-call self-consistency scorer.
 
 Given N sampled tool calls for one task:
-  (a) Vote on tool name (majority).
+  (a) Vote on tool name (majority, after normalization).
   (b) Among samples that agree on the winning tool name, score each
       argument field by exact match (majority vote per field).
   (c) Tag the result as "high_confidence" or "forced" based on a
       configurable field-agreement threshold (default 75%).
+  (d) Optionally abstain (return None) on forced picks when
+      allow_abstain=True — available for research analysis but off
+      by default to match production behavior.
 
-Always returns a selection — never abstains.
+Tool-name ties (no strict majority) are always tagged "forced"
+regardless of per-field agreement.
 
 Argument parsing follows the same conventions as
 its_hub.core.algorithms.self_consistency._parse_tool_args and _make_hashable
@@ -18,8 +22,20 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from collections import Counter
 from dataclasses import dataclass, field
+
+
+def normalize_tool_name(name: str) -> str:
+    """Normalize tool/function name for comparison.
+
+    Lowercases, strips whitespace, and collapses hyphens/underscores
+    so that e.g. 'get_Weather', 'get-weather', 'GET_WEATHER' all match.
+    """
+    name = name.strip().lower()
+    name = re.sub(r"[-_]+", "_", name)
+    return name
 
 
 def parse_tool_args(raw_args: str | dict | None) -> dict:
@@ -74,6 +90,7 @@ class ScoredToolCall:
     tool_name: str
     tool_name_vote_count: int
     tool_name_total: int
+    tool_name_is_tie: bool
     merged_args: dict
     field_votes: list[FieldVote]
     confidence: str  # "high_confidence" or "forced"
@@ -82,19 +99,21 @@ class ScoredToolCall:
     raw_tool_calls: list[dict] = field(default_factory=list)
 
 
-def _majority_vote(values: list) -> tuple[object, int]:
-    """Return (winning_value, count) with random tiebreak."""
+def _majority_vote(values: list) -> tuple[object, int, bool]:
+    """Return (winning_value, count, is_tie) with random tiebreak."""
     counts = Counter(values)
     max_count = max(counts.values())
     winners = [v for v, c in counts.items() if c == max_count]
+    is_tie = len(winners) > 1
     winner = random.choice(winners)
-    return winner, max_count
+    return winner, max_count, is_tie
 
 
 def score_tool_calls(
     tool_calls: list[dict],
     threshold: float = 0.75,
-) -> ScoredToolCall:
+    allow_abstain: bool = False,
+) -> ScoredToolCall | None:
     """Score N sampled tool calls with field-aware majority voting.
 
     Args:
@@ -102,9 +121,13 @@ def score_tool_calls(
             {"function": {"name": str, "arguments": str | dict}}
         threshold: Minimum agreement ratio (across all fields) to tag
             as "high_confidence". Must be in (0, 1]. Default 0.75.
+        allow_abstain: If True, return None instead of a forced selection
+            when confidence is below threshold. Off by default to match
+            production behavior (always return a selection).
 
     Returns:
-        ScoredToolCall with the merged result and confidence tag.
+        ScoredToolCall with the merged result and confidence tag,
+        or None if allow_abstain=True and confidence would be "forced".
 
     Raises:
         ValueError: If tool_calls is empty or threshold is out of range.
@@ -114,12 +137,18 @@ def score_tool_calls(
     if not 0 < threshold <= 1.0:
         raise ValueError(f"threshold must be in (0, 1.0], got: {threshold}")
 
-    # Step (a): vote on tool name
-    names = [tc.get("function", {}).get("name", "") for tc in tool_calls]
-    winning_name, name_vote_count = _majority_vote(names)
+    # Step (a): vote on tool name (after normalization)
+    raw_names = [tc.get("function", {}).get("name", "") for tc in tool_calls]
+    normalized_names = [normalize_tool_name(n) for n in raw_names]
+    winning_normalized, name_vote_count, name_is_tie = _majority_vote(normalized_names)
+
+    # Map back to original name from the first sample that matches
+    winning_name = raw_names[normalized_names.index(winning_normalized)]
 
     # Filter to samples that agree on the winning tool name
-    agreeing_indices = [i for i, n in enumerate(names) if n == winning_name]
+    agreeing_indices = [
+        i for i, n in enumerate(normalized_names) if n == winning_normalized
+    ]
     agreeing_calls = [tool_calls[i] for i in agreeing_indices]
 
     # Parse arguments for agreeing calls
@@ -146,7 +175,7 @@ def score_tool_calls(
         if not values:
             continue
 
-        winning_value, vote_count = _majority_vote(values)
+        winning_value, vote_count, _ = _majority_vote(values)
         total_votes = len(values)
         agreement = vote_count / total_votes
 
@@ -168,13 +197,18 @@ def score_tool_calls(
                 break
         merged_args[field_name] = raw_value
 
-    # Step (c): tag confidence based on field agreement
-    if field_votes:
+    # Step (c): tag confidence based on field agreement AND tool-name tie
+    if name_is_tie:
+        confidence = "forced"
+    elif field_votes:
         min_agreement = min(fv.agreement for fv in field_votes)
+        confidence = "high_confidence" if min_agreement >= threshold else "forced"
     else:
-        min_agreement = 1.0
+        confidence = "high_confidence"
 
-    confidence = "high_confidence" if min_agreement >= threshold else "forced"
+    # Step (d): optionally abstain on forced picks
+    if allow_abstain and confidence == "forced":
+        return None
 
     # Select the original sample closest to the merged result (prefer
     # an agreeing sample whose args exactly match the merged args)
@@ -193,6 +227,7 @@ def score_tool_calls(
         tool_name=winning_name,
         tool_name_vote_count=name_vote_count,
         tool_name_total=len(tool_calls),
+        tool_name_is_tie=name_is_tie,
         merged_args=merged_args,
         field_votes=field_votes,
         confidence=confidence,

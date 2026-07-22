@@ -8,6 +8,9 @@ BFCL task from configured models, then compares:
 
 Reuses the existing SelfConsistency implementation rather than rebuilding
 the baseline from scratch.
+
+Tracks token usage per task for cost-normalized comparison (voting at N=5
+vs single-shot at matched token budget).
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ import json
 import logging
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -42,12 +45,23 @@ class ModelConfig:
 
 
 @dataclass
+class CostInfo:
+    """Token usage for cost-normalized comparison."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    num_calls: int = 0
+
+
+@dataclass
 class TaskResult:
     task_id: str
-    field_aware: ScoredToolCall
+    field_aware: ScoredToolCall | None
     baseline_selected: dict
     baseline_counts: dict
     num_samples: int
+    cost: CostInfo = field(default_factory=CostInfo)
 
 
 def load_bfcl_tasks(filename: str) -> list[dict]:
@@ -112,6 +126,14 @@ async def sample_and_score(
         usage_accumulator=usage,
     )
 
+    # Track cost
+    cost = CostInfo(
+        prompt_tokens=usage.prompt_tokens,
+        completion_tokens=usage.completion_tokens,
+        total_tokens=usage.prompt_tokens + usage.completion_tokens,
+        num_calls=budget,
+    )
+
     # Extract tool calls from responses
     raw_tool_calls = []
     for resp in responses:
@@ -127,6 +149,7 @@ async def sample_and_score(
             tool_name="",
             tool_name_vote_count=0,
             tool_name_total=budget,
+            tool_name_is_tie=True,
             merged_args={},
             field_votes=[],
             confidence="forced",
@@ -144,6 +167,7 @@ async def sample_and_score(
         baseline_selected=baseline_result.the_one if isinstance(baseline_result, SelfConsistencyResult) else baseline_result,
         baseline_counts=dict(baseline_result.response_counts) if isinstance(baseline_result, SelfConsistencyResult) else {},
         num_samples=budget,
+        cost=cost,
     )
 
 
@@ -175,10 +199,24 @@ async def run_checkpoint(
                 logger.exception("Failed on task %s", task.get("id", "?"))
 
     # Summary
-    high_conf = sum(1 for r in results if r.field_aware.confidence == "high_confidence")
+    high_conf = sum(
+        1 for r in results
+        if r.field_aware is not None and r.field_aware.confidence == "high_confidence"
+    )
+    total_prompt = sum(r.cost.prompt_tokens for r in results)
+    total_completion = sum(r.cost.completion_tokens for r in results)
+    total_tokens = total_prompt + total_completion
+    avg_tokens_per_task = total_tokens / len(results) if results else 0
+
     print(f"\n--- Checkpoint Results ({len(results)} tasks, budget={budget}) ---")
     print(f"  Field-aware high_confidence: {high_conf}/{len(results)}")
     print(f"  Field-aware forced:          {len(results) - high_conf}/{len(results)}")
+    print(f"\n--- Cost ---")
+    print(f"  Total tokens:       {total_tokens:,}")
+    print(f"  Prompt tokens:      {total_prompt:,}")
+    print(f"  Completion tokens:  {total_completion:,}")
+    print(f"  Avg tokens/task:    {avg_tokens_per_task:,.0f}")
+    print(f"  Cost per N=1 equiv: {avg_tokens_per_task / budget:,.0f} tokens/task")
 
     return results
 
