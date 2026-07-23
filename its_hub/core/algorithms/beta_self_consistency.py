@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections import Counter
 from collections.abc import Callable
@@ -22,9 +23,13 @@ logger = logging.getLogger(__name__)
 class BetaSelfConsistency(SelfConsistency):
     """Self-consistency with Beta-distribution adaptive stopping (Aggarwal et al., 2023).
 
-    Samples one response at a time and computes a Beta posterior probability
-    that the current majority answer will remain the majority. Stops when this
-    probability exceeds confidence_threshold (default 0.95).
+    Fires all budget requests concurrently and checks the Beta posterior
+    probability as each response arrives. Stops and cancels remaining
+    requests once the probability that the majority answer will remain
+    dominant exceeds confidence_threshold (default 0.95).
+
+    This fully utilizes vLLM's continuous batching while still getting
+    the sample-efficiency benefits of adaptive stopping.
 
     The stopping criterion uses the regularized incomplete beta function:
         P(majority stays) = 1 - I_{0.5}(v1 + 1, v2 + 1)
@@ -84,44 +89,67 @@ class BetaSelfConsistency(SelfConsistency):
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
         usage = GenerationUsage()
 
-        all_responses: list[dict] = []
+        current_loop = asyncio.get_running_loop()
+        messages_list = chat_messages.to_chat_messages()
 
-        for sample_num in range(1, budget + 1):
-            new_responses = await self.orchestrator.agenerate(
-                lm,
-                chat_messages.to_batch(1),
+        async def _generate_one():
+            return await lm.agenerate_single(
+                messages_list,
                 tools=tools,
                 tool_choice=tool_choice,
+                loop=current_loop,
                 usage_accumulator=usage,
             )
-            all_responses.extend(new_responses)
 
-            if sample_num >= budget:
+        tasks = [asyncio.create_task(_generate_one()) for _ in range(budget)]
+
+        all_responses: list[dict] = []
+        pending = set(tasks)
+        stopped_early = False
+
+        while pending:
+            done, pending = await asyncio.wait(
+                pending, return_when=asyncio.FIRST_COMPLETED
+            )
+
+            for task in done:
+                all_responses.append(task.result())
+
+                if len(all_responses) >= 2 and len(all_responses) < budget:
+                    eligible_indices, projected = self._project_responses(
+                        all_responses
+                    )
+
+                    if len(eligible_indices) >= 2:
+                        counts = Counter(projected)
+                        most_common = counts.most_common(2)
+                        v1 = most_common[0][1]
+                        v2 = most_common[1][1] if len(most_common) > 1 else 0
+
+                        prob = self.beta_stopping_probability(v1, v2)
+
+                        if prob >= self.confidence_threshold:
+                            logger.info(
+                                "Early stop: %d/%d samples, "
+                                "P(majority stays)=%.4f >= %.4f",
+                                len(all_responses),
+                                budget,
+                                prob,
+                                self.confidence_threshold,
+                            )
+                            for t in pending:
+                                t.cancel()
+                            stopped_early = True
+                            break
+
+            if stopped_early:
                 break
 
-            eligible_indices, projected = self._project_responses(all_responses)
-
-            if len(eligible_indices) >= 2:
-                counts = Counter(projected)
-                most_common = counts.most_common(2)
-                v1 = most_common[0][1]
-                v2 = most_common[1][1] if len(most_common) > 1 else 0
-
-                prob = self.beta_stopping_probability(v1, v2)
-
-                if prob >= self.confidence_threshold:
-                    logger.info(
-                        "Early stop at sample %d: P(majority stays)=%.4f >= %.4f",
-                        sample_num,
-                        prob,
-                        self.confidence_threshold,
-                    )
-                    break
-
-        logger.info(
-            "BetaSelfConsistency used %d/%d samples",
-            len(all_responses),
-            budget,
-        )
+        if not stopped_early:
+            logger.info(
+                "BetaSelfConsistency used all %d/%d samples",
+                len(all_responses),
+                budget,
+            )
 
         return self._process_responses(all_responses, return_response_only, usage)
