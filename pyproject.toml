@@ -80,6 +80,7 @@ dev = [
 # Experimental - not officially supported in MVP
 experimental = [
     "its_hub[lm]",
+    "scipy>=1.11.0",
     "transformers>=4.53.2",
     "reward-hub[prm]>=0.1.10",
 ]
