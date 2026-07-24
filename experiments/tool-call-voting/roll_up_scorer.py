@@ -72,6 +72,57 @@ def make_hashable(obj: object) -> object:
         return obj
 
 
+def _detect_field_type(values: list) -> str:
+    """Auto-detect field type from observed values.
+
+    Returns "numeric", "boolean", or "string".
+    """
+    non_none = [v for v in values if v is not None]
+    if not non_none:
+        return "string"
+    if all(isinstance(v, bool) for v in non_none):
+        return "boolean"
+    if all(isinstance(v, (int, float)) for v in non_none):
+        return "numeric"
+    # Check if string values are all numeric
+    if all(isinstance(v, str) for v in non_none):
+        try:
+            for v in non_none:
+                float(v)
+            return "numeric"
+        except (ValueError, TypeError):
+            pass
+    return "string"
+
+
+def _normalize_for_equivalence(value: object, field_type: str) -> object:
+    """Normalize a value for equivalence-aware comparison.
+
+    Numeric: cast to float for canonical form (42 == 42.0)
+    Boolean: identity
+    String: lowercase, strip whitespace/punctuation, collapse spaces
+    """
+    if value is None:
+        return None
+
+    if field_type == "numeric":
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return value
+
+    if field_type == "boolean":
+        return bool(value)
+
+    if field_type == "string" and isinstance(value, str):
+        s = value.strip().lower()
+        s = re.sub(r"\s+", " ", s)
+        s = s.rstrip(".,;:!?")
+        return s
+
+    return value
+
+
 @dataclass
 class FieldVote:
     """Result of majority voting on a single argument field."""
@@ -113,6 +164,7 @@ def score_tool_calls(
     tool_calls: list[dict],
     threshold: float = 0.75,
     allow_abstain: bool = False,
+    equivalence: bool = False,
 ) -> ScoredToolCall | None:
     """Score N sampled tool calls with field-aware majority voting.
 
@@ -124,6 +176,10 @@ def score_tool_calls(
         allow_abstain: If True, return None instead of a forced selection
             when confidence is below threshold. Off by default to match
             production behavior (always return a selection).
+        equivalence: If True, normalize field values before voting so
+            that semantically equivalent values (e.g. "g/mol" vs "g/mole",
+            42 vs 42.0, "San Francisco" vs "san francisco") group together.
+            Type is auto-detected per field.
 
     Returns:
         ScoredToolCall with the merged result and confidence tag,
@@ -167,33 +223,42 @@ def score_tool_calls(
     merged_args: dict = {}
 
     for field_name in sorted(all_field_names):
-        values = []
+        raw_values = []
         for args in all_args:
             if field_name in args:
-                values.append(make_hashable(args[field_name]))
+                raw_values.append(args[field_name])
 
-        if not values:
+        if not raw_values:
             continue
 
-        winning_value, vote_count, _ = _majority_vote(values)
-        total_votes = len(values)
+        # With equivalence: normalize values before hashing for voting
+        if equivalence:
+            field_type = _detect_field_type(raw_values)
+            voting_keys = [
+                make_hashable(_normalize_for_equivalence(v, field_type))
+                for v in raw_values
+            ]
+        else:
+            voting_keys = [make_hashable(v) for v in raw_values]
+
+        winning_key, vote_count, _ = _majority_vote(voting_keys)
+        total_votes = len(voting_keys)
         agreement = vote_count / total_votes
 
         field_votes.append(
             FieldVote(
                 field_name=field_name,
-                winning_value=winning_value,
+                winning_value=winning_key,
                 vote_count=vote_count,
                 total_votes=total_votes,
                 agreement=agreement,
             )
         )
-        # Unhash for the merged args dict — use the raw value from the
-        # first agreeing sample that matches the winning hashable value
-        raw_value = winning_value
-        for args in all_args:
-            if field_name in args and make_hashable(args[field_name]) == winning_value:
-                raw_value = args[field_name]
+        # Use the raw value from the first sample that matches the winning key
+        raw_value = raw_values[0]
+        for rv, vk in zip(raw_values, voting_keys):
+            if vk == winning_key:
+                raw_value = rv
                 break
         merged_args[field_name] = raw_value
 
@@ -211,15 +276,24 @@ def score_tool_calls(
         return None
 
     # Select the original sample closest to the merged result (prefer
-    # an agreeing sample whose args exactly match the merged args)
+    # an agreeing sample whose args match the winning values)
     selected_index = agreeing_indices[0]
-    for i in agreeing_indices:
+    for idx, i in enumerate(agreeing_indices):
         tc_args = parse_tool_args(tool_calls[i].get("function", {}).get("arguments"))
-        if all(
-            make_hashable(tc_args.get(fv.field_name)) == fv.winning_value
-            for fv in field_votes
-            if fv.field_name in tc_args
-        ):
+        matches_all = True
+        for fv in field_votes:
+            if fv.field_name not in tc_args:
+                continue
+            val = tc_args[fv.field_name]
+            if equivalence:
+                ft = _detect_field_type([val])
+                key = make_hashable(_normalize_for_equivalence(val, ft))
+            else:
+                key = make_hashable(val)
+            if key != fv.winning_value:
+                matches_all = False
+                break
+        if matches_all:
             selected_index = i
             break
 

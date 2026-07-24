@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from roll_up_scorer import (
     FieldVote,
     ScoredToolCall,
+    _detect_field_type,
+    _normalize_for_equivalence,
     make_hashable,
     normalize_tool_name,
     parse_tool_args,
@@ -371,3 +373,147 @@ class TestAbstainFlag:
         ]
         result = score_tool_calls(calls, allow_abstain=True)
         assert result is None
+
+
+class TestEquivalenceMode:
+    def test_case_insensitive_strings(self, make_tool_call):
+        """'LeBron James' vs 'Lebron James' should agree with equivalence."""
+        calls = [
+            make_tool_call("f", {"name": "LeBron James"}),
+            make_tool_call("f", {"name": "Lebron James"}),
+            make_tool_call("f", {"name": "LeBron James"}),
+        ]
+        exact = score_tool_calls(calls, equivalence=False)
+        equiv = score_tool_calls(calls, equivalence=True)
+
+        # Exact: 2/3 = 66.7% < 75% → forced
+        assert exact.confidence == "forced"
+        # Equivalence: 3/3 = 100% → high_confidence
+        assert equiv.confidence == "high_confidence"
+
+    def test_trailing_punctuation(self, make_tool_call):
+        """'message.' vs 'message' should agree with equivalence."""
+        calls = [
+            make_tool_call("f", {"body": "Let's meet tomorrow."}),
+            make_tool_call("f", {"body": "Let's meet tomorrow"}),
+            make_tool_call("f", {"body": "Let's meet tomorrow."}),
+        ]
+        exact = score_tool_calls(calls, equivalence=False)
+        equiv = score_tool_calls(calls, equivalence=True)
+
+        assert exact.confidence == "forced"
+        assert equiv.confidence == "high_confidence"
+
+    def test_numeric_equivalence(self, make_tool_call):
+        """42 vs 42.0 should agree with equivalence."""
+        calls = [
+            make_tool_call("f", {"count": 42}),
+            make_tool_call("f", {"count": 42.0}),
+            make_tool_call("f", {"count": 42}),
+        ]
+        # Both should be high_confidence since int/float are equal in Python
+        # but equivalence mode canonicalizes to float
+        equiv = score_tool_calls(calls, equivalence=True)
+        assert equiv.confidence == "high_confidence"
+
+    def test_unit_notation_variants(self, make_tool_call):
+        """'g/mol' vs 'g/mole' — different strings, but collapse with normalization."""
+        calls = [
+            make_tool_call("f", {"unit": "g/mol"}),
+            make_tool_call("f", {"unit": "g/mol"}),
+            make_tool_call("f", {"unit": "g/mole"}),
+            make_tool_call("f", {"unit": "grams/mole"}),
+            make_tool_call("f", {"unit": "g/mole"}),
+        ]
+        exact = score_tool_calls(calls, equivalence=False)
+        # Exact: "g/mol" 2/5, "g/mole" 2/5, "grams/mole" 1/5 → forced
+        assert exact.confidence == "forced"
+
+    def test_location_format_variants(self, make_tool_call):
+        """'San Francisco' vs 'San Francisco, CA' — different even with normalization."""
+        calls = [
+            make_tool_call("f", {"loc": "San Francisco"}),
+            make_tool_call("f", {"loc": "San Francisco"}),
+            make_tool_call("f", {"loc": "San Francisco, CA"}),
+        ]
+        equiv = score_tool_calls(calls, equivalence=True)
+        # These are genuinely different strings even after normalization
+        # "san francisco" != "san francisco, ca" → 2/3 agreement
+        assert equiv.confidence == "forced"
+
+    def test_whitespace_normalization(self, make_tool_call):
+        """Extra spaces should collapse with equivalence."""
+        calls = [
+            make_tool_call("f", {"q": "hello  world"}),
+            make_tool_call("f", {"q": "hello world"}),
+            make_tool_call("f", {"q": "hello world"}),
+        ]
+        exact = score_tool_calls(calls, equivalence=False)
+        equiv = score_tool_calls(calls, equivalence=True)
+
+        assert exact.confidence == "forced"
+        assert equiv.confidence == "high_confidence"
+
+    def test_equivalence_off_by_default(self, make_tool_call):
+        calls = [
+            make_tool_call("f", {"name": "LeBron James"}),
+            make_tool_call("f", {"name": "Lebron James"}),
+        ]
+        result = score_tool_calls(calls)
+        # Default is no equivalence → forced on case difference
+        assert result.confidence == "forced"
+
+    def test_mixed_fields_partial_equivalence(self, make_tool_call):
+        """Equivalence helps some fields but not others."""
+        calls = [
+            make_tool_call("f", {"name": "Bob", "city": "NYC"}),
+            make_tool_call("f", {"name": "bob", "city": "LA"}),
+            make_tool_call("f", {"name": "Bob", "city": "NYC"}),
+        ]
+        equiv = score_tool_calls(calls, equivalence=True)
+        # name: "bob" all 3 match after normalization → 100%
+        # city: "nyc" 2/3, "la" 1/3 → 66.7% < 75% → forced
+        assert equiv.confidence == "forced"
+        name_vote = next(fv for fv in equiv.field_votes if fv.field_name == "name")
+        assert name_vote.agreement == 1.0
+
+
+class TestDetectFieldType:
+    def test_numeric(self):
+        assert _detect_field_type([1, 2, 3]) == "numeric"
+        assert _detect_field_type([1.0, 2.5]) == "numeric"
+
+    def test_boolean(self):
+        assert _detect_field_type([True, False, True]) == "boolean"
+
+    def test_string(self):
+        assert _detect_field_type(["hello", "world"]) == "string"
+
+    def test_numeric_strings(self):
+        assert _detect_field_type(["42", "3.14"]) == "numeric"
+
+    def test_mixed(self):
+        assert _detect_field_type(["hello", 42]) == "string"
+
+    def test_empty(self):
+        assert _detect_field_type([]) == "string"
+
+
+class TestNormalizeForEquivalence:
+    def test_numeric_int(self):
+        assert _normalize_for_equivalence(42, "numeric") == 42.0
+
+    def test_numeric_string(self):
+        assert _normalize_for_equivalence("42", "numeric") == 42.0
+
+    def test_string_case(self):
+        assert _normalize_for_equivalence("Hello World", "string") == "hello world"
+
+    def test_string_punctuation(self):
+        assert _normalize_for_equivalence("hello.", "string") == "hello"
+
+    def test_string_whitespace(self):
+        assert _normalize_for_equivalence("  hello   world  ", "string") == "hello world"
+
+    def test_none(self):
+        assert _normalize_for_equivalence(None, "string") is None

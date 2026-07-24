@@ -272,8 +272,11 @@ async def sample_and_score(
             raw_tool_calls.append(tcs[0])
 
     # Method 1: Field-aware scorer
+    equivalence = os.environ.get("EQUIVALENCE", "").lower() in ("1", "true", "yes")
     if raw_tool_calls:
-        field_aware_result = score_tool_calls(raw_tool_calls, threshold=threshold)
+        field_aware_result = score_tool_calls(
+            raw_tool_calls, threshold=threshold, equivalence=equivalence
+        )
     else:
         field_aware_result = ScoredToolCall(
             tool_name="",
