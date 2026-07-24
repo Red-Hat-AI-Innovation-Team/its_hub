@@ -117,9 +117,7 @@ class BetaSelfConsistency(SelfConsistency):
                 all_responses.append(task.result())
 
                 if len(all_responses) >= 2 and len(all_responses) < budget:
-                    eligible_indices, projected = self._project_responses(
-                        all_responses
-                    )
+                    eligible_indices, projected = self._project_responses(all_responses)
 
                     if len(eligible_indices) >= 2:
                         counts = Counter(projected)
