@@ -75,6 +75,7 @@ class BetaSelfConsistency(SelfConsistency):
         Returns:
             Probability in [0, 1] that the majority answer stays dominant.
         """
+        # note that betainc is the CDF of the beta distribution
         return 1.0 - float(betainc(v1 + 1, v2 + 1, 0.5))
 
     async def ainfer(
