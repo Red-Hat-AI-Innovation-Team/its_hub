@@ -106,6 +106,7 @@ def build_tool_call_prompt(task: dict) -> tuple[str, list[dict]]:
     tools = []
     for func in functions:
         if isinstance(func, dict):
+            func = _sanitize_function_schema(func)
             tool_def = {
                 "type": "function",
                 "function": func,
@@ -113,6 +114,66 @@ def build_tool_call_prompt(task: dict) -> tuple[str, list[dict]]:
             tools.append(tool_def)
 
     return prompt, tools
+
+
+def _sanitize_function_schema(func: dict) -> dict:
+    """Clean BFCL function schemas for OpenAI API compatibility.
+
+    Fixes: invalid type values (dict→object), function names with
+    dots/spaces, and missing required fields.
+    """
+    import copy
+    import re
+
+    func = copy.deepcopy(func)
+
+    # Fix function name: OpenAI requires ^[a-zA-Z0-9_-]+$
+    name = func.get("name", "unknown")
+    func["name"] = re.sub(r"[^a-zA-Z0-9_-]", "_", name)
+
+    # Recursively fix parameter schemas
+    if "parameters" in func:
+        func["parameters"] = _fix_schema_types(func["parameters"])
+
+    return func
+
+
+def _fix_schema_types(schema: dict) -> dict:
+    """Recursively fix non-standard JSON schema types."""
+    if not isinstance(schema, dict):
+        return schema
+
+    # Fix invalid type values
+    type_map = {
+        "dict": "object",
+        "Dict": "object",
+        "list": "array",
+        "List": "array",
+        "float": "number",
+        "int": "integer",
+        "str": "string",
+        "bool": "boolean",
+        "tuple": "array",
+        "Tuple": "array",
+        "set": "array",
+        "Set": "array",
+    }
+    if "type" in schema:
+        t = schema["type"]
+        if isinstance(t, str) and t in type_map:
+            schema["type"] = type_map[t]
+
+    # Recurse into properties
+    if "properties" in schema and isinstance(schema["properties"], dict):
+        for key, val in schema["properties"].items():
+            if isinstance(val, dict):
+                schema["properties"][key] = _fix_schema_types(val)
+
+    # Recurse into items
+    if "items" in schema and isinstance(schema["items"], dict):
+        schema["items"] = _fix_schema_types(schema["items"])
+
+    return schema
 
 
 MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", "3"))
@@ -150,7 +211,7 @@ async def _litellm_sample(
                         messages=messages,
                         tools=tools,
                         tool_choice="auto",
-                        temperature=0.7,
+                        temperature=float(os.environ.get("TEMPERATURE", "0.7")),
                     )
                     choice = resp.choices[0].message  # type: ignore[union-attr]
                     msg: dict = {"role": "assistant", "content": choice.content}
@@ -260,6 +321,52 @@ async def run_checkpoint(
             results.append(result)
         except Exception:
             logger.exception("Failed on task %s", task.get("id", "?"))
+
+    # Save per-task results as JSON
+    results_dir = Path(__file__).parent / "results"
+    results_dir.mkdir(exist_ok=True)
+    model_slug = model_config.model_name.replace("/", "_").replace("@", "_")
+    bfcl_slug = Path(bfcl_file).stem
+    output_path = results_dir / f"{bfcl_slug}_{model_slug}_detail.json"
+
+    serializable = []
+    for r in results:
+        entry: dict = {
+            "task_id": r.task_id,
+            "num_samples": r.num_samples,
+            "cost": {
+                "prompt_tokens": r.cost.prompt_tokens,
+                "completion_tokens": r.cost.completion_tokens,
+                "total_tokens": r.cost.total_tokens,
+            },
+        }
+        if r.field_aware is not None:
+            entry["field_aware"] = {
+                "tool_name": r.field_aware.tool_name,
+                "tool_name_vote_count": r.field_aware.tool_name_vote_count,
+                "tool_name_total": r.field_aware.tool_name_total,
+                "tool_name_is_tie": r.field_aware.tool_name_is_tie,
+                "confidence": r.field_aware.confidence,
+                "merged_args": r.field_aware.merged_args,
+                "field_votes": [
+                    {
+                        "field_name": fv.field_name,
+                        "winning_value": fv.winning_value if isinstance(fv.winning_value, (str, int, float, bool, type(None))) else str(fv.winning_value),
+                        "vote_count": fv.vote_count,
+                        "total_votes": fv.total_votes,
+                        "agreement": fv.agreement,
+                    }
+                    for fv in r.field_aware.field_votes
+                ],
+                "raw_tool_calls": r.field_aware.raw_tool_calls,
+            }
+        else:
+            entry["field_aware"] = None
+        serializable.append(entry)
+
+    with open(output_path, "w") as f:
+        json.dump(serializable, f, indent=2, default=str)
+    logger.info("Saved detailed results to %s", output_path)
 
     # Summary
     high_conf = sum(
