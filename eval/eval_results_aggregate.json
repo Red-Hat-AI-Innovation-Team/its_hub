@@ -1,0 +1,118 @@
+{
+  "no_its": {
+    "accuracy_mean": 57.0,
+    "accuracy_std": 3.0,
+    "avg_samples_mean": 1.0,
+    "avg_samples_std": 0.0,
+    "total_time_mean": 41.91,
+    "total_time_std": 1.59,
+    "per_run_accuracy": [
+      56.00000000000001,
+      60.0,
+      60.0,
+      56.00000000000001,
+      53.0
+    ],
+    "per_run_avg_samples": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "per_run_total_time": [
+      43.68,
+      40.87,
+      40.29,
+      41.16,
+      43.57
+    ]
+  },
+  "self_consistency": {
+    "accuracy_mean": 75.6,
+    "accuracy_std": 1.52,
+    "avg_samples_mean": 64.0,
+    "avg_samples_std": 0.0,
+    "total_time_mean": 140.16,
+    "total_time_std": 4.62,
+    "per_run_accuracy": [
+      78.0,
+      75.0,
+      76.0,
+      74.0,
+      75.0
+    ],
+    "per_run_avg_samples": [
+      64.0,
+      64.0,
+      64.0,
+      64.0,
+      64.0
+    ],
+    "per_run_total_time": [
+      141.92,
+      147.4,
+      138.46,
+      136.82,
+      136.2
+    ]
+  },
+  "adaptive_sc": {
+    "accuracy_mean": 72.6,
+    "accuracy_std": 2.7,
+    "avg_samples_mean": 27.32,
+    "avg_samples_std": 0.42,
+    "total_time_mean": 223.16,
+    "total_time_std": 9.49,
+    "per_run_accuracy": [
+      77.0,
+      73.0,
+      70.0,
+      71.0,
+      72.0
+    ],
+    "per_run_avg_samples": [
+      27.16,
+      27.2,
+      28.06,
+      27.1,
+      27.08
+    ],
+    "per_run_total_time": [
+      233.97,
+      232.08,
+      221.28,
+      214.7,
+      213.76
+    ]
+  },
+  "beta_sc": {
+    "accuracy_mean": 73.0,
+    "accuracy_std": 1.87,
+    "avg_samples_mean": 20.37,
+    "avg_samples_std": 1.42,
+    "total_time_mean": 66.38,
+    "total_time_std": 1.9,
+    "per_run_accuracy": [
+      74.0,
+      73.0,
+      70.0,
+      73.0,
+      75.0
+    ],
+    "per_run_avg_samples": [
+      19.52,
+      19.63,
+      21.53,
+      22.21,
+      18.94
+    ],
+    "per_run_total_time": [
+      66.02,
+      64.73,
+      67.64,
+      68.96,
+      64.55
+    ]
+  }
+}
