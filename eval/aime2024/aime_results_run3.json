@@ -1,0 +1,1014 @@
+{
+  "no_its": {
+    "algorithm": "no_its",
+    "budget": 1,
+    "accuracy": 13.333333333333334,
+    "correct": 4,
+    "total": 30,
+    "avg_samples": 1.0,
+    "total_samples": 30,
+    "total_time_s": 224.26,
+    "avg_time_per_question_s": 7.48,
+    "per_question": [
+      {
+        "question_idx": 0,
+        "unique_id": "2024-II-4",
+        "gold": "33",
+        "predicted": "25",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 1,
+        "unique_id": "2024-II-12",
+        "gold": "23",
+        "predicted": "5",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 2,
+        "unique_id": "2024-I-4",
+        "gold": "116",
+        "predicted": "116",
+        "correct": true,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 3,
+        "unique_id": "2024-I-3",
+        "gold": "809",
+        "predicted": "403",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 4,
+        "unique_id": "2024-I-8",
+        "gold": "197",
+        "predicted": "135",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 5,
+        "unique_id": "2024-I-12",
+        "gold": "385",
+        "predicted": "24",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 6,
+        "unique_id": "2024-I-11",
+        "gold": "371",
+        "predicted": "33",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 7,
+        "unique_id": "2024-II-11",
+        "gold": "601",
+        "predicted": "6",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 8,
+        "unique_id": "2024-I-2",
+        "gold": "25",
+        "predicted": "25",
+        "correct": true,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 9,
+        "unique_id": "2024-II-6",
+        "gold": "55",
+        "predicted": "42",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 10,
+        "unique_id": "2024-I-7",
+        "gold": "540",
+        "predicted": "540",
+        "correct": true,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 11,
+        "unique_id": "2024-II-3",
+        "gold": "45",
+        "predicted": "81",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 12,
+        "unique_id": "2024-I-1",
+        "gold": "204",
+        "predicted": "204",
+        "correct": true,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 13,
+        "unique_id": "2024-II-7",
+        "gold": "699",
+        "predicted": "610",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 14,
+        "unique_id": "2024-I-6",
+        "gold": "294",
+        "predicted": "140",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 15,
+        "unique_id": "2024-I-13",
+        "gold": "110",
+        "predicted": "17",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 16,
+        "unique_id": "2024-I-15",
+        "gold": "721",
+        "predicted": "27",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 17,
+        "unique_id": "2024-II-15",
+        "gold": "315",
+        "predicted": "45",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 18,
+        "unique_id": "2024-II-10",
+        "gold": "468",
+        "predicted": "331",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 19,
+        "unique_id": "2024-II-9",
+        "gold": "902",
+        "predicted": "29",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 20,
+        "unique_id": "2024-II-14",
+        "gold": "211",
+        "predicted": "23",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 21,
+        "unique_id": "2024-II-5",
+        "gold": "80",
+        "predicted": "150",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 22,
+        "unique_id": "2024-I-9",
+        "gold": "480",
+        "predicted": "96",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 23,
+        "unique_id": "2024-II-2",
+        "gold": "236",
+        "predicted": "6",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 24,
+        "unique_id": "2024-II-1",
+        "gold": "73",
+        "predicted": "41",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 25,
+        "unique_id": "2024-I-10",
+        "gold": "113",
+        "predicted": "4",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 26,
+        "unique_id": "2024-II-8",
+        "gold": "127",
+        "predicted": "9",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 27,
+        "unique_id": "2024-I-14",
+        "gold": "104",
+        "predicted": "755",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 28,
+        "unique_id": "2024-I-5",
+        "gold": "104",
+        "predicted": "199",
+        "correct": false,
+        "n_samples": 1
+      },
+      {
+        "question_idx": 29,
+        "unique_id": "2024-II-13",
+        "gold": "321",
+        "predicted": "65",
+        "correct": false,
+        "n_samples": 1
+      }
+    ]
+  },
+  "self_consistency": {
+    "algorithm": "self_consistency",
+    "budget": 16,
+    "accuracy": 13.333333333333334,
+    "correct": 4,
+    "total": 30,
+    "avg_samples": 16.0,
+    "total_samples": 480,
+    "total_time_s": 346.1,
+    "avg_time_per_question_s": 11.54,
+    "per_question": [
+      {
+        "question_idx": 0,
+        "unique_id": "2024-II-4",
+        "gold": "33",
+        "predicted": "4",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 1,
+        "unique_id": "2024-II-12",
+        "gold": "23",
+        "predicted": "1",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 2,
+        "unique_id": "2024-I-4",
+        "gold": "116",
+        "predicted": "116",
+        "correct": true,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 3,
+        "unique_id": "2024-I-3",
+        "gold": "809",
+        "predicted": "1620",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 4,
+        "unique_id": "2024-I-8",
+        "gold": "197",
+        "predicted": "69",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 5,
+        "unique_id": "2024-I-12",
+        "gold": "385",
+        "predicted": "12",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 6,
+        "unique_id": "2024-I-11",
+        "gold": "371",
+        "predicted": "129",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 7,
+        "unique_id": "2024-II-11",
+        "gold": "601",
+        "predicted": "6",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 8,
+        "unique_id": "2024-I-2",
+        "gold": "25",
+        "predicted": "25",
+        "correct": true,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 9,
+        "unique_id": "2024-II-6",
+        "gold": "55",
+        "predicted": "2025",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 10,
+        "unique_id": "2024-I-7",
+        "gold": "540",
+        "predicted": "540",
+        "correct": true,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 11,
+        "unique_id": "2024-II-3",
+        "gold": "45",
+        "predicted": "99",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 12,
+        "unique_id": "2024-I-1",
+        "gold": "204",
+        "predicted": "204",
+        "correct": true,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 13,
+        "unique_id": "2024-II-7",
+        "gold": "699",
+        "predicted": "1000",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 14,
+        "unique_id": "2024-I-6",
+        "gold": "294",
+        "predicted": "70",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 15,
+        "unique_id": "2024-I-13",
+        "gold": "110",
+        "predicted": "5",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 16,
+        "unique_id": "2024-I-15",
+        "gold": "721",
+        "predicted": "3",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 17,
+        "unique_id": "2024-II-15",
+        "gold": "315",
+        "predicted": "30",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 18,
+        "unique_id": "2024-II-10",
+        "gold": "468",
+        "predicted": "6",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 19,
+        "unique_id": "2024-II-9",
+        "gold": "902",
+        "predicted": "2",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 20,
+        "unique_id": "2024-II-14",
+        "gold": "211",
+        "predicted": "2",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 21,
+        "unique_id": "2024-II-5",
+        "gold": "80",
+        "predicted": "150",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 22,
+        "unique_id": "2024-I-9",
+        "gold": "480",
+        "predicted": "96",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 23,
+        "unique_id": "2024-II-2",
+        "gold": "236",
+        "predicted": "224",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 24,
+        "unique_id": "2024-II-1",
+        "gold": "73",
+        "predicted": "195",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 25,
+        "unique_id": "2024-I-10",
+        "gold": "113",
+        "predicted": "4",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 26,
+        "unique_id": "2024-II-8",
+        "gold": "127",
+        "predicted": "7",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 27,
+        "unique_id": "2024-I-14",
+        "gold": "104",
+        "predicted": "16",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 28,
+        "unique_id": "2024-I-5",
+        "gold": "104",
+        "predicted": "16",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 29,
+        "unique_id": "2024-II-13",
+        "gold": "321",
+        "predicted": "1",
+        "correct": false,
+        "n_samples": 16
+      }
+    ]
+  },
+  "adaptive_sc": {
+    "algorithm": "adaptive_sc",
+    "budget": 16,
+    "accuracy": 13.333333333333334,
+    "correct": 4,
+    "total": 30,
+    "avg_samples": 12.8,
+    "total_samples": 384,
+    "total_time_s": 1024.25,
+    "avg_time_per_question_s": 34.14,
+    "per_question": [
+      {
+        "question_idx": 0,
+        "unique_id": "2024-II-4",
+        "gold": "33",
+        "predicted": "4",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 1,
+        "unique_id": "2024-II-12",
+        "gold": "23",
+        "predicted": "5",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 2,
+        "unique_id": "2024-I-4",
+        "gold": "116",
+        "predicted": "116",
+        "correct": true,
+        "n_samples": 2
+      },
+      {
+        "question_idx": 3,
+        "unique_id": "2024-I-3",
+        "gold": "809",
+        "predicted": "1620",
+        "correct": false,
+        "n_samples": 2
+      },
+      {
+        "question_idx": 4,
+        "unique_id": "2024-I-8",
+        "gold": "197",
+        "predicted": "1",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 5,
+        "unique_id": "2024-I-12",
+        "gold": "385",
+        "predicted": "24",
+        "correct": false,
+        "n_samples": 2
+      },
+      {
+        "question_idx": 6,
+        "unique_id": "2024-I-11",
+        "gold": "371",
+        "predicted": "65",
+        "correct": false,
+        "n_samples": 2
+      },
+      {
+        "question_idx": 7,
+        "unique_id": "2024-II-11",
+        "gold": "601",
+        "predicted": "6",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 8,
+        "unique_id": "2024-I-2",
+        "gold": "25",
+        "predicted": "25",
+        "correct": true,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 9,
+        "unique_id": "2024-II-6",
+        "gold": "55",
+        "predicted": "41",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 10,
+        "unique_id": "2024-I-7",
+        "gold": "540",
+        "predicted": "540",
+        "correct": true,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 11,
+        "unique_id": "2024-II-3",
+        "gold": "45",
+        "predicted": "0",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 12,
+        "unique_id": "2024-I-1",
+        "gold": "204",
+        "predicted": "204",
+        "correct": true,
+        "n_samples": 4
+      },
+      {
+        "question_idx": 13,
+        "unique_id": "2024-II-7",
+        "gold": "699",
+        "predicted": "1000",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 14,
+        "unique_id": "2024-I-6",
+        "gold": "294",
+        "predicted": "70",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 15,
+        "unique_id": "2024-I-13",
+        "gold": "110",
+        "predicted": "7",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 16,
+        "unique_id": "2024-I-15",
+        "gold": "721",
+        "predicted": "23",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 17,
+        "unique_id": "2024-II-15",
+        "gold": "315",
+        "predicted": "132",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 18,
+        "unique_id": "2024-II-10",
+        "gold": "468",
+        "predicted": "156",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 19,
+        "unique_id": "2024-II-9",
+        "gold": "902",
+        "predicted": "2",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 20,
+        "unique_id": "2024-II-14",
+        "gold": "211",
+        "predicted": "12",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 21,
+        "unique_id": "2024-II-5",
+        "gold": "80",
+        "predicted": "2",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 22,
+        "unique_id": "2024-I-9",
+        "gold": "480",
+        "predicted": "96",
+        "correct": false,
+        "n_samples": 2
+      },
+      {
+        "question_idx": 23,
+        "unique_id": "2024-II-2",
+        "gold": "236",
+        "predicted": "1",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 24,
+        "unique_id": "2024-II-1",
+        "gold": "73",
+        "predicted": "437",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 25,
+        "unique_id": "2024-I-10",
+        "gold": "113",
+        "predicted": "13",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 26,
+        "unique_id": "2024-II-8",
+        "gold": "127",
+        "predicted": "10",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 27,
+        "unique_id": "2024-I-14",
+        "gold": "104",
+        "predicted": "15",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 28,
+        "unique_id": "2024-I-5",
+        "gold": "104",
+        "predicted": "185",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 29,
+        "unique_id": "2024-II-13",
+        "gold": "321",
+        "predicted": "0",
+        "correct": false,
+        "n_samples": 2
+      }
+    ]
+  },
+  "beta_sc": {
+    "algorithm": "beta_sc",
+    "budget": 16,
+    "accuracy": 13.333333333333334,
+    "correct": 4,
+    "total": 30,
+    "avg_samples": 14.9,
+    "total_samples": 447,
+    "total_time_s": 324.57,
+    "avg_time_per_question_s": 10.82,
+    "per_question": [
+      {
+        "question_idx": 0,
+        "unique_id": "2024-II-4",
+        "gold": "33",
+        "predicted": "2",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 1,
+        "unique_id": "2024-II-12",
+        "gold": "23",
+        "predicted": "5",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 2,
+        "unique_id": "2024-I-4",
+        "gold": "116",
+        "predicted": "116",
+        "correct": true,
+        "n_samples": 11
+      },
+      {
+        "question_idx": 3,
+        "unique_id": "2024-I-3",
+        "gold": "809",
+        "predicted": "1620",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 4,
+        "unique_id": "2024-I-8",
+        "gold": "197",
+        "predicted": "235",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 5,
+        "unique_id": "2024-I-12",
+        "gold": "385",
+        "predicted": "6",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 6,
+        "unique_id": "2024-I-11",
+        "gold": "371",
+        "predicted": "129",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 7,
+        "unique_id": "2024-II-11",
+        "gold": "601",
+        "predicted": "3",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 8,
+        "unique_id": "2024-I-2",
+        "gold": "25",
+        "predicted": "25",
+        "correct": true,
+        "n_samples": 4
+      },
+      {
+        "question_idx": 9,
+        "unique_id": "2024-II-6",
+        "gold": "55",
+        "predicted": "56",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 10,
+        "unique_id": "2024-I-7",
+        "gold": "540",
+        "predicted": "540",
+        "correct": true,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 11,
+        "unique_id": "2024-II-3",
+        "gold": "45",
+        "predicted": "10",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 12,
+        "unique_id": "2024-I-1",
+        "gold": "204",
+        "predicted": "204",
+        "correct": true,
+        "n_samples": 4
+      },
+      {
+        "question_idx": 13,
+        "unique_id": "2024-II-7",
+        "gold": "699",
+        "predicted": "940",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 14,
+        "unique_id": "2024-I-6",
+        "gold": "294",
+        "predicted": "1225",
+        "correct": false,
+        "n_samples": 12
+      },
+      {
+        "question_idx": 15,
+        "unique_id": "2024-I-13",
+        "gold": "110",
+        "predicted": "2",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 16,
+        "unique_id": "2024-I-15",
+        "gold": "721",
+        "predicted": "23",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 17,
+        "unique_id": "2024-II-15",
+        "gold": "315",
+        "predicted": "15",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 18,
+        "unique_id": "2024-II-10",
+        "gold": "468",
+        "predicted": "312",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 19,
+        "unique_id": "2024-II-9",
+        "gold": "902",
+        "predicted": "110",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 20,
+        "unique_id": "2024-II-14",
+        "gold": "211",
+        "predicted": "14",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 21,
+        "unique_id": "2024-II-5",
+        "gold": "80",
+        "predicted": "2",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 22,
+        "unique_id": "2024-I-9",
+        "gold": "480",
+        "predicted": "80",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 23,
+        "unique_id": "2024-II-2",
+        "gold": "236",
+        "predicted": "5",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 24,
+        "unique_id": "2024-II-1",
+        "gold": "73",
+        "predicted": "234",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 25,
+        "unique_id": "2024-I-10",
+        "gold": "113",
+        "predicted": "4",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 26,
+        "unique_id": "2024-II-8",
+        "gold": "127",
+        "predicted": "9",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 27,
+        "unique_id": "2024-I-14",
+        "gold": "104",
+        "predicted": "4",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 28,
+        "unique_id": "2024-I-5",
+        "gold": "104",
+        "predicted": "0",
+        "correct": false,
+        "n_samples": 16
+      },
+      {
+        "question_idx": 29,
+        "unique_id": "2024-II-13",
+        "gold": "321",
+        "predicted": "0",
+        "correct": false,
+        "n_samples": 16
+      }
+    ]
+  }
+}
