@@ -113,45 +113,57 @@ class BetaSelfConsistency(SelfConsistency):
 
         all_responses: list[dict] = []
         pending = set(tasks)
+        accounted_tasks: set[asyncio.Task] = set()
         stopped_early = False
 
-        while pending:
-            done, pending = await asyncio.wait(
-                pending, return_when=asyncio.FIRST_COMPLETED
-            )
+        try:
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending, return_when=asyncio.FIRST_COMPLETED
+                )
 
-            # asyncio.wait may return several tasks at once. Account for every
-            # completed LM call before evaluating whether to stop.
-            all_responses.extend(task.result() for task in done)
+                # asyncio.wait may return several tasks at once. Account for every
+                # completed LM call before evaluating whether to stop.
+                accounted_tasks.update(done)
+                all_responses.extend(task.result() for task in done)
 
-            if len(all_responses) >= 2 and len(all_responses) < budget:
-                eligible_indices, projected = self._project_responses(all_responses)
+                if len(all_responses) >= 2 and len(all_responses) < budget:
+                    eligible_indices, projected = self._project_responses(all_responses)
 
-                if len(eligible_indices) >= 2:
-                    counts = Counter(projected)
-                    most_common = counts.most_common(2)
-                    v1 = most_common[0][1]
-                    v2 = most_common[1][1] if len(most_common) > 1 else 0
+                    if len(eligible_indices) >= 2:
+                        counts = Counter(projected)
+                        most_common = counts.most_common(2)
+                        v1 = most_common[0][1]
+                        v2 = most_common[1][1] if len(most_common) > 1 else 0
 
-                    prob = self.beta_stopping_probability(v1, v2)
+                        prob = self.beta_stopping_probability(v1, v2)
 
-                    if prob >= self.confidence_threshold:
-                        logger.info(
-                            "Early stop: %d/%d samples, P(majority stays)=%.4f >= %.4f",
-                            len(all_responses),
-                            budget,
-                            prob,
-                            self.confidence_threshold,
-                        )
-                        stopped_early = True
+                        if prob >= self.confidence_threshold:
+                            logger.info(
+                                "Early stop: %d/%d samples, "
+                                "P(majority stays)=%.4f >= %.4f",
+                                len(all_responses),
+                                budget,
+                                prob,
+                                self.confidence_threshold,
+                            )
+                            stopped_early = True
 
-            if stopped_early:
-                break
+                if stopped_early:
+                    break
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            outcomes = await asyncio.gather(*tasks, return_exceptions=True)
 
         if stopped_early:
-            for task in pending:
-                task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+            all_responses.extend(
+                outcome
+                for task, outcome in zip(tasks, outcomes)
+                if task not in accounted_tasks
+                and not isinstance(outcome, BaseException)
+            )
         else:
             logger.info(
                 "BetaSelfConsistency used all %d/%d samples",

@@ -226,19 +226,11 @@ class TestBetaSelfConsistencyEarlyStopping:
         assert len(result.responses) == 8
 
     @pytest.mark.asyncio
-    async def test_lower_threshold_stops_sooner(self, monkeypatch):
+    async def test_lower_threshold_stops_sooner(self):
         """Lower threshold requires fewer samples for the same agreement."""
-
-        async def wait_for_one(tasks, **kwargs):
-            assert kwargs["return_when"] is asyncio.FIRST_COMPLETED
-            completed = next(iter(tasks))
-            await completed
-            return {completed}, set(tasks) - {completed}
-
-        monkeypatch.setattr(asyncio, "wait", wait_for_one)
-
-        lm_strict = SequentialMockLM(["42"] * 8)
-        lm_relaxed = SequentialMockLM(["42"] * 8)
+        staggered_responses = [("42", index * 0.01) for index in range(8)]
+        lm_strict = DelayedMockLM(staggered_responses)
+        lm_relaxed = DelayedMockLM(staggered_responses)
 
         bsc_strict = BetaSelfConsistency(confidence_threshold=0.95)
         bsc_relaxed = BetaSelfConsistency(confidence_threshold=0.8)
@@ -291,6 +283,114 @@ class TestBetaSelfConsistencyEarlyStopping:
 
         assert len(result.responses) == budget
         assert result.usage.num_calls == len(result.responses)
+
+    @pytest.mark.asyncio
+    async def test_retains_responses_completed_during_cancellation_race(
+        self, monkeypatch
+    ):
+        """Successful tasks omitted from wait's done set are still retained."""
+
+        class UsageTrackingMockLM(SequentialMockLM):
+            async def agenerate_single(self, messages, **kwargs):
+                response = await super().agenerate_single(messages, **kwargs)
+                kwargs["usage_accumulator"].add(prompt=1, completion=1)
+                return response
+
+        async def wait_with_stale_pending(tasks, return_when):
+            task_list = list(tasks)
+            await asyncio.gather(*task_list)
+            midpoint = len(task_list) // 2
+            return set(task_list[:midpoint]), set(task_list[midpoint:])
+
+        monkeypatch.setattr(asyncio, "wait", wait_with_stale_pending)
+
+        budget = 8
+        lm = UsageTrackingMockLM(["42"] * budget)
+        bsc = BetaSelfConsistency(confidence_threshold=0.95)
+
+        result = await bsc.ainfer(lm, "test", budget=budget, return_response_only=False)
+
+        assert len(result.responses) == budget
+        assert result.usage.num_calls == len(result.responses)
+
+    @pytest.mark.asyncio
+    async def test_generation_failure_cleans_up_all_tasks(self):
+        """A failed generation cancels and awaits every sibling task."""
+
+        class FailingMockLM:
+            def __init__(self, budget):
+                self.budget = budget
+                self.call_count = 0
+                self.active_calls = 0
+                self.cancelled_calls = 0
+                self.all_started = asyncio.Event()
+
+            async def agenerate_single(self, messages, **kwargs):
+                call_index = self.call_count
+                self.call_count += 1
+                self.active_calls += 1
+                if self.call_count == self.budget:
+                    self.all_started.set()
+
+                try:
+                    await self.all_started.wait()
+                    if call_index == 0:
+                        raise ValueError("generation failed")
+                    await asyncio.sleep(10)
+                    return {"role": "assistant", "content": "42"}
+                except asyncio.CancelledError:
+                    self.cancelled_calls += 1
+                    raise
+                finally:
+                    self.active_calls -= 1
+
+        budget = 4
+        lm = FailingMockLM(budget)
+        bsc = BetaSelfConsistency(orchestrator=LMOrchestrator(max_concurrency=-1))
+
+        with pytest.raises(RuntimeError, match="1x ValueError"):
+            await bsc.ainfer(lm, "test", budget=budget)
+
+        assert lm.active_calls == 0
+        assert lm.cancelled_calls == budget - 1
+
+    @pytest.mark.asyncio
+    async def test_caller_cancellation_cleans_up_all_tasks(self):
+        """Cancelling ainfer cancels and awaits every generation task."""
+
+        class SlowMockLM:
+            def __init__(self, budget):
+                self.budget = budget
+                self.active_calls = 0
+                self.cancelled_calls = 0
+                self.all_started = asyncio.Event()
+
+            async def agenerate_single(self, messages, **kwargs):
+                self.active_calls += 1
+                if self.active_calls == self.budget:
+                    self.all_started.set()
+
+                try:
+                    await asyncio.sleep(10)
+                    return {"role": "assistant", "content": "42"}
+                except asyncio.CancelledError:
+                    self.cancelled_calls += 1
+                    raise
+                finally:
+                    self.active_calls -= 1
+
+        budget = 4
+        lm = SlowMockLM(budget)
+        bsc = BetaSelfConsistency(orchestrator=LMOrchestrator(max_concurrency=-1))
+        inference_task = asyncio.create_task(bsc.ainfer(lm, "test", budget=budget))
+        await lm.all_started.wait()
+
+        inference_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await inference_task
+
+        assert lm.active_calls == 0
+        assert lm.cancelled_calls == budget
 
 
 class TestBetaSelfConsistencyProjection:
