@@ -109,3 +109,8 @@ include = [
     "its_hub.integration",
     "its_hub.integration.*",
 ]
+
+[tool.coverage.run]
+omit = [
+    "its_hub/integration/ext_proc/proto/*",
+]
