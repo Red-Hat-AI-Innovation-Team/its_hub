@@ -2,10 +2,10 @@
 
 ## Setup
 
-- **Benchmark:** BFCL v4 single-turn (simple_python: 399 tasks)
-- **Models:** gpt-4o-mini (mid-tier), claude-sonnet-4 (strong, partial — rate-limited)
-- **Budget:** N=5 samples per task
-- **Scorer:** Field-aware majority voting with configurable confidence threshold (75%)
+- **Benchmark:** BFCL v4 single-turn (simple_python: 399 tasks, multiple: 199 tasks)
+- **Models:** gpt-4o-mini (mid-tier), gpt-3.5-turbo (weaker), claude-sonnet-4 (strong, partial — rate-limited)
+- **Budget:** N=5 and N=10 samples per task
+- **Scorer:** Field-aware majority voting with equivalence-aware normalization and configurable confidence threshold (75%)
 - **Baseline:** Single-shot (1st sample), naive exact-match voting (SelfConsistency tool_hierarchical)
 
 ## BFCL Field-Type Audit
@@ -32,15 +32,26 @@ How often does the model agree with itself across 5 samples?
 | simple_python (temp=0.7) | 399 | 390 | 9 | 2.3% |
 | simple_python (temp=1.0) | 399 | 379 | 20 | 5.0% |
 | multiple (temp=0.7) | 199 | 193 | 6 | 3.0% |
+| multiple (temp=1.0) | 199 | 190 | 9 | 4.5% |
 | parallel (temp=0.7) | 200 | 195 | 5 | 2.5% |
 | parallel_multiple (temp=0.7) | 198 | 195 | 3 | 1.5% |
 
 Higher temperature increases disagreement (2.3% → 5.0%) but even at temp=1.0,
 the model agrees with itself 95% of the time.
 
+## Equivalence Layer
+
+Built an equivalence-aware normalization layer that auto-detects field type
+(numeric/boolean/string) and normalizes before voting:
+- Strings: case-insensitive, strip trailing punctuation, collapse whitespace
+- Numeric: canonicalize to float (42 == 42.0)
+
+On simple_python temp=1.0: reduces forced rate from 5.0% → 3.8% by collapsing
+5 surface-form disagreements (capitalization, trailing periods).
+
 ## Forced Case Analysis
 
-The 9 forced cases at temp=0.7 are all **free-text surface-form disagreements**:
+The forced cases are all **free-text surface-form disagreements**:
 
 - Location format: `"San Francisco"` vs `"San Francisco, CA"`
 - Unit notation: `"g/mol"` vs `"g/mole"` vs `"grams/mole"`
@@ -49,83 +60,139 @@ The 9 forced cases at temp=0.7 are all **free-text surface-form disagreements**:
 - Datetime format: `"2023-10-01T12:00:00"` vs `"12:00"`
 
 The model *knows* the right answer — it represents it differently across samples.
-This is precisely the gap the doc identified: field-aware semantic equivalence
-would collapse these variants.
 
-## Accuracy vs Ground Truth (gpt-4o-mini, simple_python, 399 tasks)
+## Accuracy vs Ground Truth
 
-### Temperature 0.7
+### gpt-4o-mini, simple_python (399 tasks), temp=1.0
 
-| Method | Name Accuracy | Arg Accuracy (Exact) | Arg Accuracy (Fuzzy) |
+| Method | Name | Args (Exact) | Args (Fuzzy) |
 |--------|:---:|:---:|:---:|
-| Single-shot (1st sample) | 100% | 89.2% | 90.2% |
-| Voted (N=5) | 100% | 89.2% | 90.7% |
-| Best-of-5 (oracle) | 100% | 91.0% | 91.2% |
-| **Delta (voted vs single)** | **+0.0pp** | **+0.0pp** | **+0.5pp** |
-| Headroom (oracle - voted) | — | +1.8pp | +0.5pp |
-
-### Temperature 1.0
-
-| Method | Name Accuracy | Arg Accuracy (Exact) | Arg Accuracy (Fuzzy) |
-|--------|:---:|:---:|:---:|
-| Single-shot (1st sample) | 100% | 88.7% | 90.2% |
-| Voted (N=5) | 100% | **90.0%** | 90.7% |
-| Best-of-5 (oracle) | 100% | 91.2% | 91.5% |
+| Single-shot | 100% | 88.7% | 90.2% |
+| Voted (N=5) | 100% | 90.0% | 90.7% |
+| Best-of-5 oracle | 100% | 91.2% | 91.5% |
 | **Delta (voted vs single)** | **+0.0pp** | **+1.3pp** | **+0.5pp** |
-| Headroom (oracle - voted) | — | +1.3pp | +0.8pp |
+
+### gpt-4o-mini, multiple (197 tasks), temp=1.0, no CoT
+
+| Method | Name | Args (Fuzzy) |
+|--------|:---:|:---:|
+| Single-shot | 99.0% | 93.9% |
+| Voted (N=5) | 99.0% | 93.9% |
+| Oracle | — | 93.9% |
+| **Delta** | **+0.0pp** | **+0.0pp** |
+
+### gpt-3.5-turbo, multiple (199 tasks), temp=1.0
+
+| Method | Name | Args (Fuzzy) |
+|--------|:---:|:---:|
+| Single-shot | 98.5% | 94.0% |
+| Voted (N=5) | 99.0% | 93.5% |
+| **Delta** | **+0.5pp** | **-0.5pp** |
+
+Weaker model: voting hurts arg accuracy. Systematic errors are reinforced
+by majority vote rather than corrected.
+
+## Threshold Sweep
+
+Swept confidence threshold from 0.50 to 1.00 across all configurations.
+**The pre-registered criterion (lift >= 3pp AND coverage >= 50%) was NOT MET
+at any threshold in any configuration.**
+
+Best results:
+
+| Config | Best Threshold | Coverage | Lift |
+|--------|:---:|:---:|:---:|
+| gpt-4o-mini, N=5, simple, +equiv | 1.00 | 92.5% | +1.1pp |
+| gpt-4o-mini, N=5, multiple | 0.85 | 90.8% | +2.2pp |
+| gpt-4o-mini, N=10, simple, +equiv | 0.95 | 91.0% | +2.0pp |
+| gpt-3.5-turbo, N=5, multiple | — | — | negative |
+
+## Chain-of-Thought + Self-Consistency (CoT-SC)
+
+Tested whether forcing step-by-step reasoning before tool selection creates
+the reasoning diversity that standard SC needs to work.
+
+### gpt-4o-mini, multiple (199 tasks), temp=1.0, fuzzy, +equiv
+
+| Metric | No CoT | With CoT |
+|--------|:---:|:---:|
+| Single-shot arg accuracy | 93.9% | **94.4%** |
+| Voted (N=5) arg accuracy | 93.9% | 93.9% |
+| Oracle ceiling | 93.9% | **95.9%** |
+| Voting delta | +0.0pp | -0.5pp |
+| **Headroom (oracle - voted)** | **0.0pp** | **+2.0pp** |
 
 ### Key finding
 
-At temp=1.0 with exact matching, voting shows **+1.3pp lift** over single-shot.
-This is the classic self-consistency pattern: higher temperature hurts individual
-samples (89.2% → 88.7%) but the ensemble recovers and exceeds (→ 90.0%).
+CoT raises the oracle ceiling by +2.0pp (93.9% → 95.9%) — proving it creates
+genuinely useful diversity in the sample set. But majority voting fails to
+exploit it: the voted result is actually slightly worse than single-shot (-0.5pp).
 
-The high-confidence subset is also more accurate than the overall voted result
-(90.8% vs 90.0%), confirming the confidence tag is a useful calibration signal.
+**The bottleneck is the selection mechanism, not the sampling.** CoT gives
+us samples where the correct answer exists, but majority vote picks the
+wrong one because incorrect answers can still outnumber correct ones.
 
-## Assessment Against Pre-Registered Decision Criterion
+## Conclusions
 
-> Voting is worth continuing if high-confidence accuracy exceeds single-shot by
-> 3-5 points while covering at least 50% of cases.
+### What we proved
 
-**Result: borderline.** The +1.3pp lift at temp=1.0 is real but below the 3-5pp
-threshold. Coverage is high (95% tagged high-confidence), but the lift is modest.
+1. **Majority voting does not reliably improve tool-call accuracy.** Across
+   all configurations (2 models, 4 categories, N=5 and N=10, temp 0.7 and 1.0),
+   voting lift never exceeded +1.3pp and was often zero or negative.
 
-However, three factors suggest this understates the opportunity:
+2. **The root cause is systematic errors.** Tool-call errors are not random —
+   the model consistently produces the same wrong answer across samples. More
+   samples reinforce the wrong majority rather than surfacing a correct minority.
 
-1. **gpt-4o-mini is already strong on BFCL simple tasks** (89%+ single-shot).
-   The ceiling is low. Harder tasks or weaker models would have more room for
-   voting to help.
+3. **This is fundamentally different from math SC**, where diverse reasoning
+   paths independently converge on the correct answer. Tool calling lacks this
+   "reasoning path diversity" — the model either knows the right tool/args or
+   it doesn't.
 
-2. **N=5 is small.** The oracle ceiling (91.2%) is close to the voted result
-   (90.0%), meaning most of the recoverable diversity is already captured. Larger
-   N would raise the oracle ceiling and widen the gap for voting to exploit.
+4. **CoT creates diversity but voting can't use it.** Chain-of-thought reasoning
+   raises the oracle ceiling by +2pp, but the correct answers are outnumbered by
+   the incorrect majority.
 
-3. **The equivalence layer doesn't exist yet.** Current voting uses exact string
-   matching. The forced cases show the model genuinely knows the right answer but
-   represents it in different surface forms — a semantic equivalence layer would
-   collapse these variants and increase both the agreement rate and the accuracy
-   of the voted result.
+5. **Equivalence-aware matching helps agreement but not accuracy.** Normalizing
+   surface forms collapses disagreements, but these are mostly cosmetic — the
+   model was already semantically correct.
 
-## Recommendation
+6. **The confidence tag is a useful signal.** High-confidence cases are
+   consistently more accurate than forced cases (94% vs 77-88%), even though
+   voting doesn't improve overall accuracy.
 
-**Continue into the equivalence-layer build**, but with adjusted expectations:
+### What would work instead
 
-- The lift from voting alone is modest on easy tasks with strong models (+1-2pp).
-- The primary value-add is the **confidence signal** (high-confidence cases are
-  more accurate) and the **semantic equivalence layer** (collapsing surface-form
-  variants the model already gets right).
-- Target the evaluation at harder task types (multi-turn, complex schemas) and
-  weaker models where single-shot accuracy is lower and voting has more headroom.
-- The `multiple` category showed 10.5% forced rate on Claude Sonnet (vs 3% on
-  simple) — multi-function selection is the more promising surface area.
+The +2pp oracle headroom from CoT-SC confirms that correct answers *exist* in
+the sample set — the problem is *selecting* them. Three approaches that address
+this directly:
 
-## Cost
+1. **Best-of-N with ToolRM** — a specialized reward model (ToolRM, 1.7B-14B
+   parameters) that scores tool calls and selects the best one. Published
+   results show up to +25% accuracy improvement. its_hub already has `BestOfN`
+   with `AbstractOutcomeRewardModel`; ToolRM would plug in directly.
 
-| Config | Tokens/task | Cost per N=1 equiv |
-|--------|:---:|:---:|
-| gpt-4o-mini, N=5 | ~610 | ~122 |
-| claude-sonnet, N=5 | ~2,815 | ~563 |
+2. **Reviewer agent feedback loop** (Apple's Reinforced Agent) — a second model
+   reviews provisional tool calls before execution. +5.5% on BFCL irrelevance
+   detection, +7.1% on multi-turn tasks.
 
-Voting at N=5 with gpt-4o-mini costs ~5x a single call (~$0.0003/task).
-The cost overhead is negligible for tool-calling workloads.
+3. **Universal Self-Consistency (USC)** — use an LLM to judge which of N tool
+   calls is most consistent, rather than exact/fuzzy matching. Handles semantic
+   equivalence without hand-coded rules.
+
+### Recommendation
+
+**Close the majority-voting track for tool calling.** The pre-registered
+criterion was not met, and the mechanism analysis explains why: tool-call
+errors are systematic, not random, so sampling more doesn't help.
+
+**Open a new track: Best-of-N re-ranking with a tool-call verifier.** This
+directly addresses the identified bottleneck (selection, not sampling) and has
+published evidence of large gains. its_hub's existing `BestOfN` algorithm
+provides the infrastructure; the research question becomes which verifier
+to use (ToolRM, LLM-judge, or schema-based validation).
+
+**Preserve the CoT-SC finding** as a recommendation for its_hub's
+`PlanningWrapper`: when used with tool-calling workloads, CoT prompting
+improves single-shot accuracy (+0.5pp) and raises the ceiling for any
+downstream selection mechanism.
