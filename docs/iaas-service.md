@@ -18,6 +18,49 @@ The IaaS service provides an OpenAI-compatible API with inference-time scaling a
 └──────────────┘    └─────────────────┘    └──────────────────┘
 ```
 
+## Activation Model
+
+ITS activation is conveyed **in-band** via the request body and optional HTTP headers.
+The `budget` field in the request body triggers ITS; without it, the service default is
+used.
+
+### Per-Request Configuration
+
+| Source | Field / Header | Description | Priority |
+|---|---|---|---|
+| HTTP header | `X-ITS-Budget` | Override compute budget | 1 (highest) |
+| HTTP header | `X-ITS-Endpoint` | Override LLM endpoint | 1 |
+| HTTP header | `X-ITS-API-Key` | Override API key | 1 |
+| Request body | `budget` | Compute budget | 2 |
+| `/configure` | `budget`, `endpoint`, `api_key` | Service defaults | 3 (lowest) |
+
+Priority chain: **header > body > service default**. Headers are intended for Envoy
+ext_proc routing but are also accepted on the standalone IaaS endpoint.
+
+### Algorithm Selection
+
+The algorithm is configured globally via `POST /configure` with the `alg` field.
+Per-request algorithm selection is not supported. Currently only `self-consistency` is
+available through the gateway.
+
+## API Key Handling
+
+API keys can enter the system through three paths:
+
+1. **`/configure` body** — stored in memory as the service default; used when no
+   per-request key is provided
+2. **`X-ITS-API-Key` header** — per-request override, highest priority
+3. **Request body** — not supported; keys must come via `/configure` or headers
+
+**Security properties:**
+
+- Keys are **never logged** — the gateway logs endpoint and model but not credentials
+- Keys are **hashed** (SHA-256, truncated to 16 hex chars) in LM cache keys to prevent
+  credential cross-contamination between requests using different API keys
+- Keys are **not persisted** to disk — they exist only in memory for the lifetime of the
+  service process
+- On shutdown, all cached LM clients (and their associated keys) are cleared
+
 ## Prerequisites
 
 - **Software**: Python 3.11+, its_hub library
@@ -285,6 +328,56 @@ CUDA_VISIBLE_DEVICES=1 uv run its-iaas \
   --host 127.0.0.1 --port 8109 > iaas.log 2>&1 &
 ```
 
+## Failure Policy
+
+| Failure | HTTP Status | Response |
+|---|---|---|
+| Service not configured (no `/configure` call) | 200 (SSE) / 400 | `"Service not configured"` error in stream or HTTP 400 |
+| Invalid budget (non-integer, out of range) | 400 | `"Bad Request"` with detail |
+| Unsupported algorithm | 400 | `"Algorithm 'X' not supported"` |
+| Invalid regex pattern in `/configure` | 400 | Regex compilation error detail |
+| Downstream LLM unreachable / timeout | 500 | `"Generation failed. Check server logs for details."` |
+| Algorithm execution error | 500 | `"Generation failed. Check server logs for details."` |
+| `/configure` internal error | 500 | `"Configuration failed. Check server logs for details."` |
+
+Error responses in the streaming path (`stream: true`) are delivered as SSE `data:` frames
+with an `error` field, followed by `data: [DONE]`. The HTTP status is always 200 for
+streaming responses (per SSE convention).
+
+Non-streaming errors return standard HTTP error responses with a `detail` field.
+Internal error details are **never exposed** to clients — they are logged server-side at
+ERROR level.
+
+## Streaming
+
+The IaaS service accepts `"stream": true` in the request body. However, ITS algorithms
+require all candidate responses before selecting the best one, so **true token-level
+streaming is not possible**.
+
+Instead, the service **buffers the full ITS result** and then emits it as SSE chunks:
+
+1. The algorithm generates all candidates and selects the winner
+2. The selected response is emitted as one or more `data:` frames in OpenAI SSE format
+3. A final `data: [DONE]` frame signals completion
+
+For content responses, a single content chunk is emitted. For tool call responses, each
+tool call is emitted as a separate chunk followed by a `finish_reason: "tool_calls"` frame.
+
+Clients using the OpenAI SDK with `stream=True` will work correctly — the response just
+arrives as a burst rather than incrementally.
+
+## Restart and Scaling
+
+- **State**: The service holds an in-memory LM client cache (LRU, default 64 entries),
+  a gateway instance, and the service config set via `/configure`. No state is persisted
+  to disk.
+- **Restart**: Restarting clears all cached LM clients and the service config.
+  `/configure` must be called again after restart.
+- **Horizontal scaling**: Multiple IaaS instances can run independently. Each maintains
+  its own LM client cache, config, and gateway. There is no shared state between
+  instances. A load balancer must route `/configure` to all instances or each instance
+  must be configured independently.
+
 ## API Endpoints
 
 ### Configuration
@@ -416,6 +509,20 @@ curl -X POST http://localhost:8108/v1/chat/completions \
   }'
 ```
 
+### Header Stripping
+
+When deployed behind Envoy, `X-ITS-*` headers are stripped in two layers to ensure
+upstream LLM services never see ITS metadata:
+
+1. **Envoy route-level**: The pass-through route includes `request_headers_to_remove`
+   for `X-ITS-Budget`, `X-ITS-Endpoint`, and `X-ITS-API-Key`, stripping them before
+   forwarding to the LLM upstream.
+2. **ext_proc code-level**: The external processor strips any stray `X-ITS-*` headers
+   from requests it processes, as a defense-in-depth measure.
+
+On the IaaS route, headers are preserved — the IaaS service reads them for per-request
+configuration overrides.
+
 ### Generating the Envoy Config
 
 The bundled Envoy config can be printed and customized:
@@ -429,3 +536,5 @@ its-iaas --print-config > envoy_config.yaml
 ```
 
 See the config comments for customization options (ports, timeouts, failure modes).
+
+For standalone ext_proc deployment (without IaaS), see [ext_proc Gateway Guide](ext-proc-gateway.md).
