@@ -114,7 +114,8 @@ _ROUTE_TO_IAAS = ext_proc_pb2.ProcessingResponse(
                         header=base_pb2.HeaderValue(
                             key=_ITS_ROUTE_HEADER,
                             raw_value=_ITS_ROUTE_VALUE.encode(),
-                        )
+                        ),
+                        append_action=base_pb2.HeaderValueOption.OVERWRITE_IF_EXISTS_OR_ADD,
                     ),
                 ],
             ),

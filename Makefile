@@ -19,7 +19,7 @@ help:
 	@echo "  make proto-clean    - Remove generated proto files"
 	@echo ""
 	@echo "Service Commands:"
-	@echo "  make iaas-start       - Start IaaS service on localhost:8108"
+	@echo "  make iaas-start       - Start IaaS service on localhost:8109"
 	@echo "  make iaas-health      - Check IaaS service health"
 	@echo "  make envoy-stack      - Start Envoy proxy + gRPC service together"
 	@echo "  make envoy-stack-stop - Stop Envoy stack"
@@ -183,12 +183,12 @@ envoy-iaas-stack:
 	@echo "Starting IaaS stack (Envoy + ext_proc + IaaS)..."
 	@echo "Logs will be written to:"
 	@echo "  - envoy.log (Envoy proxy on port 8108)"
-	@echo "  - ext-proc.log (gRPC ext_proc on port 50051)"
+	@echo "  - iaas-ext-proc.log (gRPC ext_proc on port 50051)"
 	@echo "  - iaas.log (IaaS FastAPI on port 8109)"
 	@echo ""
 	@echo "Press Ctrl+C to stop all services"
 	@trap 'kill 0' INT; \
-	(uv run its-iaas-ext-proc --port 50051 2>&1 | tee ext-proc.log) & \
+	(uv run its-iaas-ext-proc --port 50051 2>&1 | tee iaas-ext-proc.log) & \
 	(uv run its-iaas --host 127.0.0.1 --port 8109 2>&1 | tee iaas.log) & \
 	(envoy -c its_hub/integration/iaas/envoy_config.yaml 2>&1 | tee envoy.log) & \
 	wait
