@@ -14,16 +14,9 @@ from its_hub.api import (
     AbstractScalingResult,
 )
 from its_hub.core.algorithms.adaptive_self_consistency import AdaptiveSelfConsistency
+from its_hub.core.algorithms.beta_self_consistency import BetaSelfConsistency
 from its_hub.core.algorithms.bon import BestOfN
 from its_hub.core.algorithms.self_consistency import SelfConsistency
-
-# Optional - requires scipy (install with: pip install its_hub[experimental])
-try:
-    from its_hub.core.algorithms.beta_self_consistency import BetaSelfConsistency
-
-    _has_beta = True
-except ImportError:
-    _has_beta = False
 
 __version__ = version("its_hub")
 
@@ -40,12 +33,10 @@ __all__ = [  # noqa: RUF022
     "AbstractScalingResult",
     # Algorithms
     "AdaptiveSelfConsistency",
+    "BetaSelfConsistency",
     "SelfConsistency",
     "BestOfN",
 ]
-
-if _has_beta:
-    __all__.append("BetaSelfConsistency")
 
 # Optional LM implementations - only available if [lm] extra is installed
 try:

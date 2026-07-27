@@ -2,8 +2,7 @@ import asyncio
 import logging
 from collections import Counter
 from collections.abc import Callable
-
-from scipy.special import betainc
+from math import comb
 
 from its_hub.api import (
     AbstractLanguageModel,
@@ -31,10 +30,12 @@ class BetaSelfConsistency(SelfConsistency):
     This fully utilizes vLLM's continuous batching while still getting
     the sample-efficiency benefits of adaptive stopping.
 
-    The stopping criterion uses the regularized incomplete beta function:
-        P(majority stays) = 1 - I_{0.5}(v1 + 1, v2 + 1)
-    where v1 is the count of the most frequent answer and v2 is the count of
-    the second most frequent answer.
+    Let v1 and v2 be the vote counts for the two most common answers. Starting
+    from a uniform Beta(1, 1) prior, their posterior is Beta(v1 + 1, v2 + 1).
+    Generation stops when the posterior probability that the leading answer's
+    vote share exceeds 0.5 reaches the configured threshold:
+
+        P(leader's vote share > 0.5) = 1 - I_0.5(v1 + 1, v2 + 1)
 
     Reference: "Let's Sample Step by Step: Adaptive-Consistency for Efficient
     Reasoning and Coding with LLMs" (EMNLP 2023)
@@ -75,8 +76,12 @@ class BetaSelfConsistency(SelfConsistency):
         Returns:
             Probability in [0, 1] that the majority answer stays dominant.
         """
-        # note that betainc is the CDF of the beta distribution
-        return 1.0 - float(betainc(v1 + 1, v2 + 1, 0.5))
+        # At x=0.5 and with integer parameters, the beta CDF is exactly the
+        # lower tail of a fair binomial distribution. This avoids requiring
+        # scipy.special.betainc.
+        num_trials = v1 + v2 + 1
+        beta_cdf = sum(comb(num_trials, k) for k in range(v2 + 1)) / (1 << num_trials)
+        return 1.0 - beta_cdf
 
     async def ainfer(
         self,
@@ -93,6 +98,8 @@ class BetaSelfConsistency(SelfConsistency):
         messages_list = chat_messages.to_chat_messages()
 
         async def _generate_one() -> dict:
+            # A one-item batch lets each response complete independently while
+            # the shared orchestrator still enforces its concurrency limit.
             responses = await self.orchestrator.agenerate(
                 lm,
                 [messages_list],
@@ -113,6 +120,8 @@ class BetaSelfConsistency(SelfConsistency):
                 pending, return_when=asyncio.FIRST_COMPLETED
             )
 
+            # asyncio.wait may return several tasks at once. Account for every
+            # completed LM call before evaluating whether to stop.
             all_responses.extend(task.result() for task in done)
 
             if len(all_responses) >= 2 and len(all_responses) < budget:
