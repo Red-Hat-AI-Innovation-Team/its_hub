@@ -1,5 +1,6 @@
 """Tests for the Inference-as-a-Service (IaaS) integration."""
 
+import logging
 from collections import Counter
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -727,3 +728,104 @@ class TestExtProcessor:
         removed = list(headers_resp.header_mutation.remove_headers)
         assert "x-its-endpoint" in removed
         assert "x-its-api-key" in removed
+
+
+class TestAppServer:
+    """Tests for app_server.py entry point."""
+
+    def test_configure_logging(self):
+        from its_hub.integration.iaas.app_server import _configure_logging
+
+        _configure_logging("DEBUG")
+        assert (
+            logging.getLogger("its_hub.integration.iaas.app").level == logging.DEBUG
+        )
+
+    def test_configure_logging_invalid_level(self):
+        from its_hub.integration.iaas.app_server import _configure_logging
+
+        with pytest.raises(ValueError, match="Invalid log level"):
+            _configure_logging("BOGUS")
+
+    def test_parse_args_defaults(self):
+        from its_hub.integration.iaas.app_server import _parse_args
+
+        with patch("sys.argv", ["its-iaas"]):
+            args = _parse_args()
+        assert args.host == "127.0.0.1"
+        assert args.port == 8109
+        assert args.log_level == "INFO"
+        assert args.dev is False
+        assert args.print_config is False
+
+    def test_print_config(self, capsys):
+        from its_hub.integration.iaas.app_server import _print_config
+
+        _print_config()
+        output = capsys.readouterr().out
+        assert "envoy" in output.lower()
+
+    def test_serve_calls_uvicorn(self):
+        from its_hub.integration.iaas.app_server import serve
+
+        with patch("its_hub.integration.iaas.app_server.uvicorn") as mock_uvicorn:
+            serve(host="127.0.0.1", port=9999)
+            mock_uvicorn.run.assert_called_once()
+            call_kwargs = mock_uvicorn.run.call_args
+            assert call_kwargs.kwargs["host"] == "127.0.0.1"
+            assert call_kwargs.kwargs["port"] == 9999
+
+    def test_main_print_config(self, capsys):
+        from its_hub.integration.iaas.app_server import main
+
+        with patch("sys.argv", ["its-iaas", "--print-config"]):
+            main()
+        output = capsys.readouterr().out
+        assert "envoy" in output.lower()
+
+    def test_main_missing_uvicorn(self):
+        from its_hub.integration.iaas import app_server
+
+        with (
+            patch("sys.argv", ["its-iaas"]),
+            patch.object(app_server, "uvicorn", None),
+            pytest.raises(SystemExit),
+        ):
+            app_server.main()
+
+
+class TestGrpcServer:
+    """Tests for grpc_server.py entry point."""
+
+    def test_configure_logging(self):
+        from its_hub.integration.iaas.grpc_server import _configure_logging
+
+        _configure_logging("WARNING")
+        assert (
+            logging.getLogger("its_hub.integration.iaas.ext_processor").level
+            == logging.WARNING
+        )
+
+    def test_configure_logging_invalid_level(self):
+        from its_hub.integration.iaas.grpc_server import _configure_logging
+
+        with pytest.raises(ValueError, match="Invalid log level"):
+            _configure_logging("BOGUS")
+
+    def test_parse_args_defaults(self):
+        from its_hub.integration.iaas.grpc_server import _parse_args
+
+        with patch("sys.argv", ["its-iaas-ext-proc"]):
+            args = _parse_args()
+        assert args.port == 50051
+        assert args.log_level == "INFO"
+
+    def test_main_missing_grpc(self):
+        from its_hub.integration.iaas import grpc_server
+
+        with (
+            patch("sys.argv", ["its-iaas-ext-proc"]),
+            patch.object(grpc_server, "grpc", None),
+            pytest.raises(SystemExit),
+        ):
+            grpc_server.main()
