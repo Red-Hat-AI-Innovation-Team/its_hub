@@ -37,7 +37,7 @@ help:
 	@echo "  make upgrade-protos - Restore proto submodules to pinned commits from .gitmodules"
 
 # Directories
-PROTO_OUT_DIR := its_hub/integration/ext_proc/proto
+PROTO_OUT_DIR := its_hub/integration/proto
 THIRD_PARTY := third_party
 
 # Proto source directories
@@ -172,7 +172,7 @@ envoy-stack-stop:
 
 # Start IaaS service on localhost:8109
 iaas-start:
-	uv run its-iaas --host 0.0.0.0 --port 8109
+	uv run its-iaas --host 127.0.0.1 --port 8109
 
 # Check IaaS service health
 iaas-health:
@@ -189,7 +189,7 @@ envoy-iaas-stack:
 	@echo "Press Ctrl+C to stop all services"
 	@trap 'kill 0' INT; \
 	(uv run its-iaas-ext-proc --port 50051 2>&1 | tee ext-proc.log) & \
-	(uv run its-iaas --host 0.0.0.0 --port 8109 2>&1 | tee iaas.log) & \
+	(uv run its-iaas --host 127.0.0.1 --port 8109 2>&1 | tee iaas.log) & \
 	(envoy -c its_hub/integration/iaas/envoy_config.yaml 2>&1 | tee envoy.log) & \
 	wait
 

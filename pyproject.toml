@@ -92,7 +92,7 @@ research = [
 ]
 
 [tool.setuptools.package-data]
-"its_hub.integration.ext_proc.proto" = ["**/*.py"]
+"its_hub.integration.proto" = ["**/*.py"]
 "its_hub.integration.ext_proc" = ["envoy_config.yaml"]
 "its_hub.integration.iaas" = ["envoy_config.yaml"]
 
@@ -110,4 +110,9 @@ include = [
     "its_hub.core.*",
     "its_hub.integration",
     "its_hub.integration.*",
+]
+
+[tool.coverage.run]
+omit = [
+    "its_hub/integration/proto/*",
 ]

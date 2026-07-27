@@ -190,8 +190,6 @@ results/
 
 .its-hub/
 
-# Envoy ext_proc
-its_hub/integration/ext_proc/proto/
+# Generated Envoy proto files
+its_hub/integration/proto/
 third_party/.submodules-initialized
-envoy.log
-envoy-grpc.log
