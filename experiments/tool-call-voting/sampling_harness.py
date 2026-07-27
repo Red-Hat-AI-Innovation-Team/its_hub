@@ -251,6 +251,16 @@ async def _litellm_sample(
     return responses, cost
 
 
+COT_SYSTEM_PROMPT = """Before selecting a function and its arguments, reason step by step:
+
+1. What is the user asking for?
+2. Which available function best addresses this request?
+3. What are the required parameters? What values should they have based on the user's query?
+4. Are there any optional parameters that should be set?
+
+Think through each step, then make your function call."""
+
+
 async def sample_and_score(
     model: str,
     task: dict,
@@ -261,7 +271,14 @@ async def sample_and_score(
     prompt, tools = build_tool_call_prompt(task)
     task_id = task.get("id", "unknown")
 
-    messages = [{"role": "user", "content": prompt}]
+    use_cot = os.environ.get("COT", "").lower() in ("1", "true", "yes")
+    if use_cot:
+        messages = [
+            {"role": "system", "content": COT_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+    else:
+        messages = [{"role": "user", "content": prompt}]
     responses, cost = await _litellm_sample(model, messages, tools, budget)
 
     # Extract tool calls from responses
