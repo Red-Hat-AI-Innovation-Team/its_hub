@@ -293,6 +293,107 @@ class TestChatCompletions:
         assert response.status_code == 422
 
 
+class TestStreamingChatCompletions:
+    """Tests for the SSE streaming path (_stream_chat_completions)."""
+
+    def _parse_sse(self, response):
+        """Parse SSE lines from a streaming response into data payloads."""
+        import json
+
+        chunks = []
+        for line in response.text.splitlines():
+            if line.startswith("data: "):
+                payload = line[len("data: "):]
+                if payload == "[DONE]":
+                    chunks.append("[DONE]")
+                else:
+                    chunks.append(json.loads(payload))
+        return chunks
+
+    def _configure_and_mock(self, iaas_client, endpoint, mock_return=None, side_effect=None):
+        _state.config.endpoint = endpoint
+        _state.config.model = TEST_CONSTANTS["DEFAULT_MODEL_NAME"]
+        _state.config.api_key = TEST_CONSTANTS["DEFAULT_API_KEY"]
+        mock_gw = MagicMock()
+        if side_effect:
+            mock_gw.arun_chat_completion = AsyncMock(side_effect=side_effect)
+        else:
+            mock_gw.arun_chat_completion = AsyncMock(return_value=mock_return)
+        _state.gateway = mock_gw
+        return mock_gw
+
+    def test_stream_content_response(self, iaas_client, vllm_endpoint):
+        self._configure_and_mock(
+            iaas_client, vllm_endpoint, mock_return=_mock_gateway_result("Hello world")
+        )
+
+        request_data = TestDataFactory.create_chat_completion_request(budget=4)
+        request_data["stream"] = True
+        response = iaas_client.post("/v1/chat/completions", json=request_data)
+        assert response.status_code == 200
+
+        chunks = self._parse_sse(response)
+        assert len(chunks) == 3
+        assert chunks[0]["choices"][0]["delta"]["content"] == "Hello world"
+        assert chunks[1]["choices"][0]["finish_reason"] == "stop"
+        assert chunks[2] == "[DONE]"
+
+    def test_stream_tool_call_response(self, iaas_client, vllm_endpoint):
+        tool_call_result = {
+            "message": {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_abc123",
+                        "function": {"name": "calculator", "arguments": '{"x": 1}'},
+                    }
+                ],
+            },
+            "usage": {"prompt_tokens": 5, "completion_tokens": 10, "total_tokens": 15, "num_calls": 1},
+        }
+        self._configure_and_mock(iaas_client, vllm_endpoint, mock_return=tool_call_result)
+
+        request_data = TestDataFactory.create_chat_completion_request(budget=4)
+        request_data["stream"] = True
+        response = iaas_client.post("/v1/chat/completions", json=request_data)
+        assert response.status_code == 200
+
+        chunks = self._parse_sse(response)
+        assert len(chunks) == 3
+        tc_delta = chunks[0]["choices"][0]["delta"]["tool_calls"][0]
+        assert tc_delta["function"]["name"] == "calculator"
+        assert chunks[1]["choices"][0]["finish_reason"] == "tool_calls"
+        assert chunks[2] == "[DONE]"
+
+    def test_stream_not_configured(self, iaas_client):
+        request_data = TestDataFactory.create_chat_completion_request(budget=4)
+        request_data["stream"] = True
+        response = iaas_client.post("/v1/chat/completions", json=request_data)
+        assert response.status_code == 200
+
+        chunks = self._parse_sse(response)
+        assert chunks[0]["error"] == "Service not configured"
+        assert chunks[1] == "[DONE]"
+
+    def test_stream_gateway_error_sanitized(self, iaas_client, vllm_endpoint):
+        self._configure_and_mock(
+            iaas_client,
+            vllm_endpoint,
+            side_effect=RuntimeError("Connection to http://internal:8100 refused"),
+        )
+
+        request_data = TestDataFactory.create_chat_completion_request(budget=4)
+        request_data["stream"] = True
+        response = iaas_client.post("/v1/chat/completions", json=request_data)
+        assert response.status_code == 200
+
+        chunks = self._parse_sse(response)
+        assert "internal:8100" not in chunks[0]["error"]
+        assert "Check server logs" in chunks[0]["error"]
+        assert chunks[1] == "[DONE]"
+
+
 class TestPydanticModels:
     def test_valid_config_request(self):
         config = ConfigRequest(
