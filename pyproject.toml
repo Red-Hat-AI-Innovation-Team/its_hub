@@ -29,7 +29,8 @@ dependencies = [
 ]
 
 [project.scripts]
-# its-iaas removed for MVP - will be added back in [iaas] extra if needed
+its-iaas = "its_hub.integration.iaas.app_server:main"
+its-iaas-ext-proc = "its_hub.integration.iaas.grpc_server:main"
 envoy-grpc = "its_hub.integration.ext_proc.server:main"
 
 [tool.setuptools_scm]
@@ -89,6 +90,11 @@ research = [
     "datasets>=2.0.0",     # For loading benchmark datasets (MATH500, AIME)
     "matplotlib>=3.5.0",   # For visualization scripts
 ]
+
+[tool.setuptools.package-data]
+"its_hub.integration.ext_proc.proto" = ["**/*.py"]
+"its_hub.integration.ext_proc" = ["envoy_config.yaml"]
+"its_hub.integration.iaas" = ["envoy_config.yaml"]
 
 [tool.setuptools]
 package-dir = {"" = "."}

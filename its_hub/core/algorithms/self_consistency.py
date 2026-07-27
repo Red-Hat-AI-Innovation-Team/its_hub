@@ -342,6 +342,15 @@ class SelfConsistency(AbstractScalingAlgorithm):
             raise ValueError(f"Unknown tool_vote type: {self.tool_vote}")
 
 
+def validate_regex_patterns(patterns: list[str]) -> None:
+    """Validate regex patterns before passing to create_regex_projection_function."""
+    for p in patterns:
+        try:
+            re.compile(p)
+        except re.error as e:
+            raise ValueError(f"Invalid regex pattern {p!r}: {e}") from e
+
+
 def create_regex_projection_function(
     patterns: str | list[str],
 ) -> Callable[[str], tuple]:

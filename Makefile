@@ -2,7 +2,8 @@
 # Handles proto compilation for Envoy external processor
 
 .PHONY: help setup setup-envoy upgrade-protos proto-compile proto-clean submodule-init \
-        iaas-start iaas-health envoy-stack envoy-stack-stop envoy-start envoy-grpc envoy-test envoy-health test
+        iaas-start iaas-health envoy-stack envoy-stack-stop envoy-start envoy-grpc envoy-test envoy-health \
+        envoy-iaas-stack envoy-iaas-stack-stop test
 
 # Default target
 help:
@@ -26,6 +27,8 @@ help:
 	@echo "  make envoy-grpc       - Start Envoy external processor gRPC service"
 	@echo "  make envoy-test       - Test Envoy external processor with sample requests"
 	@echo "  make envoy-health     - Check Envoy cluster health and statistics"
+	@echo "  make envoy-iaas-stack      - Start Envoy + ext_proc + IaaS together"
+	@echo "  make envoy-iaas-stack-stop - Stop all three services"
 	@echo ""
 	@echo "Testing Commands:"
 	@echo "  make test           - Run all pytest tests"
@@ -167,13 +170,36 @@ envoy-stack-stop:
 	@pkill -f "envoy-grpc" || echo "gRPC service not running"
 	@echo "✓ Envoy stack stopped"
 
-# Start IaaS service on localhost:8108
+# Start IaaS service on localhost:8109
 iaas-start:
-	uv run its-iaas --host 0.0.0.0 --port 8108
+	uv run its-iaas --host 0.0.0.0 --port 8109
 
 # Check IaaS service health
 iaas-health:
-	curl -v -s http://localhost:8108/v1/models | jq .
+	curl -v -s http://localhost:8109/v1/models | jq .
+
+# Start Envoy + ext_proc + IaaS together
+envoy-iaas-stack:
+	@echo "Starting IaaS stack (Envoy + ext_proc + IaaS)..."
+	@echo "Logs will be written to:"
+	@echo "  - envoy.log (Envoy proxy on port 8108)"
+	@echo "  - ext-proc.log (gRPC ext_proc on port 50051)"
+	@echo "  - iaas.log (IaaS FastAPI on port 8109)"
+	@echo ""
+	@echo "Press Ctrl+C to stop all services"
+	@trap 'kill 0' INT; \
+	(uv run its-iaas-ext-proc --port 50051 2>&1 | tee ext-proc.log) & \
+	(uv run its-iaas --host 0.0.0.0 --port 8109 2>&1 | tee iaas.log) & \
+	(envoy -c its_hub/integration/iaas/envoy_config.yaml 2>&1 | tee envoy.log) & \
+	wait
+
+# Stop IaaS stack
+envoy-iaas-stack-stop:
+	@echo "Stopping IaaS stack..."
+	@pkill -f "envoy -c" || echo "Envoy proxy not running"
+	@pkill -f "its-iaas-ext-proc" || echo "gRPC service not running"
+	@pkill -f "its-iaas" || echo "IaaS services not running"
+	@echo "✓ IaaS stack stopped"
 
 # Start Envoy proxy with ext_proc configuration
 envoy-start:

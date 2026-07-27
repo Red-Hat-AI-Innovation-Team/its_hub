@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from its_hub.api.types import GenerationUsage, ITSRequestConfig
-from its_hub.core.gateway import ITSGateway
+from its_hub.core.gateway import SUPPORTED_ALGORITHMS, ITSGateway
 
 
 def _make_result(usage=None):
@@ -205,3 +205,59 @@ class TestHashApiKey:
 
     def test_hash_length(self):
         assert len(ITSGateway._hash_api_key("sk-test")) == 16
+
+
+class TestConfigure:
+    def test_configure_self_consistency(self):
+        gw = ITSGateway(algorithm=MagicMock())
+        gw.configure(
+            alg="self-consistency",
+            regex_patterns=[r"\\boxed{([^}]+)}"],
+        )
+        assert gw._algorithm_name == "SelfConsistency"
+
+    def test_configure_with_tool_vote(self):
+        gw = ITSGateway(algorithm=MagicMock())
+        gw.configure(
+            alg="self-consistency",
+            regex_patterns=[r"\\boxed{([^}]+)}"],
+            tool_vote="tool_name",
+            exclude_tool_args=["timestamp"],
+        )
+        assert gw._algorithm_name == "SelfConsistency"
+
+    def test_configure_unsupported_algorithm(self):
+        gw = ITSGateway(algorithm=MagicMock())
+        with pytest.raises(ValueError, match="not supported"):
+            gw.configure(alg="beam-search")
+
+    def test_configure_invalid_regex(self):
+        gw = ITSGateway(algorithm=MagicMock())
+        with pytest.raises(ValueError, match="Invalid regex pattern"):
+            gw.configure(alg="self-consistency", regex_patterns=["[invalid("])
+
+    def test_configure_invalid_tool_vote(self):
+        gw = ITSGateway(algorithm=MagicMock())
+        with pytest.raises(ValueError, match="tool_vote must be one of"):
+            gw.configure(
+                alg="self-consistency",
+                regex_patterns=[r"\\boxed{([^}]+)}"],
+                tool_vote="invalid",
+            )
+
+
+class TestSupportedAlgorithms:
+    def test_self_consistency_supported(self):
+        assert "self-consistency" in SUPPORTED_ALGORITHMS
+
+    def test_is_frozenset(self):
+        assert isinstance(SUPPORTED_ALGORITHMS, frozenset)
+
+
+class TestEndpointValidation:
+    @pytest.mark.asyncio
+    async def test_missing_endpoint_raises(self):
+        gw = ITSGateway(algorithm=MagicMock())
+        config = _make_config(api_endpoint="")
+        with pytest.raises(ValueError, match="api_endpoint"):
+            await gw.arun_chat_completion(config, MESSAGES)
