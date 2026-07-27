@@ -90,17 +90,17 @@ class BetaSelfConsistency(SelfConsistency):
         chat_messages = ChatMessages.from_prompt_or_messages(prompt_or_messages)
         usage = GenerationUsage()
 
-        current_loop = asyncio.get_running_loop()
         messages_list = chat_messages.to_chat_messages()
 
         async def _generate_one():
-            return await lm.agenerate_single(
-                messages_list,
+            responses = await self.orchestrator.agenerate(
+                lm,
+                [messages_list],
                 tools=tools,
                 tool_choice=tool_choice,
-                loop=current_loop,
                 usage_accumulator=usage,
             )
+            return responses[0]
 
         tasks = [asyncio.create_task(_generate_one()) for _ in range(budget)]
 
@@ -136,15 +136,17 @@ class BetaSelfConsistency(SelfConsistency):
                                 prob,
                                 self.confidence_threshold,
                             )
-                            for t in pending:
-                                t.cancel()
                             stopped_early = True
                             break
 
             if stopped_early:
                 break
 
-        if not stopped_early:
+        if stopped_early:
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+        else:
             logger.info(
                 "BetaSelfConsistency used all %d/%d samples",
                 len(all_responses),

@@ -32,6 +32,24 @@ class SequentialMockLM:
         return {"role": "assistant", "content": resp}
 
 
+class ConcurrencyTrackingMockLM:
+    """Mock LM that records the number of concurrent generation calls."""
+
+    def __init__(self, delay: float = 0.01):
+        self.delay = delay
+        self.active_calls = 0
+        self.max_active_calls = 0
+
+    async def agenerate_single(self, messages, **kwargs):
+        self.active_calls += 1
+        self.max_active_calls = max(self.max_active_calls, self.active_calls)
+        try:
+            await asyncio.sleep(self.delay)
+            return {"role": "assistant", "content": "42"}
+        finally:
+            self.active_calls -= 1
+
+
 class DelayedMockLM:
     """Mock LM where each response has a controlled delay to test ordering.
     Responses arrive in delay order, so we can predict which arrive first.
@@ -152,6 +170,20 @@ class TestBetaSelfConsistencyEarlyStopping:
         result = await bsc.ainfer(lm, "test", budget=8, return_response_only=False)
 
         assert len(result.responses) == 8
+
+    @pytest.mark.asyncio
+    async def test_respects_orchestrator_max_concurrency(self):
+        lm = ConcurrencyTrackingMockLM()
+        orchestrator = LMOrchestrator(max_concurrency=3)
+        bsc = BetaSelfConsistency(
+            confidence_threshold=1.0,
+            orchestrator=orchestrator,
+        )
+
+        result = await bsc.ainfer(lm, "test", budget=12, return_response_only=False)
+
+        assert len(result.responses) == 12
+        assert lm.max_active_calls == 3
 
     @pytest.mark.asyncio
     async def test_budget_1(self):
