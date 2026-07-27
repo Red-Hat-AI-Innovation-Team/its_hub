@@ -226,22 +226,32 @@ class TestBetaSelfConsistencyEarlyStopping:
         assert len(result.responses) == 8
 
     @pytest.mark.asyncio
-    async def test_lower_threshold_stops_sooner(self):
+    async def test_lower_threshold_stops_sooner(self, monkeypatch):
         """Lower threshold requires fewer samples for the same agreement."""
-        lm_strict = SequentialMockLM(["42"] * 64)
-        lm_relaxed = SequentialMockLM(["42"] * 64)
+
+        async def wait_for_one(tasks, **kwargs):
+            assert kwargs["return_when"] is asyncio.FIRST_COMPLETED
+            completed = next(iter(tasks))
+            await completed
+            return {completed}, set(tasks) - {completed}
+
+        monkeypatch.setattr(asyncio, "wait", wait_for_one)
+
+        lm_strict = SequentialMockLM(["42"] * 8)
+        lm_relaxed = SequentialMockLM(["42"] * 8)
 
         bsc_strict = BetaSelfConsistency(confidence_threshold=0.95)
         bsc_relaxed = BetaSelfConsistency(confidence_threshold=0.8)
 
         result_strict = await bsc_strict.ainfer(
-            lm_strict, "test", budget=64, return_response_only=False
+            lm_strict, "test", budget=8, return_response_only=False
         )
         result_relaxed = await bsc_relaxed.ainfer(
-            lm_relaxed, "test", budget=64, return_response_only=False
+            lm_relaxed, "test", budget=8, return_response_only=False
         )
 
-        assert len(result_relaxed.responses) <= len(result_strict.responses)
+        assert len(result_strict.responses) == 4
+        assert len(result_relaxed.responses) == 2
 
     @pytest.mark.asyncio
     async def test_delayed_ordering_early_stop(self):
