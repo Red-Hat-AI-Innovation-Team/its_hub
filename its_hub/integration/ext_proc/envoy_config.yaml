@@ -47,7 +47,7 @@ static_resources:
     address:
       socket_address:
         protocol: TCP
-        address: 0.0.0.0  # Listen on all interfaces (use 127.0.0.1 for localhost only)
+        address: 127.0.0.1  # Localhost only (use 0.0.0.0 to listen on all interfaces)
         port_value: 8108  # **CUSTOMIZE**: Client request port (your API gateway endpoint)
     filter_chains:
     - filters:

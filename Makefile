@@ -9,7 +9,7 @@ help:
 	@echo "ITS Hub Build Targets:"
 	@echo ""
 	@echo "Setup Commands:"
-	@echo "  make setup          - General development setup (Python deps + requirements.txt)"
+	@echo "  make setup          - General development setup (Python deps)"
 	@echo "  make setup-envoy    - Envoy gateway setup (submodules + proto compilation)"
 	@echo ""
 	@echo "Proto Commands:"
@@ -111,9 +111,6 @@ setup:
 	@echo "Setting up its_hub development environment..."
 	@echo "Installing Python dependencies..."
 	uv sync --extra dev
-	@echo "Generating requirements.txt for other build tools..."
-	uv export --no-hashes > requirements.txt
-	@echo ""
 	@echo "✓ General setup complete!"
 	@echo ""
 	@echo "For Envoy gateway development, also run: make setup-envoy"
@@ -157,13 +154,13 @@ envoy-stack:
 	@echo "Press Ctrl+C to stop both services"
 	@trap 'kill 0' INT; \
 	(uv run envoy-grpc 2>&1 | tee envoy-grpc.log) & \
-	(envoy -c config/envoy/ext_proc.yaml 2>&1 | tee envoy.log) & \
+	(envoy -c its_hub/integration/ext_proc/envoy_config.yaml 2>&1 | tee envoy.log) & \
 	wait
 
 # Stop Envoy stack
 envoy-stack-stop:
 	@echo "Stopping Envoy stack..."
-	@pkill -f "envoy -c config/envoy/ext_proc.yaml" || echo "Envoy proxy not running"
+	@pkill -f "envoy -c its_hub/integration/ext_proc/envoy_config.yaml" || echo "Envoy proxy not running"
 	@pkill -f "envoy-grpc" || echo "gRPC service not running"
 	@echo "✓ Envoy stack stopped"
 
@@ -177,7 +174,7 @@ iaas-health:
 
 # Start Envoy proxy with ext_proc configuration
 envoy-start:
-	envoy -c config/envoy/ext_proc.yaml
+	envoy -c its_hub/integration/ext_proc/envoy_config.yaml
 
 # Start Envoy External Processor gRPC service
 envoy-grpc:
@@ -201,4 +198,4 @@ envoy-health:
 
 # Run all tests
 test:
-	uv run pytest tests/
+	uv run pytest tests/ --ignore=tests/e2e

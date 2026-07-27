@@ -182,6 +182,10 @@ handles streaming natively.
 
 ## Running the Service
 
+**Pre-requisites**:
+- [Envoy proxy](https://www.envoyproxy.io/docs/envoy/latest/start/install) installed
+- An OpenAI-compatible LLM API endpoint
+
 ```bash
 # Start the ext_proc gRPC server
 envoy-grpc --port 50051
@@ -190,6 +194,165 @@ envoy-grpc --port 50051
 envoy-grpc --port 50051 --log-level DEBUG
 ```
 
-The service binds a gRPC server that implements the Envoy External Processor protocol.
-Configure Envoy to route to this service as an external processor. See
-`config/envoy/ext_proc.yaml` for a reference Envoy configuration.
+The service binds a gRPC server that implements the Envoy External Processor protocol. Configure Envoy to route to this service as an external processor. See `its_hub/integration/ext_proc/envoy_config.yaml` for a reference Envoy configuration.
+
+```bash
+# Get the reference Envoy configuration
+envoy-grpc --print-config > envoy_config.yaml
+
+# customize the configuration as see fit and start Envoy
+envoy -c envoy_config.yaml
+```
+
+See [Configuration](#configuration) section for customization options for the reference Envoy configuration.
+
+## Development
+
+### Prerequisites
+
+Before setting up the development environment, ensure you have:
+
+- **git**: For version control and managing submodules. [Installation Guide](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
+- **make**: Build automation tool (usually pre-installed on Unix systems)
+- **uv**: An extremely fast Python package installer and resolver. [Installation Guide](https://astral.sh/uv/install/)
+
+### Build System
+
+This project uses a **Make-based build system** for dependency management and proto compilation:
+
+```bash
+# View all available Make targets
+make help
+
+# General development setup (algorithm work)
+make setup
+
+# Full setup including Envoy protos (gateway work)
+make setup-envoy
+
+# Run all tests
+make test
+```
+
+### Start Services
+
+**Option A: Start Both Services Together (Recommended)**
+```bash
+# Starts Envoy proxy and gRPC service in parallel
+make envoy-stack
+
+# Logs are written to envoy.log and envoy-grpc.log
+# Press Ctrl+C to stop both services
+```
+
+**Option B: Start Services Separately (in different terminals)**
+```bash
+# Terminal 1: Start Envoy proxy
+make envoy-start
+
+# Terminal 2: Start ext_proc gRPC service
+make envoy-grpc
+```
+
+### Test with ITS
+```bash
+# Use ITS with self-consistency (budget=3)
+curl -X POST http://localhost:8108/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "X-ITS-Budget: 3" \
+  -H "X-ITS-Endpoint: https://api.openai.com/v1" \
+  -H "X-ITS-API-Key: $OPENAI_API_KEY" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [{"role": "user", "content": "What is 2+2?"}]
+  }'
+```
+
+### Without ITS (standard pass-through)
+```bash
+# Omit ITS headers for normal processing
+curl -X POST https://api.openai.com/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [{"role": "user", "content": "What is 2+2?"}]
+  }'
+```
+
+### Testing & Monitoring
+
+```bash
+# Run test suite for ext_proc
+make envoy-test
+
+# Check Envoy cluster health
+make envoy-health
+
+# Stop services (if using envoy-stack)
+make envoy-stack-stop
+
+# View Envoy admin interface
+open http://localhost:9901
+```
+
+### Configuration
+
+The Envoy configuration is located at `its_hub/integration/ext_proc/envoy_config.yaml` with comprehensive inline documentation.
+
+**Default Settings:**
+
+- **Client listener**: Port 8108 (where you send requests)
+- **ext_proc gRPC**: Port 50051 (ITS grpc service)
+- **LLM upstream**: Port 8100 (fallback LLM endpoint)
+- **Admin interface**: Port 9901 (monitoring dashboard)
+- **Timeouts**: 120s for ITS processing, 300s for upstream
+- **Failure mode**: `allow` (fail-safe pass-through)
+
+**Common Customizations:**
+
+The config file includes detailed comments with `**CUSTOMIZE**` markers. Common changes:
+
+1. **Change Envoy listening port** (default: 8108)
+   ```yaml
+   listeners:
+   - address:
+       socket_address:
+         port_value: 8108
+   ```
+
+2. **Point to your LLM endpoint** (examples provided for vLLM, Kubernetes, remote)
+   ```yaml
+   clusters:
+   - name: llm_upstream
+     load_assignment:
+       endpoints:
+       - lb_endpoints:
+         - endpoint:
+             address:
+               socket_address:
+                 address: 127.0.0.1  # Your LLM host
+                 port_value: 8100    # Your LLM port
+   ```
+
+3. **Adjust ITS processing timeout** (increase for large budgets)
+   ```yaml
+   # Inside the ext_proc filter config:
+   grpc_service:
+     timeout: 120s
+   message_timeout: 120s
+   ```
+
+4. **Change failure behavior** (reject requests when ext_proc is down)
+   ```yaml
+   # Inside the ext_proc filter config:
+   failure_mode_allow: false
+   ```
+
+**Configuration File Structure:**
+- Comprehensive header with 6-point customization guide
+- Inline comments on every important setting
+- Examples for local, Kubernetes, and remote deployments
+- **CRITICAL** annotations for required settings
+
+For detailed configuration options and troubleshooting, see `its_hub/integration/ext_proc/envoy_config.yaml` (inline docs).
