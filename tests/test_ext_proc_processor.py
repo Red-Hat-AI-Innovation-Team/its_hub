@@ -2,6 +2,7 @@
 
 # ruff: noqa: I001
 import json
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -588,3 +589,47 @@ class TestImportGuard:
              pytest.raises(SystemExit) as exc_info:
             main()
         assert exc_info.value.code == 1
+
+
+class TestConfigureLogging:
+    def test_valid_log_level(self):
+        from its_hub.integration.ext_proc.server import _configure_logging
+
+        _configure_logging("DEBUG")
+        assert logging.getLogger().level == logging.DEBUG
+
+    def test_invalid_log_level_raises(self):
+        from its_hub.integration.ext_proc.server import _configure_logging
+
+        with pytest.raises(ValueError, match="Invalid log level"):
+            _configure_logging("NOTAVALIDLEVEL")
+
+    def test_sets_module_loggers(self):
+        from its_hub.integration.ext_proc.server import _configure_logging
+
+        _configure_logging("WARNING")
+        for name in (
+            "its_hub.integration.ext_proc.processor",
+            "its_hub.integration.ext_proc.server",
+            "its_hub.core.gateway",
+            "its_hub.core.algorithms.self_consistency",
+        ):
+            assert logging.getLogger(name).level == logging.WARNING
+
+
+class TestPrintConfig:
+    def test_print_config_outputs_yaml(self, capsys):
+        from its_hub.integration.ext_proc.server import _print_config
+
+        _print_config()
+        captured = capsys.readouterr()
+        assert "ext_proc" in captured.out
+        assert "listeners" in captured.out
+
+    def test_main_print_config_and_exits(self, capsys):
+        from its_hub.integration.ext_proc.server import main
+
+        with patch("sys.argv", ["envoy-grpc", "--print-config"]):
+            main()
+        captured = capsys.readouterr()
+        assert "listeners" in captured.out
