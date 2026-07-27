@@ -4,6 +4,7 @@ import asyncio
 import threading
 
 import pytest
+from scipy.special import betainc
 
 from its_hub.api import ChatMessages
 from its_hub.core.algorithms.beta_self_consistency import BetaSelfConsistency
@@ -110,6 +111,14 @@ class TestBetaSelfConsistencyInit:
 
 class TestBetaStoppingProbability:
     """Test the static beta_stopping_probability method."""
+
+    def test_matches_previous_scipy_implementation(self):
+        for v1 in range(50):
+            for v2 in range(50):
+                expected = 1.0 - float(betainc(v1 + 1, v2 + 1, 0.5))
+                actual = BetaSelfConsistency.beta_stopping_probability(v1, v2)
+
+                assert actual == pytest.approx(expected, abs=1e-12, rel=0), (v1, v2)
 
     def test_unanimous_1(self):
         prob = BetaSelfConsistency.beta_stopping_probability(1, 0)
