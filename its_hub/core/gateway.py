@@ -104,6 +104,7 @@ class ITSGateway(AbstractGateway):
                 projection_func,
                 tool_vote=tool_vote,
                 exclude_args=exclude_tool_args,
+                orchestrator=self._orchestrator,
             )
 
         self._algorithm = algorithm

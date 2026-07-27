@@ -529,6 +529,29 @@ class TestBudgetValidation:
         assert response.status_code == 400
         assert "budget" in response.json()["detail"].lower()
 
+    def test_over_max_budget_header_rejected(self, iaas_client, vllm_endpoint):
+        config = {
+            "endpoint": vllm_endpoint,
+            "api_key": TEST_CONSTANTS["DEFAULT_API_KEY"],
+            "model": TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            "alg": "self-consistency",
+            "regex_patterns": [r"\\boxed{([^}]+)}"],
+        }
+        iaas_client.post("/configure", json=config)
+
+        mock_gw = MagicMock()
+        mock_gw.arun_chat_completion = AsyncMock(return_value=_mock_gateway_result())
+        _state.gateway = mock_gw
+
+        request_data = TestDataFactory.create_chat_completion_request(budget=4)
+        response = iaas_client.post(
+            "/v1/chat/completions",
+            json=request_data,
+            headers={"X-ITS-Budget": "1001"},
+        )
+        assert response.status_code == 400
+        assert "budget" in response.json()["detail"].lower()
+
     def test_configure_rejects_invalid_budget(self, iaas_client, vllm_endpoint):
         config = {
             "endpoint": vllm_endpoint,
@@ -600,7 +623,7 @@ class TestExtProcessor:
         from envoy.config.core.v3 import base_pb2
         from envoy.service.ext_proc.v3 import external_processor_pb2 as ext_proc_pb2
 
-        from its_hub.integration.ext_proc.proto import envoy  # noqa: F401
+        from its_hub.integration.proto import envoy  # noqa: F401
 
         def _build(headers: dict[str, str]):
             header_list = [

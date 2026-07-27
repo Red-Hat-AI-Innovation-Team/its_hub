@@ -236,6 +236,19 @@ class TestConfigure:
         with pytest.raises(ValueError, match="Invalid regex pattern"):
             gw.configure(alg="self-consistency", regex_patterns=["[invalid("])
 
+    def test_configure_preserves_orchestrator(self):
+        orch = MagicMock()
+        gw = ITSGateway(algorithm=MagicMock(), orchestrator=orch)
+        with patch("its_hub.core.gateway.SelfConsistency") as sc_cls:
+            sc_cls.return_value = MagicMock()
+            type(sc_cls.return_value).__name__ = "SelfConsistency"
+            gw.configure(
+                alg="self-consistency",
+                regex_patterns=[r"\\boxed{([^}]+)}"],
+            )
+            sc_cls.assert_called_once()
+            assert sc_cls.call_args.kwargs["orchestrator"] is orch
+
     def test_configure_invalid_tool_vote(self):
         gw = ITSGateway(algorithm=MagicMock())
         with pytest.raises(ValueError, match="tool_vote must be one of"):

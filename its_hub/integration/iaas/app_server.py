@@ -10,8 +10,6 @@ try:
 except ImportError:
     uvicorn = None  # type: ignore[assignment]
 
-from its_hub.integration.iaas.app import app
-
 logger = logging.getLogger(__name__)
 
 
@@ -69,6 +67,8 @@ def _print_config() -> None:
 
 def serve(host: str = "127.0.0.1", port: int = 8109, dev: bool = False):
     """Start the uvicorn server."""
+    from its_hub.integration.iaas.app import app
+
     uvicorn_config = {
         "host": host,
         "port": port,

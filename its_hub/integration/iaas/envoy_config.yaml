@@ -7,16 +7,13 @@
 # X-ITS-Route header, and calls clear_route_cache. No body buffering,
 # no algorithm execution. The IaaS service does the actual ITS work.
 #
-# Two ways to reach IaaS:
-# 1. Transparent — send X-ITS-Budget header with normal OpenAI requests;
-#    the ext_proc router redirects to IaaS automatically.
-# 2. Explicit — target the /its/ prefix to reach IaaS directly
-#    (has its own /configure and /v1/chat/completions endpoints).
+# How requests reach IaaS:
+#   Send X-ITS-Budget header with normal OpenAI requests;
+#   the ext_proc router redirects to IaaS automatically.
 #
 # Architecture:
 #   Client -> Envoy (port 8108)
 #     ├── X-ITS-Budget present -> ext_proc sets X-ITS-Route -> IaaS (port 8109)
-#     ├── /its/*  ->  IaaS FastAPI (port 8109)     [explicit, prefix stripped]
 #     └── /* (no ITS headers)  ->  LLM Backend (port 8100)
 #
 # Usage:
@@ -24,7 +21,7 @@
 #   its-iaas --print-config > envoy_config.yaml
 #
 #   # Start all services
-#   its-iaas --router --port 50051 &  # Lightweight ext_proc router
+#   its-iaas-ext-proc --port 50051 &  # Lightweight ext_proc router
 #   its-iaas --port 8109 &            # IaaS FastAPI service
 #   envoy -c envoy_config.yaml        # Envoy proxy
 #
@@ -131,6 +128,7 @@ static_resources:
                 - x-its-budget
                 - x-its-endpoint
                 - x-its-api-key
+                - x-its-route
                 route:
                   cluster: llm_upstream
                   timeout: 300s  # **CUSTOMIZE**: Timeout for upstream LLM requests
@@ -140,7 +138,7 @@ static_resources:
   # ----------------------------------------------------------------------------
   clusters:
   # Lightweight ext_proc Router (routing decisions only, no algorithm execution)
-  # Started via: its-iaas --router --port 50051
+  # Started via: its-iaas-ext-proc --port 50051
   - name: ext_proc_cluster
     connect_timeout: 5s
     type: LOGICAL_DNS
@@ -168,7 +166,7 @@ static_resources:
 
   # IaaS FastAPI Service (ITS algorithm execution, /configure and OpenAI-compatible API)
   # Started via: its-iaas --port 8109
-  # Receives requests from both direct /its/ access and ext_proc-routed traffic
+  # Receives ext_proc-routed traffic when X-ITS-Budget is present
   - name: iaas_upstream
     connect_timeout: 5s
     type: LOGICAL_DNS

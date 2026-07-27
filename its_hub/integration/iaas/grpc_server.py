@@ -12,11 +12,6 @@ except ImportError:
     health = None  # type: ignore[assignment]
     health_pb2_grpc = None  # type: ignore[assignment]
 
-from its_hub.integration.iaas.ext_processor import (
-    ExternalProcessorService,
-    ext_proc_grpc,
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -51,6 +46,11 @@ def _parse_args() -> argparse.Namespace:
 
 async def serve(port: int = 50051):
     """Start the gRPC ext_proc server."""
+    from its_hub.integration.iaas.ext_processor import (
+        ExternalProcessorService,
+        ext_proc_grpc,
+    )
+
     server = grpc.aio.server()
     ext_proc_grpc.add_ExternalProcessorServicer_to_server(
         ExternalProcessorService(), server

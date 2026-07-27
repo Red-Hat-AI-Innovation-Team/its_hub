@@ -12,7 +12,7 @@ import logging
 import uuid
 
 import grpc
-import its_hub.integration.ext_proc.proto  # noqa: F401
+import its_hub.integration.proto  # noqa: F401
 from envoy.config.core.v3 import base_pb2
 from envoy.service.ext_proc.v3 import external_processor_pb2 as ext_proc_pb2
 from envoy.service.ext_proc.v3 import external_processor_pb2_grpc as ext_proc_grpc

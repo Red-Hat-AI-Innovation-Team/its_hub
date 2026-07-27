@@ -265,7 +265,8 @@ async def _stream_chat_completions(
                 return_response_only=True,
             )
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            logger.error("Streaming chat completion failed: %s", e, exc_info=True)
+            yield f"data: {json.dumps({'error': 'Generation failed. Check server logs for details.'})}\n\n"
             yield "data: [DONE]\n\n"
             return
 
