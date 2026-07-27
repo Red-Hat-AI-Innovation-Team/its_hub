@@ -101,7 +101,7 @@ class ITSGateway(AbstractGateway):
                 validate_regex_patterns(regex_patterns)
                 projection_func = create_regex_projection_function(regex_patterns)
             algorithm = SelfConsistency(
-                projection_func,
+                consistency_space_projection_func=projection_func,
                 tool_vote=tool_vote,
                 exclude_args=exclude_tool_args,
                 orchestrator=self._orchestrator,
