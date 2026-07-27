@@ -248,6 +248,31 @@ class TestBetaSelfConsistencyEarlyStopping:
         assert len(result.responses) == 4
         assert all(r["content"] == "42" for r in result.responses)
 
+    @pytest.mark.asyncio
+    async def test_collects_entire_completed_batch_before_stopping(self, monkeypatch):
+        """Responses and usage stay aligned when several tasks finish together."""
+
+        class UsageTrackingMockLM(SequentialMockLM):
+            async def agenerate_single(self, messages, **kwargs):
+                response = await super().agenerate_single(messages, **kwargs)
+                kwargs["usage_accumulator"].add(prompt=1, completion=1)
+                return response
+
+        async def wait_for_entire_batch(tasks, return_when):
+            await asyncio.gather(*tasks)
+            return set(tasks), set()
+
+        monkeypatch.setattr(asyncio, "wait", wait_for_entire_batch)
+
+        budget = 8
+        lm = UsageTrackingMockLM(["42"] * budget)
+        bsc = BetaSelfConsistency(confidence_threshold=0.95)
+
+        result = await bsc.ainfer(lm, "test", budget=budget, return_response_only=False)
+
+        assert len(result.responses) == budget
+        assert result.usage.num_calls == len(result.responses)
+
 
 class TestBetaSelfConsistencyProjection:
     """Test with custom projection functions."""
@@ -257,17 +282,17 @@ class TestBetaSelfConsistencyProjection:
         pattern = r"\\boxed\{([^}]+)\}"
         proj_func = create_regex_projection_function(pattern)
 
-        lm = SequentialMockLM(
-            ["The answer is \\boxed{42}."] * 16 + ["\\boxed{99}"] * 48
+        lm = DelayedMockLM(
+            [("The answer is \\boxed{42}.", 0.0)] * 4 + [("\\boxed{99}", 0.1)] * 12
         )
         bsc = BetaSelfConsistency(
             confidence_threshold=0.95,
             consistency_space_projection_func=proj_func,
         )
 
-        result = await bsc.ainfer(lm, "test", budget=64, return_response_only=False)
+        result = await bsc.ainfer(lm, "test", budget=16, return_response_only=False)
 
-        assert len(result.responses) < 64
+        assert len(result.responses) < 16
 
     @pytest.mark.asyncio
     async def test_default_projection_strips_whitespace(self):
@@ -339,7 +364,7 @@ class TestBetaSelfConsistencyToolCalls:
     @pytest.mark.asyncio
     async def test_tool_vote_name_early_stop(self):
         resp = self._make_tool_response("get_weather", '{"city": "NYC"}')
-        lm = SequentialMockLM([resp] * 16)
+        lm = DelayedMockLM([(resp, 0.0)] * 4 + [(resp, 0.1)] * 12)
         bsc = BetaSelfConsistency(confidence_threshold=0.95, tool_vote="tool_name")
 
         result = await bsc.ainfer(lm, "test", budget=16, return_response_only=False)
@@ -351,7 +376,7 @@ class TestBetaSelfConsistencyToolCalls:
     async def test_exclude_args_in_tool_voting(self):
         r1 = self._make_tool_response("search", '{"q": "cats", "request_id": "abc"}')
         r2 = self._make_tool_response("search", '{"q": "cats", "request_id": "xyz"}')
-        lm = SequentialMockLM([r1, r2] * 8)
+        lm = DelayedMockLM([(r1, 0.0), (r2, 0.0)] * 2 + [(r1, 0.1), (r2, 0.1)] * 6)
         bsc = BetaSelfConsistency(
             confidence_threshold=0.95,
             tool_vote="tool_args",

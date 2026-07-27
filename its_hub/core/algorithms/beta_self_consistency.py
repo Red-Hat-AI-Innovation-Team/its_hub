@@ -92,7 +92,7 @@ class BetaSelfConsistency(SelfConsistency):
 
         messages_list = chat_messages.to_chat_messages()
 
-        async def _generate_one():
+        async def _generate_one() -> dict:
             responses = await self.orchestrator.agenerate(
                 lm,
                 [messages_list],
@@ -113,31 +113,28 @@ class BetaSelfConsistency(SelfConsistency):
                 pending, return_when=asyncio.FIRST_COMPLETED
             )
 
-            for task in done:
-                all_responses.append(task.result())
+            all_responses.extend(task.result() for task in done)
 
-                if len(all_responses) >= 2 and len(all_responses) < budget:
-                    eligible_indices, projected = self._project_responses(all_responses)
+            if len(all_responses) >= 2 and len(all_responses) < budget:
+                eligible_indices, projected = self._project_responses(all_responses)
 
-                    if len(eligible_indices) >= 2:
-                        counts = Counter(projected)
-                        most_common = counts.most_common(2)
-                        v1 = most_common[0][1]
-                        v2 = most_common[1][1] if len(most_common) > 1 else 0
+                if len(eligible_indices) >= 2:
+                    counts = Counter(projected)
+                    most_common = counts.most_common(2)
+                    v1 = most_common[0][1]
+                    v2 = most_common[1][1] if len(most_common) > 1 else 0
 
-                        prob = self.beta_stopping_probability(v1, v2)
+                    prob = self.beta_stopping_probability(v1, v2)
 
-                        if prob >= self.confidence_threshold:
-                            logger.info(
-                                "Early stop: %d/%d samples, "
-                                "P(majority stays)=%.4f >= %.4f",
-                                len(all_responses),
-                                budget,
-                                prob,
-                                self.confidence_threshold,
-                            )
-                            stopped_early = True
-                            break
+                    if prob >= self.confidence_threshold:
+                        logger.info(
+                            "Early stop: %d/%d samples, P(majority stays)=%.4f >= %.4f",
+                            len(all_responses),
+                            budget,
+                            prob,
+                            self.confidence_threshold,
+                        )
+                        stopped_early = True
 
             if stopped_early:
                 break
