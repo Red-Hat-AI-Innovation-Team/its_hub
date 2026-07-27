@@ -67,6 +67,13 @@ pip install -e ".[dev]"
 uv sync --extra dev
 ```
 
+To use ITS as an external processor with Envoy:
+```bash
+make setup-envoy
+```
+
+For more information, refer to [docs/ext-proc-gateway.md](docs/ext-proc-gateway.md).
+
 ## Quick Start
 
 ### Example 1: Gateway Integration (Core Installation)

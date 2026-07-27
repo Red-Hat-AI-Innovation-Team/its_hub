@@ -47,6 +47,19 @@ jobs:
               with:
                   # for setuptools-scm
                   fetch-depth: 0
+                  submodules: true
+
+            - name: "Install uv and setup python version"
+              uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+              with:
+                  python-version: "3.11"
+                  enable-cache: true
+
+            - name: "Install ext_proc build dependencies"
+              run: uv sync --extra ext_proc
+
+            - name: "Compile Envoy proto files"
+              uses: ./.github/actions/compile-protos
 
             - name: "Build and Inspect"
               uses: hynek/build-and-inspect-python-package@d44ca7d91762de7a7d5436ddae667c6da6d1c3df # v2.18.0
