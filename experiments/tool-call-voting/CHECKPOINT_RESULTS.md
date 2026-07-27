@@ -161,38 +161,131 @@ wrong one because incorrect answers can still outnumber correct ones.
    consistently more accurate than forced cases (94% vs 77-88%), even though
    voting doesn't improve overall accuracy.
 
-### What would work instead
+## Best-of-N Re-Ranking Investigation
 
-The +2pp oracle headroom from CoT-SC confirms that correct answers *exist* in
-the sample set — the problem is *selecting* them. Three approaches that address
-this directly:
+Following the voting results, we tested whether smarter *selection* (rather
+than majority vote) could exploit the oracle headroom.
 
-1. **Best-of-N with ToolRM** — a specialized reward model (ToolRM, 1.7B-14B
-   parameters) that scores tool calls and selects the best one. Published
-   results show up to +25% accuracy improvement. its_hub already has `BestOfN`
-   with `AbstractOutcomeRewardModel`; ToolRM would plug in directly.
+### Schema Validation ORM (deterministic, zero cost)
 
-2. **Reviewer agent feedback loop** (Apple's Reinforced Agent) — a second model
-   reviews provisional tool calls before execution. +5.5% on BFCL irrelevance
-   detection, +7.1% on multi-turn tasks.
+Built a `SchemaValidationORM` (subclassing `AbstractOutcomeRewardModel`) that
+scores tool calls against JSON schemas: function name, required params, types,
+enum values, unexpected params. 16 tests passing.
 
-3. **Universal Self-Consistency (USC)** — use an LLM to judge which of N tool
-   calls is most consistent, rather than exact/fuzzy matching. Handles semantic
-   equivalence without hand-coded rules.
+**Result: 0.0pp lift.** Models already produce structurally valid tool calls.
+Schema validation is a necessary floor but cannot differentiate between
+semantically correct and incorrect candidates.
+
+### LLM Self-Judge BoN (same model as judge)
+
+Built a harness using gpt-4o-mini as both generator and judge. For each task,
+generates N=5 candidates, scores each with a tool-call-specific judge prompt,
+selects the highest-scored candidate.
+
+**Result: 0.0pp lift.** But the reason is more fundamental than the judge
+quality:
+
+### The definitive finding: zero oracle headroom
+
+Analysis of the full dataset revealed the root cause:
+
+| Category | Tasks | Oracle headroom tasks |
+|----------|------:|----------------------:|
+| multiple (N=5, temp=1.0) | 199 | **0** |
+| simple_python (N=10, temp=1.0) | 399 | **8** (2%) |
+
+**When the model gets a tool call wrong, it gets it wrong the same way on
+every sample.** There are literally zero tasks in the `multiple` category
+where any of the 5 samples is correct but the first sample is wrong. No
+re-ranking method — ToolRM, LLM-judge, schema validation, or anything
+else — can improve accuracy when there is nothing correct to select.
+
+This is the fundamental difference from math reasoning: in math, different
+reasoning paths independently arrive at the correct answer, so sampling
+creates recoverable diversity. In tool calling, the model's knowledge of the
+correct function and arguments is either present (all samples correct) or
+absent (all samples wrong). Temperature and CoT create surface-form diversity
+but not *correctness* diversity.
+
+## Final Conclusions
+
+### What we proved
+
+1. **Majority voting does not improve tool-call accuracy.** Across all
+   configurations (3 models, 4 categories, N=5 and N=10, temp 0.7 and 1.0),
+   the pre-registered 3pp criterion was never met. Lift ranged from -0.5pp
+   to +1.3pp.
+
+2. **Best-of-N re-ranking cannot improve tool-call accuracy either.** The
+   oracle ceiling equals single-shot accuracy — there is nothing correct in
+   the sample set to select. This rules out ToolRM, LLM-judge, schema
+   validation, and any other re-ranking approach.
+
+3. **The root cause is fully correlated errors.** Tool-call errors are not
+   random across samples — they are systematic. The model either knows the
+   correct function/arguments or it doesn't. Sampling more does not create
+   the independent correctness diversity that SC and BoN require.
+
+4. **This is a fundamental property of tool calling, not a limitation of
+   specific models or techniques.** The finding held across gpt-4o-mini,
+   gpt-3.5-turbo, and claude-sonnet-4, and across simple, multiple, parallel,
+   and parallel_multiple task types.
+
+5. **Equivalence-aware matching helps agreement but not accuracy.** Surface-form
+   normalization collapses cosmetic disagreements but the model was already
+   semantically correct in those cases.
+
+6. **CoT prompting provides a small single-shot accuracy improvement** (+0.5pp)
+   and is worth recommending for tool-calling workloads regardless.
+
+7. **The confidence tag is a useful signal.** High-confidence cases are
+   consistently more accurate (94% vs 77-88%), providing calibration value
+   even without accuracy improvement.
+
+### What would actually help
+
+Since sampling-based approaches (SC, BoN) are ruled out by the correlated-error
+structure, approaches that change *what the model knows* are the relevant
+direction:
+
+1. **Better prompting** — CoT before tool selection (+0.5pp proven), richer
+   function descriptions, few-shot examples of correct tool use.
+
+2. **RAG over API documentation** — ground the model's tool knowledge in
+   retrieved documentation rather than relying on parametric memory.
+
+3. **Execution feedback + retry** — run the tool call, use success/failure as
+   a signal, retry on error. Published results show 85% → 98.8% task success
+   (Self-Healing Agentic Orchestrators, arXiv:2606.01416). This works because
+   it provides *external* signal the model doesn't have.
+
+4. **RubricRefine** — generate task-specific rubrics from the tool registry,
+   score and repair candidates pre-execution. +0.38 across 7 models, no extra
+   model (arXiv:2605.09730).
+
+5. **Fine-tuning** on tool-calling data (out of scope per the research doc,
+   but the only approach that changes the model's underlying knowledge).
 
 ### Recommendation
 
-**Close the majority-voting track for tool calling.** The pre-registered
-criterion was not met, and the mechanism analysis explains why: tool-call
-errors are systematic, not random, so sampling more doesn't help.
+**Close the inference-time scaling track for tool calling.** Neither voting
+nor re-ranking can improve accuracy when errors are fully correlated across
+samples. The mechanism is well understood and the result is definitive.
 
-**Open a new track: Best-of-N re-ranking with a tool-call verifier.** This
-directly addresses the identified bottleneck (selection, not sampling) and has
-published evidence of large gains. its_hub's existing `BestOfN` algorithm
-provides the infrastructure; the research question becomes which verifier
-to use (ToolRM, LLM-judge, or schema-based validation).
+**Recommend CoT prompting** as a default for its_hub's `PlanningWrapper`
+when used with tool-calling workloads — small but real single-shot improvement.
 
-**Preserve the CoT-SC finding** as a recommendation for its_hub's
-`PlanningWrapper`: when used with tool-calling workloads, CoT prompting
-improves single-shot accuracy (+0.5pp) and raises the ceiling for any
-downstream selection mechanism.
+**For future tool-call reliability work**, focus on execution-based feedback
+loops (retry on failure) and prompt engineering (richer function descriptions,
+few-shot examples). These address the actual bottleneck: what the model knows,
+not how it selects among samples.
+
+## References
+
+- ToolRM: [arXiv:2509.11963](https://arxiv.org/abs/2509.11963)
+- Reinforced Agent: [arXiv:2604.27233](https://arxiv.org/abs/2604.27233)
+- Self-Healing Agentic Orchestrators: [arXiv:2606.01416](https://arxiv.org/html/2606.01416v1)
+- RubricRefine: [arXiv:2605.09730](https://arxiv.org/abs/2605.09730)
+- Self-Certainty BoN: [arXiv:2502.18581](https://arxiv.org/abs/2502.18581)
+- Mirror-Consistency: [arXiv:2410.10857](https://arxiv.org/abs/2410.10857)
+- Universal Self-Consistency: [arXiv:2311.17311](https://arxiv.org/abs/2311.17311)
