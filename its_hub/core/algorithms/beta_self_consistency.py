@@ -148,9 +148,7 @@ class BetaSelfConsistency(SelfConsistency):
                                 self.confidence_threshold,
                             )
                             stopped_early = True
-
-                if stopped_early:
-                    break
+                            break
         finally:
             for task in tasks:
                 if not task.done():
