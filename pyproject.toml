@@ -64,6 +64,7 @@ dev = [
     "python-dotenv>=1.0.0",
     "jupytext>=1.15.0",
     "jupyter>=1.0.0",
+    "scipy>=1.11.0",
 ]
 
 # Experimental - not officially supported in MVP
