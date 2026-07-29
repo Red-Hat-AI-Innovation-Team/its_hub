@@ -89,7 +89,7 @@ impl PyLMOrchestrator {
                 let resolved_mct =
                     resolve_max_completion_tokens(py, max_completion_tokens, max_tokens)?;
                 let temperatures =
-                    expand_temperatures(py, temperature.as_ref().map(|t| t.bind(py).clone()), n)?;
+                    expand_temperatures(py, temperature.as_ref().map(|t| t.bind(py)), n)?;
 
                 let loop_obj = py
                     .import("asyncio")?
@@ -114,10 +114,6 @@ impl PyLMOrchestrator {
 
                 Ok((n, base_kwargs, loop_obj, temperatures, task_refs, messages))
             })?;
-
-        if n == 0 {
-            return Python::with_gil(|py| Ok(PyList::empty(py).unbind().into()));
-        }
 
         let task_fns: Vec<_> = Python::with_gil(|py| {
             (0..n)
@@ -194,28 +190,6 @@ impl PyLMOrchestrator {
             }
         }
     }
-
-    #[pyo3(signature = (lm, messages_lst, stop=None, **kwargs))]
-    fn generate(
-        self_: &Bound<'_, Self>,
-        lm: &Bound<'_, PyAny>,
-        messages_lst: &Bound<'_, PyList>,
-        stop: Option<&Bound<'_, PyAny>>,
-        kwargs: Option<&Bound<'_, PyDict>>,
-    ) -> PyResult<PyObject> {
-        let py = self_.py();
-        let call_kwargs = PyDict::new(py);
-        if let Some(s) = stop {
-            call_kwargs.set_item("stop", s)?;
-        }
-        if let Some(kw) = kwargs {
-            call_kwargs.update(kw.as_mapping())?;
-        }
-        // Synchronous entry point: agenerate hands back a coroutine, so we hand it
-        // to asyncio.run to drive it to completion on a fresh event loop.
-        let coro = self_.call_method("agenerate", (lm, messages_lst), Some(&call_kwargs))?;
-        Ok(py.import("asyncio")?.call_method1("run", (coro,))?.unbind())
-    }
 }
 
 fn resolve_max_completion_tokens(
@@ -246,7 +220,7 @@ fn resolve_max_completion_tokens(
 
 fn expand_temperatures(
     py: Python<'_>,
-    temperature: Option<Bound<'_, PyAny>>,
+    temperature: Option<&Bound<'_, PyAny>>,
     n: usize,
 ) -> PyResult<Vec<PyObject>> {
     match temperature {
