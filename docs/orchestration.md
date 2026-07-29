@@ -122,6 +122,19 @@ The Rust orchestrator is split into three layers because (a) future Rust compone
 
 **Naming convention:** Layer 1 drops the `LM` prefix because it is a generic concurrent executor with no LM awareness. Layer 2 uses the `Py` prefix (standard PyO3 convention for bridge types); the leading underscore on the pyclass name (`_PyLMOrchestrator`) marks it as private — Python users should use `RustLMOrchestrator` (Layer 3) instead.
 
+#### Why Python and Rust async intermingle
+
+The concurrency-limited fan-out lives in Rust (Layer 1), but the work it fans
+out over — `lm.agenerate_single` — is a Python coroutine: that is where the LM
+HTTP calls are actually made. So Layer 2 has to drive Python coroutines from
+Rust, which means calling into Python by name (`get_running_loop`,
+`create_task`, `cancel`) and converting the resulting awaitables into Rust
+futures. That intermingling is inherent to this split, not incidental: the only
+ways to avoid it are to run the orchestration in Python (which defeats the point
+of a Rust orchestrator) or to move the LM HTTP calls into Rust (a much larger
+change). We accept the trade-off and keep it contained — Layer 2 is a thin
+bridge, and all the real concurrency logic stays in pure Rust in Layer 1.
+
 #### Two-phase cancellation
 
 `pyo3-async-runtimes::into_future` bridges a Python awaitable into a Rust future by creating a `oneshot` channel: the Python `asyncio.Task` runs on the event loop and sends its result through the channel; the Rust future awaits the receiver. These are two independent objects — the Rust future owns the receiver, the Python event loop owns the task.
@@ -134,7 +147,7 @@ Layer 2 fixes this with explicit cancellation. Before calling `into_future`, it 
 
 - **Layer 1:** `#[tokio::test]` in `rust/src/core/orchestrator.rs` (pure Rust, no Python).
 - **Layer 2:** Not tested directly — exercised through Layer 3.
-- **Layer 3:** `pytest tests/test_orchestrator.py`, same suite as the Python `LMOrchestrator`. The raw `_PyLMOrchestrator` is also included as the `pyo3-raw` fixture.
+- **Layer 3:** `pytest tests/test_orchestrator.py`, the same suite as the Python `LMOrchestrator`, run against `RustLMOrchestrator`.
 
 ### agenerate Method
 
