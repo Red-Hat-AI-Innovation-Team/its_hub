@@ -9,7 +9,7 @@ path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pyo3 = { version = "0.24" }
+pyo3 = { version = "0.24", features = ["experimental-async"] }
 pyo3-async-runtimes = { version = "0.24", features = ["tokio-runtime"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync"] }
 futures-util = "0.3"
