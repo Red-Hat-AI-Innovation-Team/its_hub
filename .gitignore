@@ -197,3 +197,8 @@ envoy.log
 envoy-grpc.log
 iaas-ext-proc.log
 iaas.log
+
+# Factory
+.factory/
+.factory-worktrees/
+.refactory/
