@@ -29,7 +29,8 @@ dependencies = [
 ]
 
 [project.scripts]
-# its-iaas removed for MVP - will be added back in [iaas] extra if needed
+its-iaas = "its_hub.integration.iaas.app_server:main"
+its-iaas-ext-proc = "its_hub.integration.iaas.grpc_server:main"
 envoy-grpc = "its_hub.integration.ext_proc.server:main"
 
 [tool.setuptools_scm]
@@ -56,6 +57,10 @@ iaas = [
     "uvicorn",
     "pydantic>=2.7.2",
     "click>=8.1.0",
+]
+
+envoy-iaas = [
+    "its_hub[iaas,ext_proc]",
 ]
 
 ext_proc = [
@@ -92,8 +97,9 @@ research = [
 ]
 
 [tool.setuptools.package-data]
-"its_hub.integration.ext_proc.proto" = ["**/*.py"]
+"its_hub.integration.proto" = ["**/*.py"]
 "its_hub.integration.ext_proc" = ["envoy_config.yaml"]
+"its_hub.integration.iaas" = ["envoy_config.yaml"]
 
 [tool.setuptools]
 package-dir = {"" = "."}
@@ -113,5 +119,5 @@ include = [
 
 [tool.coverage.run]
 omit = [
-    "its_hub/integration/ext_proc/proto/*",
+    "its_hub/integration/proto/*",
 ]

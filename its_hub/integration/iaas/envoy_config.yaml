@@ -1,0 +1,218 @@
+# Envoy Configuration for ITS Gateway
+#
+# This configuration sets up Envoy with a lightweight ext_proc router that
+# directs ITS requests to the IaaS backend service (Option 2 architecture).
+#
+# The ext_proc is a pure router — it checks for X-ITS-Budget, sets an
+# X-ITS-Route header, and calls clear_route_cache. No body buffering,
+# no algorithm execution. The IaaS service does the actual ITS work.
+#
+# How requests reach IaaS:
+#   Send X-ITS-Budget header with normal OpenAI requests;
+#   the ext_proc router redirects to IaaS automatically.
+#
+# Architecture:
+#   Client -> Envoy (port 8108)
+#     ├── X-ITS-Budget present -> ext_proc sets X-ITS-Route -> IaaS (port 8109)
+#     └── /* (no ITS headers)  ->  LLM Backend (port 8100)
+#
+# Usage:
+#   # Get this config
+#   its-iaas --print-config > envoy_config.yaml
+#
+#   # Start all services
+#   its-iaas-ext-proc --port 50051 &  # Lightweight ext_proc router
+#   its-iaas --port 8109 &            # IaaS FastAPI service
+#   envoy -c envoy_config.yaml        # Envoy proxy
+#
+# Customization Guide:
+# ====================
+# 1. Change Envoy listening port: Update port_value under listeners[0].address (default: 8108)
+# 2. Change ext_proc gRPC port: Update port_value in ext_proc_cluster endpoints (default: 50051)
+# 3. Change IaaS HTTP port: Update port_value in iaas_upstream endpoints (default: 8109)
+# 4. Change upstream LLM endpoint: Update address/port in llm_upstream cluster (default: localhost:8100)
+# 5. Change failure behavior: Set failure_mode_allow to false to reject requests when ext_proc is down
+
+# ==============================================================================
+# Admin Interface - Monitoring and Debugging
+# ==============================================================================
+# Access at http://localhost:9901 for stats, health checks, and configuration
+admin:
+  access_log_path: /tmp/admin_access.log
+  address:
+    socket_address:
+      protocol: TCP
+      address: 127.0.0.1
+      port_value: 9901
+
+# ==============================================================================
+# Static Resources Configuration
+# ==============================================================================
+static_resources:
+  # ------------------------------------------------------------------------------
+  # LISTENER - Client-facing HTTP proxy
+  # ------------------------------------------------------------------------------
+  listeners:
+  - name: listener_0
+    address:
+      socket_address:
+        protocol: TCP
+        address: 127.0.0.1  # Localhost only (use 0.0.0.0 to listen on all interfaces)
+        port_value: 8108     # **CUSTOMIZE**: Client request port (your API gateway endpoint)
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_http
+          access_log:
+          - name: envoy.access_loggers.stdout
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+          http_filters:
+          # ----------------------------------------------------------------------
+          # External Processor Filter - ITS Algorithm Execution (transparent mode)
+          # ----------------------------------------------------------------------
+          # This filter sends request headers to the lightweight router ext_proc
+          # which checks for X-ITS-Budget. If present, it sets X-ITS-Route and
+          # calls clear_route_cache so Envoy re-routes to the IaaS service.
+          # No body buffering — the router completes in microseconds.
+          - name: envoy.filters.http.ext_proc
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+              grpc_service:
+                envoy_grpc:
+                  cluster_name: ext_proc_cluster
+                timeout: 5s    # Router is lightweight — fast timeout is fine
+              # **IMPORTANT**: Fail-safe mode - allows requests through if ext_proc is down
+              # Set to false to reject requests when ext_proc unavailable
+              failure_mode_allow: true
+              message_timeout: 5s
+              # Header-only mode — the router never inspects the body
+              processing_mode:
+                request_header_mode: SEND      # Send headers to ext_proc (needed to check X-ITS-Budget)
+          # ----------------------------------------------------------------------
+          # Router Filter - Routes to Upstream Services
+          # ----------------------------------------------------------------------
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+          # Route Configuration
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: local_service
+              domains: ["*"]
+              routes:
+              # ----------------------------------------------------------------
+              # Route 1: ext_proc routed ITS -> IaaS service
+              # ----------------------------------------------------------------
+              # When the router ext_proc detects X-ITS-Budget, it sets
+              # X-ITS-Route: its-service and calls clear_route_cache. Envoy
+              # re-evaluates routes and matches this header-based route.
+              # ITS headers are preserved — IaaS reads them for per-request config.
+              - match:
+                  prefix: "/"
+                  headers:
+                  - name: X-ITS-Route
+                    exact_match: "its-service"
+                route:
+                  cluster: iaas_upstream
+                  timeout: 300s  # **CUSTOMIZE**: Timeout for ITS processing
+              # ----------------------------------------------------------------
+              # Route 2: All other traffic -> LLM upstream (pass-through)
+              # ----------------------------------------------------------------
+              - match:
+                  prefix: "/"
+                request_headers_to_remove:
+                - x-its-budget
+                - x-its-endpoint
+                - x-its-api-key
+                - x-its-route
+                route:
+                  cluster: llm_upstream
+                  timeout: 300s  # **CUSTOMIZE**: Timeout for upstream LLM requests
+
+  # ----------------------------------------------------------------------------
+  # CLUSTERS - Backend Services
+  # ----------------------------------------------------------------------------
+  clusters:
+  # Lightweight ext_proc Router (routing decisions only, no algorithm execution)
+  # Started via: its-iaas-ext-proc --port 50051
+  - name: ext_proc_cluster
+    connect_timeout: 5s
+    type: LOGICAL_DNS
+    # **REQUIRED**: HTTP/2 for gRPC communication
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
+    load_assignment:
+      cluster_name: ext_proc_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: 127.0.0.1
+                port_value: 50051  # **CUSTOMIZE**: ext_proc gRPC port
+    health_checks:
+    - timeout: 1s
+      interval: 10s
+      unhealthy_threshold: 2
+      healthy_threshold: 2
+      grpc_health_check: {}
+
+  # IaaS FastAPI Service (ITS algorithm execution, /configure and OpenAI-compatible API)
+  # Started via: its-iaas --port 8109
+  # Receives ext_proc-routed traffic when X-ITS-Budget is present
+  - name: iaas_upstream
+    connect_timeout: 5s
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: iaas_upstream
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: 127.0.0.1
+                port_value: 8109  # **CUSTOMIZE**: IaaS service port
+    health_checks:
+    - timeout: 1s
+      interval: 10s
+      unhealthy_threshold: 2
+      healthy_threshold: 2
+      http_health_check:
+        path: "/docs"
+        expected_statuses:
+        - start: 200
+          end: 299
+
+  # Upstream LLM Service (fallback when ITS headers not present)
+  # **CUSTOMIZE THIS**: Point to your actual LLM endpoint (vLLM, OpenAI-compatible, etc.)
+  - name: llm_upstream
+    connect_timeout: 5s
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: llm_upstream
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: 127.0.0.1
+                port_value: 8100  # **CUSTOMIZE**: Your LLM service port
+    health_checks:
+    - timeout: 1s
+      interval: 30s
+      unhealthy_threshold: 3
+      healthy_threshold: 2
+      http_health_check:
+        path: "/health"
+        expected_statuses:
+        - start: 200
+          end: 299

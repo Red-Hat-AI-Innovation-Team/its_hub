@@ -72,7 +72,7 @@ To use ITS as an external processor with Envoy:
 make setup-envoy
 ```
 
-For more information, refer to [docs/ext-proc-gateway.md](docs/ext-proc-gateway.md).
+For more information, refer to [docs/ext-proc-gateway.md](docs/ext-proc-gateway.md) and [docs/iaas-service.md](docs/iaas-service.md).
 
 ## Quick Start
 

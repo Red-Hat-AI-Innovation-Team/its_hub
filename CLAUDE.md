@@ -67,7 +67,7 @@ python scripts/benchmark.py --help
 ### IaaS Service (Inference-as-a-Service)
 ```bash
 # Start IaaS service
-uv run its-iaas --host 0.0.0.0 --port 8108
+uv run its-iaas --host 127.0.0.1 --port 8109
 
 # Or using justfile (if available)
 just iaas-start
