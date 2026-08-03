@@ -215,7 +215,7 @@ jobs:
 
             - name: "Validate packages"
               run: |
-                  pip install twine
+                  pip install twine==7.0.0
                   twine check dist/*
 
             - name: "Upload to Test PyPI"
@@ -257,7 +257,7 @@ jobs:
 
             - name: "Validate packages"
               run: |
-                  pip install twine
+                  pip install twine==7.0.0
                   twine check dist/*
 
             - name: "Sigstore sign package"
