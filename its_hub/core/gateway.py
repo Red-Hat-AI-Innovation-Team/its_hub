@@ -19,11 +19,17 @@ from its_hub.api import (
     GenerationUsage,
     ITSRequestConfig,
 )
-from its_hub.core.algorithms.self_consistency import SelfConsistency
+from its_hub.core.algorithms.self_consistency import (
+    SelfConsistency,
+    create_regex_projection_function,
+    validate_regex_patterns,
+)
 from its_hub.core.lms.openai_lm import OpenAICompatibleLanguageModel
 from its_hub.core.orchestrator import LMOrchestrator
 
 logger = logging.getLogger(__name__)
+
+SUPPORTED_ALGORITHMS = frozenset({"self-consistency"})
 
 
 class ITSGateway(AbstractGateway):
@@ -72,6 +78,38 @@ class ITSGateway(AbstractGateway):
             tuple[str, str, str], OpenAICompatibleLanguageModel
         ] = OrderedDict()
         logger.info("ITSGateway initialized with algorithm=%s", self._algorithm_name)
+
+    def configure(
+        self,
+        alg: str,
+        regex_patterns: list[str] | None = None,
+        tool_vote: str | None = None,
+        exclude_tool_args: list[str] | None = None,
+    ) -> None:
+        """Configure the gateway's scaling algorithm at runtime.
+
+        Raises ValueError for unsupported algorithms or invalid options.
+        """
+        if alg not in SUPPORTED_ALGORITHMS:
+            raise ValueError(
+                f"Algorithm {alg!r} not supported. Choose from: {SUPPORTED_ALGORITHMS}"
+            )
+
+        if alg == "self-consistency":
+            projection_func = None
+            if regex_patterns:
+                validate_regex_patterns(regex_patterns)
+                projection_func = create_regex_projection_function(regex_patterns)
+            algorithm = SelfConsistency(
+                consistency_space_projection_func=projection_func,
+                tool_vote=tool_vote,
+                exclude_args=exclude_tool_args,
+                orchestrator=self._orchestrator,
+            )
+
+        self._algorithm = algorithm
+        self._algorithm_name = type(algorithm).__name__
+        logger.info("ITSGateway reconfigured with algorithm=%s", self._algorithm_name)
 
     @staticmethod
     def _hash_api_key(api_key: str | None) -> str:
@@ -142,6 +180,8 @@ class ITSGateway(AbstractGateway):
         request_id = kwargs.get("request_id")
         log_prefix = f"[{request_id}] " if request_id else ""
 
+        if not config.api_endpoint:
+            raise ValueError("api_endpoint must be specified in ITSRequestConfig")
         if not config.model:
             raise ValueError(
                 "Model must be specified in ITSRequestConfig before running"

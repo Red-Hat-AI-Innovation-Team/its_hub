@@ -13,6 +13,8 @@ from its_hub.api import (
     AbstractScalingAlgorithm,
     AbstractScalingResult,
 )
+from its_hub.core.algorithms.adaptive_self_consistency import AdaptiveSelfConsistency
+from its_hub.core.algorithms.beta_self_consistency import BetaSelfConsistency
 from its_hub.core.algorithms.bon import BestOfN
 from its_hub.core.algorithms.self_consistency import SelfConsistency
 
@@ -30,6 +32,8 @@ __all__ = [  # noqa: RUF022
     "AbstractProcessRewardModel",
     "AbstractScalingResult",
     # Algorithms
+    "AdaptiveSelfConsistency",
+    "BetaSelfConsistency",
     "SelfConsistency",
     "BestOfN",
 ]

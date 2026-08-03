@@ -27,7 +27,8 @@ dependencies = [
 ]
 
 [project.scripts]
-# its-iaas removed for MVP - will be added back in [iaas] extra if needed
+its-iaas = "its_hub.integration.iaas.app_server:main"
+its-iaas-ext-proc = "its_hub.integration.iaas.grpc_server:main"
 envoy-grpc = "its_hub.integration.ext_proc.server:main"
 
 [project.urls]
@@ -51,6 +52,10 @@ iaas = [
     "click>=8.1.0",
 ]
 
+envoy-iaas = [
+    "its_hub[iaas,ext_proc]",
+]
+
 ext_proc = [
     "its_hub[lm]",
     "grpcio>=1.60.0",
@@ -68,6 +73,7 @@ dev = [
     "python-dotenv>=1.0.0",
     "jupytext>=1.15.0",
     "jupyter>=1.0.0",
+    "scipy>=1.11.0",
 ]
 
 # Experimental - not officially supported in MVP
@@ -91,3 +97,14 @@ manifest-path = "rust/Cargo.toml"
 module-name = "its_hub._rust"
 python-source = "."
 features = ["extension-module"]
+# Non-Python data files that setuptools shipped via package-data; maturin needs
+# them listed explicitly so they land in the sdist/wheel.
+include = [
+    "its_hub/integration/ext_proc/envoy_config.yaml",
+    "its_hub/integration/iaas/envoy_config.yaml",
+]
+
+[tool.coverage.run]
+omit = [
+    "its_hub/integration/proto/*",
+]

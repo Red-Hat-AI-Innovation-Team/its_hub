@@ -1,10 +1,8 @@
-"""gRPC server for the Envoy External Processor."""
+"""gRPC server for the IaaS ext_proc."""
 
 import argparse
 import asyncio
 import logging
-import sys
-from importlib import resources
 
 try:
     import grpc
@@ -18,24 +16,20 @@ logger = logging.getLogger(__name__)
 
 
 def _configure_logging(level_name: str) -> None:
-    """Adjust log levels for root and key ITS modules."""
     numeric_level = getattr(logging, level_name.upper(), None)
     if not isinstance(numeric_level, int):
         raise ValueError(f"Invalid log level: {level_name}")
 
     logging.getLogger().setLevel(numeric_level)
     for logger_name in (
-        "its_hub.integration.ext_proc.processor",
-        "its_hub.integration.ext_proc.server",
-        "its_hub.core.gateway",
-        "its_hub.core.algorithms.self_consistency",
+        "its_hub.integration.iaas.ext_processor",
+        "its_hub.integration.iaas.grpc_server",
     ):
         logging.getLogger(logger_name).setLevel(numeric_level)
 
 
 def _parse_args() -> argparse.Namespace:
-    """Parse CLI arguments for the ext_proc server."""
-    parser = argparse.ArgumentParser(description="ITS Envoy External Processor")
+    parser = argparse.ArgumentParser(description="ITS IaaS ext_proc")
     parser.add_argument(
         "--port",
         type=int,
@@ -47,60 +41,46 @@ def _parse_args() -> argparse.Namespace:
         default="INFO",
         help="Logging level (e.g., DEBUG, INFO, WARNING)",
     )
-    parser.add_argument(
-        "--print-config",
-        action="store_true",
-        help="Print the sample Envoy config to stdout and exit",
-    )
     return parser.parse_args()
 
 
 async def serve(port: int = 50051):
-    """Start the gRPC server."""
-    from its_hub.integration.ext_proc.processor import (
+    """Start the gRPC ext_proc server."""
+    from its_hub.integration.iaas.ext_processor import (
         ExternalProcessorService,
         ext_proc_grpc,
     )
 
     server = grpc.aio.server()
-
-    processor = ExternalProcessorService()
-
-    ext_proc_grpc.add_ExternalProcessorServicer_to_server(processor, server)
+    ext_proc_grpc.add_ExternalProcessorServicer_to_server(
+        ExternalProcessorService(), server
+    )
 
     health_servicer = health.aio.HealthServicer()
     health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
 
     server.add_insecure_port(f"[::]:{port}")
 
-    logger.info("Starting External Processor on port %d", port)
+    logger.info("Starting IaaS ext_proc on port %d", port)
     await server.start()
-
-    logger.info("External Processor is ready to receive requests from Envoy")
+    logger.info("IaaS ext_proc ready — routing X-ITS-Budget requests to IaaS")
 
     try:
         await server.wait_for_termination()
     except (KeyboardInterrupt, asyncio.CancelledError):
-        logger.info("Received shutdown signal")
-        await processor.shutdown()
+        logger.info("ext_proc shutting down")
         await server.stop(grace=5)
 
 
-def _print_config() -> None:
-    """Print the bundled sample Envoy config to stdout."""
-    config = resources.files("its_hub.integration.ext_proc").joinpath(
-        "envoy_config.yaml"
-    )
-    sys.stdout.write(config.read_text())
-
-
 def main():
-    """Entry point for the external processor service."""
+    """Entry point for the IaaS ext_proc gRPC service."""
     args = _parse_args()
 
-    if args.print_config:
-        _print_config()
-        return
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+    _configure_logging(args.log_level)
 
     if grpc is None:
         print(
@@ -109,16 +89,7 @@ def main():
         )
         raise SystemExit(1)
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-
-    _configure_logging(args.log_level)
-    try:
-        asyncio.run(serve(port=args.port))
-    except KeyboardInterrupt:
-        logger.info("Service stopped")
+    asyncio.run(serve(port=args.port))
 
 
 if __name__ == "__main__":

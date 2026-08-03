@@ -76,6 +76,19 @@ jobs:
               with:
                   persist-credentials: false
                   fetch-depth: 0
+                  submodules: true
+
+            - name: "Install uv and setup python version"
+              uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+              with:
+                  python-version: "3.11"
+                  enable-cache: true
+
+            - name: "Install ext_proc build dependencies"
+              run: uv sync --extra ext_proc
+
+            - name: "Compile Envoy proto files"
+              uses: ./.github/actions/compile-protos
 
             - name: "Build wheels"
               uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
