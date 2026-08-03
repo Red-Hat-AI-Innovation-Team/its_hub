@@ -50,7 +50,7 @@ jobs:
               uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
               with:
                   python-version: "3.11"
-                  enable-cache: true
+                  enable-cache: false
 
             - name: "Install ext_proc build dependencies"
               run: uv sync --extra ext_proc
@@ -99,7 +99,7 @@ jobs:
               uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
               with:
                   python-version: "3.11"
-                  enable-cache: true
+                  enable-cache: false
 
             - name: "Install ext_proc build dependencies"
               run: uv sync --extra ext_proc
@@ -161,7 +161,7 @@ jobs:
               uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
               with:
                   python-version: "3.11"
-                  enable-cache: true
+                  enable-cache: false
 
             - name: "Install ext_proc build dependencies"
               run: uv sync --extra ext_proc
