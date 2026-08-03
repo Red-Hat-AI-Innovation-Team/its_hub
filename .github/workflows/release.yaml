@@ -72,6 +72,7 @@ jobs:
               with:
                   name: dist-sdist
                   path: dist/*.tar.gz
+                  if-no-files-found: error
 
     # Cross-compiled inside manylinux containers by maturin-action
     linux-wheels:
@@ -119,6 +120,7 @@ jobs:
               with:
                   name: dist-linux-${{ matrix.target }}
                   path: dist/*.whl
+                  if-no-files-found: error
 
     # macOS needs setup-python to install interpreters; --find-interpreter
     # discovers them so maturin builds a wheel for each.
@@ -181,6 +183,7 @@ jobs:
               with:
                   name: dist-macos-${{ matrix.target }}
                   path: dist/*.whl
+                  if-no-files-found: error
 
     # push to Test PyPI on
     # - a new GitHub release is published
