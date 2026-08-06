@@ -456,20 +456,24 @@ def optimize_gpu_memory():
 
 ### Version Bumping
 
-Update version in `pyproject.toml`:
+The package version comes from `rust/Cargo.toml` (maturin reads it from there):
 
 ```toml
-[project]
+[package]
 version = "0.2.0"
 ```
 
 ### Creating Releases
 
-1. Update version number
+1. Update the version in `rust/Cargo.toml`
 2. Update CHANGELOG.md
 3. Create git tag: `git tag -a v0.2.0 -m "Release v0.2.0"`
 4. Push tag: `git push origin v0.2.0`
 5. GitHub Actions will handle PyPI publishing
+
+> The release workflow's `check-version` job fails the build if the release tag
+> (e.g. `v0.2.0`) doesn't match the version in `rust/Cargo.toml`, so keep the two
+> in sync when bumping.
 
 ## Contributing
 

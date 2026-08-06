@@ -185,6 +185,40 @@ jobs:
                   path: dist/*.whl
                   if-no-files-found: error
 
+    # Guard against publishing wheels whose version disagrees with the release
+    # tag. The version now comes from rust/Cargo.toml (used by maturin), so a
+    # tag like v1.2.0 could otherwise ship wheels still labeled 1.1.0. Runs on
+    # every trigger but only enforces on tag pushes / releases, so it always
+    # completes and can safely gate the publish jobs via `needs`.
+    check-version:
+        name: Verify tag matches package version
+        runs-on: ubuntu-latest
+        steps:
+            - name: "Harden Runner"
+              uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+              with:
+                  egress-policy: audit
+
+            - name: "Checkout"
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+              with:
+                  persist-credentials: false
+
+            - name: "Compare tag to rust/Cargo.toml version"
+              run: |
+                  if [[ "${GITHUB_REF}" != refs/tags/v* ]]; then
+                      echo "Not a tag build (${GITHUB_REF}); skipping version check."
+                      exit 0
+                  fi
+                  tag="${GITHUB_REF_NAME#v}"
+                  version=$(grep -m1 '^version = ' rust/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
+                  echo "tag=${tag} rust/Cargo.toml=${version}"
+                  if [ "${tag}" != "${version}" ]; then
+                      echo "::error::Release tag ${GITHUB_REF_NAME} does not match rust/Cargo.toml version ${version}"
+                      exit 1
+                  fi
+                  echo "Version check passed: ${version}"
+
     # push to Test PyPI on
     # - a new GitHub release is published
     # - a PR is merged into main branch
@@ -197,7 +231,7 @@ jobs:
             # see https://docs.pypi.org/trusted-publishers/
             id-token: write
         runs-on: ubuntu-latest
-        needs: [sdist, linux-wheels, macos-wheels]
+        needs: [check-version, sdist, linux-wheels, macos-wheels]
 
         environment:
             name: testpypi
@@ -243,7 +277,7 @@ jobs:
             url: https://pypi.org/p/its-hub
 
         runs-on: ubuntu-latest
-        needs: [sdist, linux-wheels, macos-wheels]
+        needs: [check-version, sdist, linux-wheels, macos-wheels]
 
         steps:
             - name: "Harden Runner"
