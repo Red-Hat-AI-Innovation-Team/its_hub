@@ -15,6 +15,7 @@ on:
       - "its_hub/**"
       - "tests/**"
       - "!tests/e2e/**"
+      - "rust/**"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/tests.yaml"  # This workflow
@@ -24,13 +25,26 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        # PyO3 0.24 supports up to Python 3.13; add 3.14 when PyO3 upgrades
+        python-version: ["3.11", "3.12", "3.13"]
 
     steps:
     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       with:
+        fetch-depth: 0
         submodules: true
-    
+        persist-credentials: false
+
+    - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+    - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      with:
+        workspaces: rust
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+
+    - name: Run Rust tests
+      run: cargo test --manifest-path rust/Cargo.toml
+
     - name: Install uv and setup python version
       uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       with:

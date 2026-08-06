@@ -76,17 +76,17 @@ Note: Currently only Self-Consistency and Best-of-N use the orchestrator. Experi
 
 ## Core Implementation
 
-### LMOrchestrator
+`its_hub` ships two LM orchestrator implementations with identical APIs. One is written in Python, and the other is written in Rust. Both accept the same `agenerate()` / `generate()` signatures and can be passed to any algorithm's `orchestrator` parameter.
 
-The `LMOrchestrator` class provides structured concurrency for parallel LM calls.
+### LMOrchestrator (Python)
+
+The pure-Python implementation using `asyncio.TaskGroup` for structured concurrency.
 
 **Key Features:**
 
 - **TaskGroups (Python 3.11+)**: Uses `asyncio.TaskGroup` for structured concurrency with automatic cleanup
 - **Thread-Safe Semaphore**: Controls concurrency across event loops
 - **Error Handling**: First exception cancels all remaining tasks
-
-### Constructor
 
 ```python
 from its_hub import LMOrchestrator
@@ -96,6 +96,58 @@ orchestrator = LMOrchestrator(max_concurrency=32)  # Default: 32
 
 **Parameters:**
 - `max_concurrency` (int, default 32): Maximum number of parallel LM calls. Set to -1 for unlimited.
+
+### RustLMOrchestrator
+
+Rust-backed alternative that uses Tokio for concurrency control. It is a drop-in replacement for `LMOrchestrator` that satisfies ABC type-checks.
+
+```python
+from its_hub import RustLMOrchestrator
+
+orchestrator = RustLMOrchestrator(max_concurrency=32)  # Default: 32
+```
+
+**Parameters:**
+- `max_concurrency` (int, default 32): Maximum number of parallel LM calls. Set to -1 for unlimited.
+
+#### Three-layer architecture
+
+The Rust orchestrator is split into three layers because (a) future Rust components need a pure Rust orchestrator without crossing the Python boundary, and (b) PyO3 classes cannot inherit from Python ABCs ([PyO3 #991](https://github.com/PyO3/pyo3/issues/991)).
+
+| Layer | Name | Location | Role |
+|-------|------|----------|------|
+| 1. Pure Rust | `Orchestrator` | `rust/src/core/orchestrator.rs` | Semaphore + `try_join_all` fan-out. No Python dependency, LM-agnostic. |
+| 2. PyO3 bridge | `PyLMOrchestrator` / `_PyLMOrchestrator` | `rust/src/adapters/pyo3_orchestrator.rs` | Converts Python coroutines to Rust futures, delegates to Layer 1, cancels Python tasks on error. |
+| 3. ABC wrapper | `RustLMOrchestrator` | `its_hub/core/orchestrator.py` | Inherits `AbstractOrchestrator`, delegates to Layer 2. |
+
+**Naming convention:** Layer 1 drops the `LM` prefix because it is a generic concurrent executor with no LM awareness. Layer 2 uses the `Py` prefix (standard PyO3 convention for bridge types); the leading underscore on the pyclass name (`_PyLMOrchestrator`) marks it as private — Python users should use `RustLMOrchestrator` (Layer 3) instead.
+
+#### Why Python and Rust async intermingle
+
+The concurrency-limited fan-out lives in Rust (Layer 1), but the work it fans
+out over — `lm.agenerate_single` — is a Python coroutine: that is where the LM
+HTTP calls are actually made. So Layer 2 has to drive Python coroutines from
+Rust, which means calling into Python by name (`get_running_loop`,
+`create_task`, `cancel`) and converting the resulting awaitables into Rust
+futures. That intermingling is inherent to this split, not incidental: the only
+ways to avoid it are to run the orchestration in Python (which defeats the point
+of a Rust orchestrator) or to move the LM HTTP calls into Rust (a much larger
+change). We accept the trade-off and keep it contained — Layer 2 is a thin
+bridge, and all the real concurrency logic stays in pure Rust in Layer 1.
+
+#### Two-phase cancellation
+
+`pyo3-async-runtimes::into_future` bridges a Python awaitable into a Rust future by creating a `oneshot` channel: the Python `asyncio.Task` runs on the event loop and sends its result through the channel; the Rust future awaits the receiver. These are two independent objects — the Rust future owns the receiver, the Python event loop owns the task.
+
+When `try_join_all` sees an error, it drops the remaining Rust futures. This drops the receivers, but the Python tasks are untouched — they run to completion, firing LM calls that nobody will read. This is an inherent limitation of `pyo3-async-runtimes`: dropping the Rust side does not signal the Python side.
+
+Layer 2 fixes this with explicit cancellation. Before calling `into_future`, it creates each `asyncio.Task` directly via `loop.create_task(coro)` and stores the reference. After `execute_all` returns `Err`, it iterates the stored references and calls `.cancel()` on each. This is done in the normal error-handling path, not in a Rust `Drop` impl (which would trigger [PyO3 #2860](https://github.com/PyO3/pyo3/issues/2860)).
+
+#### Testing
+
+- **Layer 1:** `#[tokio::test]` in `rust/src/core/orchestrator.rs` (pure Rust, no Python).
+- **Layer 2:** Not tested directly — exercised through Layer 3.
+- **Layer 3:** `pytest tests/test_orchestrator.py`, the same suite as the Python `LMOrchestrator`, run against `RustLMOrchestrator`.
 
 ### agenerate Method
 

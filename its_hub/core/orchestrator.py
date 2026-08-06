@@ -3,6 +3,7 @@ import contextlib
 import logging
 import threading
 
+from its_hub._rust import _PyLMOrchestrator
 from its_hub.api import (
     AbstractLanguageModel,
     AbstractOrchestrator,
@@ -155,7 +156,7 @@ class LMOrchestrator(AbstractOrchestrator):
             summary = ", ".join(f"{v}x {k}" for k, v in error_types.items())
             msg = (
                 f"LMOrchestrator: {len(eg.exceptions)} error(s), "
-                f"{cancelled} cancelled out of {len(messages_lst)} "
+                f"{cancelled} preemptively cancelled out of {len(messages_lst)} "
                 f"generation(s) ({summary})"
             )
             raise RuntimeError(msg) from eg
@@ -166,3 +167,30 @@ class LMOrchestrator(AbstractOrchestrator):
         logging.debug("LMOrchestrator: Completed batch generation")
 
         return responses
+
+
+class RustLMOrchestrator(AbstractOrchestrator):
+    """Layer 3: Python ABC wrapper around the PyO3 _PyLMOrchestrator.
+
+    PyO3 classes cannot inherit from Python ABCs, so this thin wrapper
+    inherits AbstractOrchestrator and delegates to the Rust implementation
+    (Layer 2, in rust/src/adapters/pyo3_orchestrator.rs) which itself delegates
+    concurrency control to the pure Rust orchestrator (Layer 1, in
+    rust/src/core/orchestrator.rs).
+    """
+
+    def __init__(self, max_concurrency: int = 32):
+        self._inner = _PyLMOrchestrator(max_concurrency=max_concurrency)
+
+    @property
+    def max_concurrency(self) -> int:
+        return self._inner.max_concurrency
+
+    async def agenerate(
+        self,
+        lm: AbstractLanguageModel,
+        messages_lst: list[list[ChatMessage]],
+        stop: str | None = None,
+        **kwargs,
+    ) -> list[dict]:
+        return await self._inner.agenerate(lm, messages_lst, stop=stop, **kwargs)

@@ -16,6 +16,8 @@ pip install -e ".[dev]"
 pip install its_hub
 ```
 
+`uv sync` automatically rebuilds the Rust extension (`its_hub._rust`) whenever `.rs` sources or `Cargo.toml` change, thanks to the `[tool.uv] cache-keys` config in `pyproject.toml`. No separate `maturin develop` step is needed during normal development.
+
 ### Contribution
 When commit or raising PR, never mention it is by ClaudeCode.
 never say 🤖 Generated with [Claude Code](https://claude.ai/code)" in the commit statment, don't mention claude!

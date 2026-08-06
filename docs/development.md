@@ -4,7 +4,13 @@
 
 ### Development Installation
 
+Requires a Rust toolchain — the project uses [maturin](https://www.maturin.rs/) to build an extension from `rust/`.
+
 ```bash
+# Install Rust (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+. "$HOME/.cargo/env"
+
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 cd its_hub
 pip install -e ".[dev]"
@@ -12,6 +18,7 @@ pip install -e ".[dev]"
 
 The development installation includes:
 - All core dependencies
+- Rust native extension
 - Testing frameworks (pytest, coverage)
 - Code formatting and linting tool (ruff)
 - Development tools and scripts
@@ -96,6 +103,7 @@ class AbstractProcessRewardModel:
 ```
 its_hub/
 ├── __init__.py             # Top-level exports (import from here)
+├── _rust.*                 # Native extension (built by maturin)
 ├── algorithms/__init__.py  # Deprecated, backward compatibility only
 ├── api/                    # Public interfaces (stable API)
 │   ├── lm.py              # AbstractLanguageModel
@@ -121,6 +129,10 @@ its_hub/
 │   │   └── local_vllm_prm.py
 │   ├── orchestrator.py    # LMOrchestrator
 │   └── utils.py           # System prompts, helpers
+rust/
+├── Cargo.toml              # Rust crate manifest
+└── src/
+    └── lib.rs              # PyLMOrchestrator (PyO3 native extension)
 ```
 
 ## Adding New Algorithms
@@ -444,20 +456,24 @@ def optimize_gpu_memory():
 
 ### Version Bumping
 
-Update version in `pyproject.toml`:
+The package version comes from `rust/Cargo.toml` (maturin reads it from there):
 
 ```toml
-[project]
+[package]
 version = "0.2.0"
 ```
 
 ### Creating Releases
 
-1. Update version number
+1. Update the version in `rust/Cargo.toml`
 2. Update CHANGELOG.md
 3. Create git tag: `git tag -a v0.2.0 -m "Release v0.2.0"`
 4. Push tag: `git push origin v0.2.0`
 5. GitHub Actions will handle PyPI publishing
+
+> The release workflow's `check-version` job fails the build if the release tag
+> (e.g. `v0.2.0`) doesn't match the version in `rust/Cargo.toml`, so keep the two
+> in sync when bumping.
 
 ## Contributing
 

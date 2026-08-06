@@ -189,6 +189,7 @@ notebooks/dev.ipynb
 results/
 
 .its-hub/
+.claude/worktrees/
 
 # Generated Envoy proto files
 its_hub/integration/proto/
