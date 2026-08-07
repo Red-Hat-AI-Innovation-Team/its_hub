@@ -97,14 +97,16 @@ curl -X POST http://localhost:8109/configure \
     "api_key": "your-openai-api-key",
     "model": "gpt-4o-mini",
     "alg": "self-consistency",
+    "regex_patterns": ["\\boxed\\{([^}]+)\\}"],
     "tool_vote": "tool_hierarchical",
-    "exclude_args": ["timestamp", "request_id", "id", "type"]
+    "exclude_tool_args": ["timestamp", "request_id", "id", "type"]
   }'
 ```
 
 **Parameters:**
+- `regex_patterns`: Required for self-consistency — each pattern needs a capturing group that extracts the answer to vote on (used for text responses; tool responses vote via `tool_vote`)
 - `tool_vote`: Voting strategy - `"tool_name"`, `"tool_args"`, or `"tool_hierarchical"` (recommended)
-- `exclude_args`: List of argument names to exclude from voting (e.g., timestamps, IDs)
+- `exclude_tool_args`: List of argument names to exclude from voting (e.g., timestamps, IDs)
 
 ---
 
