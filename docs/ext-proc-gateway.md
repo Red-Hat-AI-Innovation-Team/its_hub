@@ -109,10 +109,11 @@ sequenceDiagram
 
 Envoy's **ext_proc filter** forwards every request to an **external processor** (`:50051`) that runs
 the ITS core. The **ITS core** shown in the diagram is that external processor: it parses the
-`X-ITS-*` headers, fans out ×budget generations, and selects the best answer. A request carrying
-`X-ITS-*` headers is fanned out: its candidates are generated and the best answer is returned directly.
-All other requests pass through to the upstream LLM. An ITS failure therefore never causes a client
-request to fail; the worst case is a single-sample response.
+`X-ITS-*` headers, fans out ×budget generations, and selects the best answer. A supported
+chat-completion request carrying `X-ITS-*` headers is fanned out: its candidates are generated and the
+best answer is returned directly. Non-chat requests pass through to the upstream LLM, even when ITS
+headers are present. An ITS failure therefore never causes a client request to fail; the worst case is
+a single-sample response.
 
 The ITS core is started by the `envoy-grpc` command. Despite its name, `envoy-grpc` does **not**
 launch Envoy — Envoy is the separate `envoy -c envoy.yaml` process. `envoy-grpc` only starts the ITS
@@ -164,8 +165,9 @@ and the pass-through fallback — is identical.
 
 - **Reading the diagrams.** The `alt` block marks the branch; each request follows exactly one path.
   Solid arrows are calls, dashed arrows are responses.
-- **Per-request configuration.** In Approach 1, all parameters travel in `X-ITS-*` headers; no prior
+- **Per-request configuration.** In Approach 1, all ITS parameters travel in `X-ITS-*` headers; no prior
   configuration is required. In Approach 2, the upstream LLM is configured once via `POST /configure`
   and each request supplies only its `budget` in the request body; `X-ITS-*` headers are also accepted
   as per-request overrides (header > body > `/configure` default).
-- **Ports.** The values shown (`:8108`, `:50051`, `:8109`, `:8100`) are defaults and may be changed.
+- **Ports.** The values shown are defaults and may be changed: `:8108` (Envoy), `:50051` (ext_proc
+  gRPC), `:8109` (IaaS service), and `:8100` (the upstream LLM / `llm_upstream`).

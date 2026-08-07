@@ -97,7 +97,7 @@ curl -X POST http://localhost:8109/configure \
     "api_key": "your-openai-api-key",
     "model": "gpt-4o-mini",
     "alg": "self-consistency",
-    "regex_patterns": ["\\boxed\\{([^}]+)\\}"],
+    "regex_patterns": ["\\\\boxed\\{([^}]+)\\}"],
     "tool_vote": "tool_hierarchical",
     "exclude_tool_args": ["timestamp", "request_id", "id", "type"]
   }'

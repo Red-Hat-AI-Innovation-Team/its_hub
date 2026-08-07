@@ -138,9 +138,10 @@ uv run ruff format its_hub/
 
 ### Proto Generation (gateway development)
 
-The `ext_proc` and `envoy-iaas` gateways depend on compiled Envoy proto files. These ship with the
-repo and wheel, so a normal `pip install` needs no extra steps — regenerate them only when working on
-the gateway itself. The `make setup-envoy` target handles it:
+The `ext_proc` and `envoy-iaas` gateways depend on compiled Envoy proto files. These are generated
+rather than checked into the repo, but they ship in the published wheel, so a normal `pip install`
+needs no extra steps — regenerate them only when working on the gateway itself. The `make setup-envoy`
+target handles it:
 
 1. Initializes git submodules (`envoy-data-plane-api`, `xds`, `protoc-gen-validate`)
 2. Compiles `.proto` files to Python using `grpc_tools.protoc`
