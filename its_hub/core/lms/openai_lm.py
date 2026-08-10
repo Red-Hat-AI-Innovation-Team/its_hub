@@ -175,6 +175,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
         response_format: dict | None = None,
+        logprobs: bool | None = None,
+        top_logprobs: int | None = None,
     ) -> dict:
         # helper method to prepare request data for both sync and async methods
         # Convert dict messages to Message objects if needed
@@ -241,6 +243,12 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         if response_format is not None:
             request_data["response_format"] = response_format
 
+        # add logprobs for token-level log probability data
+        if logprobs is not None:
+            request_data["logprobs"] = logprobs
+        if top_logprobs is not None:
+            request_data["top_logprobs"] = top_logprobs
+
         return request_data
 
     async def _agenerate(
@@ -254,6 +262,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         tool_choice: str | dict | None = None,
         response_format: dict | None = None,
         usage_accumulator: GenerationUsage | None = None,
+        logprobs: bool | None = None,
+        top_logprobs: int | None = None,
     ) -> list[dict]:
         # limit concurrency to max_concurrency using a semaphore
         semaphore = asyncio.Semaphore(
@@ -285,6 +295,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         tools,
                         tool_choice,
                         response_format,
+                        logprobs,
+                        top_logprobs,
                     )
 
                     async with session.post(
@@ -306,6 +318,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                                 **choice,
                                 "message": dict(choice["message"]),
                             }
+                        if (lp := choice.get("logprobs")) is not None:
+                            message["_logprobs"] = lp
                         if usage_accumulator is not None:
                             api_usage = response_json.get("usage", {})
                             usage_accumulator.add(
@@ -408,6 +422,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         response_format: dict | None = None,
         loop: asyncio.AbstractEventLoop | None = None,
         usage_accumulator: GenerationUsage | None = None,
+        logprobs: bool | None = None,
+        top_logprobs: int | None = None,
     ) -> dict:
         max_completion_tokens = resolve_max_completion_tokens(
             max_completion_tokens, max_tokens
@@ -438,6 +454,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                 tools,
                 tool_choice,
                 response_format,
+                logprobs,
+                top_logprobs,
             )
 
             async with session.post(
@@ -459,6 +477,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                         **choice,
                         "message": dict(choice["message"]),
                     }
+                if (lp := choice.get("logprobs")) is not None:
+                    message["_logprobs"] = lp
                 if usage_accumulator is not None:
                     api_usage = response_json.get("usage", {})
                     usage_accumulator.add(
