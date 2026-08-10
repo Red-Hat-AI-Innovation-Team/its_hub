@@ -315,6 +315,7 @@ class TestPydanticModels:
             api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
             model=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
             alg="self-consistency",
+            regex_patterns=[r"\\boxed{([^}]+)}"],
             step_token="\n",
             stop_token="END",
         )

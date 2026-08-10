@@ -13,14 +13,27 @@ import click
 import uvicorn
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from its_hub import OpenAICompatibleLanguageModel, SelfConsistency
+from its_hub import (
+    AdaptiveSelfConsistency,
+    BetaSelfConsistency,
+    OpenAICompatibleLanguageModel,
+    SelfConsistency,
+)
 from its_hub.api.types import ChatMessage, ChatMessages
 from its_hub.core.algorithms.self_consistency import (
     SelfConsistencyResult,
     create_regex_projection_function,
 )
+
+# Self-consistency family of algorithms. They share the same configuration
+# surface (projection function, tool voting) and all return SelfConsistencyResult.
+_SELF_CONSISTENCY_ALGS = {
+    "self-consistency",
+    "adaptive-self-consistency",
+    "beta-self-consistency",
+}
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -76,27 +89,51 @@ class ConfigRequest(BaseModel):
         None,
         description="Tool argument names to exclude from voting (e.g., ['timestamp', 'id'])",
     )
+    threshold: float | None = Field(
+        None,
+        gt=0.5,
+        le=1.0,
+        description="Supermajority agreement threshold for adaptive-self-consistency "
+        "early stopping (default 0.75)",
+    )
+    confidence_threshold: float | None = Field(
+        None,
+        gt=0.5,
+        le=1.0,
+        description="Beta posterior confidence threshold for beta-self-consistency "
+        "early stopping (default 0.95)",
+    )
 
     @field_validator("alg")
     @classmethod
     def validate_algorithm(cls, v):
         """Validate that the algorithm is supported."""
-        supported_algs = {"self-consistency"}
+        supported_algs = _SELF_CONSISTENCY_ALGS
         if v not in supported_algs:
             raise ValueError(
-                f"Algorithm '{v}' not supported. Choose from: {supported_algs}"
+                f"Algorithm '{v}' not supported. Choose from: {sorted(supported_algs)}"
             )
         return v
 
-    @field_validator("regex_patterns")
-    @classmethod
-    def validate_regex_patterns(cls, v, info):
-        """Validate regex patterns are provided when using self-consistency."""
-        if info.data.get("alg") == "self-consistency" and not v:
+    @model_validator(mode="after")
+    def validate_projection_source(self):
+        """Ensure a voting projection is defined for self-consistency algorithms.
+
+        The self-consistency family votes over either a regex projection of the
+        text answer or over tool calls (tool_vote). At least one must be given.
+        Runs at the model level so it sees both fields regardless of the order
+        they were supplied (a field validator on regex_patterns would be skipped
+        when the field is omitted).
+        """
+        if (
+            self.alg in _SELF_CONSISTENCY_ALGS
+            and not self.regex_patterns
+            and not self.tool_vote
+        ):
             raise ValueError(
-                "regex_patterns are required when using self-consistency algorithm"
+                "regex_patterns or tool_vote is required for self-consistency algorithms"
             )
-        return v
+        return self
 
     @field_validator("api_key")
     @classmethod
@@ -136,19 +173,48 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
         LM_DICT[request.model] = lm
 
         # Configure scaling algorithm
-        if request.alg == "self-consistency":
-            # Create projection function from regex patterns
+        if request.alg in _SELF_CONSISTENCY_ALGS:
+            # Create projection function from regex patterns (optional when
+            # tool voting is used instead)
             if request.regex_patterns:
                 projection_func = create_regex_projection_function(
                     request.regex_patterns
                 )
             else:
                 projection_func = None
-            SCALING_ALG = SelfConsistency(
-                projection_func,
-                tool_vote=request.tool_vote,
-                exclude_args=request.exclude_tool_args,
-            )
+
+            if request.alg == "adaptive-self-consistency":
+                # threshold defaults to the class default (0.75) when unset
+                extra = (
+                    {}
+                    if request.threshold is None
+                    else {"threshold": request.threshold}
+                )
+                SCALING_ALG = AdaptiveSelfConsistency(
+                    consistency_space_projection_func=projection_func,
+                    tool_vote=request.tool_vote,
+                    exclude_args=request.exclude_tool_args,
+                    **extra,
+                )
+            elif request.alg == "beta-self-consistency":
+                # confidence_threshold defaults to the class default (0.95) when unset
+                extra = (
+                    {}
+                    if request.confidence_threshold is None
+                    else {"confidence_threshold": request.confidence_threshold}
+                )
+                SCALING_ALG = BetaSelfConsistency(
+                    consistency_space_projection_func=projection_func,
+                    tool_vote=request.tool_vote,
+                    exclude_args=request.exclude_tool_args,
+                    **extra,
+                )
+            else:
+                SCALING_ALG = SelfConsistency(
+                    projection_func,
+                    tool_vote=request.tool_vote,
+                    exclude_args=request.exclude_tool_args,
+                )
 
         logger.info(f"Successfully configured {request.alg} algorithm")
         return {
