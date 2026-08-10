@@ -139,8 +139,14 @@ def select_by_tail_entropy(
         aggregated entropy over the tail window for candidate *i*, and
         *tail_window* is the adaptive window size used.
     """
-    lengths = [len(e) for e in entropies_per_token]
-    included = trim_length_outliers(lengths, trim_pct)
+    usable = [i for i, e in enumerate(entropies_per_token) if e]
+    if not usable:
+        raise ValueError("No candidates have entropy data; cannot select.")
+
+    usable_lengths = [len(entropies_per_token[i]) for i in usable]
+    trimmed_usable = trim_length_outliers(usable_lengths, trim_pct)
+    included = [usable[j] for j in trimmed_usable]
+
     tail = adaptive_tail_window(entropies_per_token, included, tail_min, tail_max)
     scores = tail_scores(entropies_per_token, included, tail, agg)
     selected = int(np.argmin(scores))

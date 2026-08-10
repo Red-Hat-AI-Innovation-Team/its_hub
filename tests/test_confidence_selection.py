@@ -208,6 +208,17 @@ class TestSelectByTailEntropy:
         _, _, tail = select_by_tail_entropy(ept, tail_min=10, tail_max=500)
         assert 10 <= tail <= 500
 
+    def test_skips_empty_before_trimming(self):
+        ept = [[]] * 15 + [[0.1] * 100] + [[]] * 4
+        selected, scores, _tail = select_by_tail_entropy(ept, tail_min=10, tail_max=500)
+        assert selected == 15
+        assert scores[15] < float("inf")
+        assert all(s == float("inf") for i, s in enumerate(scores) if i != 15)
+
+    def test_all_empty_raises(self):
+        with pytest.raises(ValueError, match="No candidates have entropy data"):
+            select_by_tail_entropy([[], [], []])
+
 
 # ---------------------------------------------------------------------------
 # Integration tests: ConfidenceSelection algorithm
@@ -297,6 +308,39 @@ class TestConfidenceSelection:
 
         assert result.the_one["content"] == "has logprobs"
         assert float("inf") in result.scores
+
+    def test_infer_all_missing_logprobs_raises(self):
+        responses = [
+            {"role": "assistant", "content": "no logprobs 1"},
+            {"role": "assistant", "content": "no logprobs 2"},
+        ]
+
+        lm = LogprobsMockLM(responses)
+        algo = ConfidenceSelection(
+            tail_min=10, tail_max=500, orchestrator=LMOrchestrator()
+        )
+        with pytest.raises(ValueError, match="No candidates have entropy data"):
+            algo.infer(lm, "test prompt", budget=2)
+
+    def test_infer_16_responses_with_missing_logprobs(self):
+        good = _make_logprobs_content([0.1] * 100)
+        responses = [{"role": "assistant", "content": "no logprobs"}] * 15 + [
+            {
+                "role": "assistant",
+                "content": "has logprobs",
+                "_logprobs": {"content": good},
+            },
+        ]
+
+        lm = LogprobsMockLM(responses)
+        algo = ConfidenceSelection(
+            tail_min=10, tail_max=500, orchestrator=LMOrchestrator()
+        )
+        result = algo.infer(lm, "test prompt", budget=16, return_response_only=False)
+
+        assert result.the_one["content"] == "has logprobs"
+        non_inf = [s for s in result.scores if s != float("inf")]
+        assert len(non_inf) >= 1
 
     def test_infer_with_messages_input(self):
         logprobs = _make_logprobs_content([0.1] * 100)
