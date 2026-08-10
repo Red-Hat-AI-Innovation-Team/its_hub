@@ -211,6 +211,39 @@ class SelfConsistency(AbstractScalingAlgorithm):
         # process responses and return result
         return self._process_responses(responses, return_response_only, usage)
 
+    def _project_responses(self, responses: list[dict]) -> tuple[list[int], list]:
+        """Project responses to comparable values for voting.
+
+        Handles tool-call vs content routing based on tool_vote setting.
+
+        Returns:
+            (eligible_indices, projected_values) where eligible_indices maps
+            back to positions in the original responses list.
+        """
+        tool_call_count = sum(1 for r in responses if r.get("tool_calls"))
+        required_majority = math.ceil(len(responses) / 2)
+        has_majority_tool_calls = tool_call_count >= required_majority
+
+        if has_majority_tool_calls and self.tool_vote:
+            eligible_indices = [
+                i for i, r in enumerate(responses) if r.get("tool_calls")
+            ]
+            projected = [
+                self._extract_tool_call_features(responses[i]) for i in eligible_indices
+            ]
+        else:
+            eligible_indices = [
+                i for i, r in enumerate(responses) if not r.get("tool_calls")
+            ]
+            projected = [
+                self.consistency_space_projection_func(
+                    extract_content_from_lm_response(responses[i])
+                )
+                for i in eligible_indices
+            ]
+
+        return eligible_indices, projected
+
     def _process_responses(
         self,
         responses: list[dict],
@@ -218,12 +251,8 @@ class SelfConsistency(AbstractScalingAlgorithm):
         usage: GenerationUsage | None = None,
     ) -> dict | SelfConsistencyResult:
         """Process responses and return result."""
-        # Check if majority of responses have tool calls to decide voting method
-        tool_call_count = sum(1 for r in responses if r.get("tool_calls"))
-        required_majority = math.ceil(len(responses) / 2)
-        has_majority_tool_calls = tool_call_count >= required_majority
-
         # Warn if tool calls detected but tool_vote not set
+        tool_call_count = sum(1 for r in responses if r.get("tool_calls"))
         if tool_call_count > 0 and not self.tool_vote:
             logging.warning(
                 f"Detected {tool_call_count}/{len(responses)} responses with tool calls, "
@@ -231,25 +260,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
                 "(e.g., 'tool_name', 'tool_args', 'tool_hierarchical') for tool call voting."
             )
 
-        # Determine eligible responses and create projections
-        if has_majority_tool_calls and self.tool_vote:
-            eligible_indices = [
-                i for i, r in enumerate(responses) if r.get("tool_calls")
-            ]
-            responses_projected = [
-                self._extract_tool_call_features(responses[i]) for i in eligible_indices
-            ]
-        else:
-            # Content voting - filter out tool call responses
-            eligible_indices = [
-                i for i, r in enumerate(responses) if not r.get("tool_calls")
-            ]
-            responses_projected = [
-                self.consistency_space_projection_func(
-                    extract_content_from_lm_response(responses[i])
-                )
-                for i in eligible_indices
-            ]
+        eligible_indices, responses_projected = self._project_responses(responses)
 
         # Error if no eligible responses after filtering
         if not eligible_indices:
