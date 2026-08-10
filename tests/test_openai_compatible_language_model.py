@@ -74,3 +74,29 @@ class TestRequestBodyKey:
         )
         assert data["max_completion_tokens"] == 200
         assert "max_tokens" not in data
+
+    def test_logprobs_params(self):
+        lm = OpenAICompatibleLanguageModel(
+            endpoint="http://localhost:8000/v1",
+            api_key="test",
+            model_name="test",
+        )
+        data = lm._prepare_request_data(
+            [ChatMessage(role="user", content="hi")],
+            logprobs=True,
+            top_logprobs=20,
+        )
+        assert data["logprobs"] is True
+        assert data["top_logprobs"] == 20
+
+    def test_logprobs_absent_by_default(self):
+        lm = OpenAICompatibleLanguageModel(
+            endpoint="http://localhost:8000/v1",
+            api_key="test",
+            model_name="test",
+        )
+        data = lm._prepare_request_data(
+            [ChatMessage(role="user", content="hi")],
+        )
+        assert "logprobs" not in data
+        assert "top_logprobs" not in data

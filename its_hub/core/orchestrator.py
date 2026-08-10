@@ -82,6 +82,8 @@ class LMOrchestrator(AbstractOrchestrator):
         tool_choice: str | dict | None = None,
         response_format: dict | None = None,
         usage_accumulator: GenerationUsage | None = None,
+        logprobs: bool | None = None,
+        top_logprobs: int | None = None,
     ) -> list[dict]:
         """
         Generate responses for a batch of messages asynchronously.
@@ -139,6 +141,8 @@ class LMOrchestrator(AbstractOrchestrator):
                     response_format=response_format,
                     loop=current_loop,
                     usage_accumulator=usage_accumulator,
+                    logprobs=logprobs,
+                    top_logprobs=top_logprobs,
                 )
 
         try:

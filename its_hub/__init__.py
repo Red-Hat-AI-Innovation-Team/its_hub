@@ -16,6 +16,7 @@ from its_hub.api import (
 from its_hub.core.algorithms.adaptive_self_consistency import AdaptiveSelfConsistency
 from its_hub.core.algorithms.beta_self_consistency import BetaSelfConsistency
 from its_hub.core.algorithms.bon import BestOfN
+from its_hub.core.algorithms.confidence_selection import ConfidenceSelection
 from its_hub.core.algorithms.self_consistency import SelfConsistency
 
 __version__ = version("its_hub")
@@ -34,6 +35,7 @@ __all__ = [  # noqa: RUF022
     # Algorithms
     "AdaptiveSelfConsistency",
     "BetaSelfConsistency",
+    "ConfidenceSelection",
     "SelfConsistency",
     "BestOfN",
 ]
