@@ -1,6 +1,5 @@
 """Tests for ConfidenceSelection algorithm."""
 
-import asyncio
 
 import numpy as np
 import pytest
@@ -15,7 +14,6 @@ from its_hub.core.algorithms.confidence_selection import (
     trim_length_outliers,
 )
 from its_hub.core.orchestrator import LMOrchestrator
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -125,11 +123,10 @@ class TestTrimLengthOutliers:
         result = trim_length_outliers(lengths)
         assert result == list(range(20))
 
-    def test_fallback_on_aggressive_trim(self):
-        lengths = [100] * 16
-        lengths[0] = 1
-        result = trim_length_outliers(lengths, trim_pct=0.05)
-        assert len(result) >= 2
+    def test_fallback_when_trim_leaves_too_few(self):
+        lengths = [1] * 8 + [1000] * 8
+        result = trim_length_outliers(lengths, trim_pct=0.45)
+        assert result == list(range(16))
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +189,7 @@ class TestSelectByTailEntropy:
         low = [0.01] * 200
         mid = [0.5] * 200
         high = [1.0] * 200
-        selected, scores, tail = select_by_tail_entropy(
+        selected, scores, _tail = select_by_tail_entropy(
             [high, low, mid], tail_min=10, tail_max=500
         )
         assert selected == 1
@@ -200,7 +197,7 @@ class TestSelectByTailEntropy:
         assert scores[1] < scores[2]
 
     def test_single_response(self):
-        selected, scores, tail = select_by_tail_entropy(
+        selected, scores, _tail = select_by_tail_entropy(
             [[0.5] * 100], tail_min=10, tail_max=500
         )
         assert selected == 0
@@ -257,8 +254,8 @@ class TestConfidenceSelection:
         result = algo.infer(lm, "test prompt", budget=3, return_response_only=False)
 
         assert isinstance(result, ConfidenceSelectionResult)
-        assert result.selected_index == 1
         assert result.the_one["content"] == "correct answer"
+        assert result.scores[result.selected_index] == min(result.scores)
         assert result.tail_window > 0
 
     def test_infer_response_only(self):
@@ -298,8 +295,8 @@ class TestConfidenceSelection:
         )
         result = algo.infer(lm, "test prompt", budget=2, return_response_only=False)
 
-        assert result.selected_index == 1
-        assert result.scores[0] == float("inf")
+        assert result.the_one["content"] == "has logprobs"
+        assert float("inf") in result.scores
 
     def test_infer_with_messages_input(self):
         logprobs = _make_logprobs_content([0.1] * 100)
@@ -318,6 +315,21 @@ class TestConfidenceSelection:
         messages = [{"role": "user", "content": "test"}]
         result = algo.infer(lm, messages, budget=1, return_response_only=True)
         assert result["content"] == "answer"
+
+    def test_default_orchestrator(self):
+        logprobs = _make_logprobs_content([0.1] * 100)
+        responses = [
+            {
+                "role": "assistant",
+                "content": "answer",
+                "_logprobs": {"content": logprobs},
+            }
+        ]
+
+        lm = LogprobsMockLM(responses)
+        algo = ConfidenceSelection(tail_min=10, tail_max=500)
+        result = algo.infer(lm, "test", budget=1, return_response_only=False)
+        assert result.the_one["content"] == "answer"
 
     def test_usage_tracking(self):
         logprobs = _make_logprobs_content([0.1] * 100)
