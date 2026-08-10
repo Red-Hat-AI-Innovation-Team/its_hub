@@ -136,74 +136,12 @@ uv run ruff check its_hub/ --fix
 uv run ruff format its_hub/
 ```
 
----
+### Proto Generation (gateway development)
 
-## Gateway Installation
-
-The gateway extras provide two deployment modes for inference-time scaling. Both require
-the `lm` extra as a base dependency.
-
-### Standalone IaaS (FastAPI)
-
-```bash
-pip install its_hub[iaas]
-```
-
-Provides the `its-iaas` CLI command to run a standalone OpenAI-compatible API server with
-ITS. No Envoy or gRPC dependencies.
-
-```python
-# Verify
-from its_hub.integration.iaas.app import app
-print("IaaS OK")
-```
-
-See [IaaS Service Guide](iaas-service.md) for configuration and usage.
-
-### Envoy ext_proc Gateway
-
-```bash
-pip install its_hub[ext_proc]
-```
-
-Provides the `envoy-grpc` CLI command for the Envoy external processor. Requires compiled
-proto files and an Envoy proxy.
-
-**Additional prerequisites**: git, make, [Envoy proxy](https://www.envoyproxy.io/docs/envoy/latest/start/install)
-
-```bash
-# Initialize submodules and compile proto files
-make setup-envoy
-
-# Verify
-python -c "from its_hub.integration.ext_proc.processor import ExternalProcessor; print('ext_proc OK')"
-```
-
-See [ext_proc Gateway Guide](ext-proc-gateway.md) for configuration and usage.
-
-### Envoy + IaaS Combined
-
-```bash
-pip install its_hub[envoy-iaas]
-```
-
-Installs both `iaas` and `ext_proc` extras for the combined deployment where Envoy routes
-`X-ITS-*` header requests to the IaaS backend via an ext_proc filter. Provides three CLI
-commands: `its-iaas`, `its-iaas-ext-proc`, and `envoy-grpc`.
-
-```bash
-make setup-envoy  # Still needed for proto files
-
-# Start the full stack
-make envoy-iaas-stack
-```
-
-See the [Envoy Integration](iaas-service.md#envoy-integration) section in the IaaS guide.
-
-### Proto Generation
-
-Both `ext_proc` and `envoy-iaas` require compiled Envoy proto files. The `make setup-envoy`
-target handles this automatically:
+The `ext_proc` and `envoy-iaas` gateways depend on compiled Envoy proto files. These are generated
+rather than checked into the repo, but they ship in the published wheel, so a normal `pip install`
+needs no extra steps — regenerate them only when working on the gateway itself. The `make setup-envoy`
+target handles it:
 
 1. Initializes git submodules (`envoy-data-plane-api`, `xds`, `protoc-gen-validate`)
 2. Compiles `.proto` files to Python using `grpc_tools.protoc`
@@ -221,6 +159,14 @@ To restore submodules to pinned commits (after a `git pull` updates `.gitmodules
 ```bash
 make upgrade-protos
 ```
+
+---
+
+## Gateway Installation
+
+To add inference-time scaling to an OpenAI-compatible API via the `[iaas]`, `[ext_proc]`, or
+`[envoy-iaas]` extras, see the [Gateway Integration guide](ext-proc-gateway.md) for installation, the
+two approaches, quick starts, and Envoy configuration.
 
 ---
 

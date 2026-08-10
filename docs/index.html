@@ -23,6 +23,9 @@
       executeScript: true,
       mergeNavbar: true,
       formatUpdated: '{MM}/{DD} {HH}:{mm}',
+      mermaidConfig: {
+        querySelector: '.mermaid'
+      },
       plugins: [
         function(hook, vm) {
           hook.beforeEach(function (html) {
@@ -34,8 +37,16 @@
       ]
     }
   </script>
+  <!-- Mermaid (data-flow diagrams) -->
+  <script type="module">
+    import mermaid from "//cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ startOnLoad: true, securityLevel: 'loose' });
+    window.mermaid = mermaid;
+  </script>
   <!-- Docsify v4 -->
   <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
+  <!-- Mermaid plugin for docsify -->
+  <script src="//unpkg.com/docsify-mermaid@2.0.1/dist/docsify-mermaid.js"></script>
   <!-- Search plugin -->
   <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
   <!-- Code highlighting -->
