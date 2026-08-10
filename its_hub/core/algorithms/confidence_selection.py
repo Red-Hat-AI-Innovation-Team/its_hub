@@ -57,14 +57,14 @@ def trim_length_outliers(
     lengths: list[int],
     trim_pct: float = 0.05,
 ) -> list[int]:
-    """Return indices of candidates within the [p5, p95] length range."""
+    """Return indices of candidates whose length is within the percentile range defined by *trim_pct*."""
     n = len(lengths)
     if n < 16:
         return list(range(n))
     lo = float(np.percentile(lengths, trim_pct * 100))
     hi = float(np.percentile(lengths, (1 - trim_pct) * 100))
     included = [i for i in range(n) if lo <= lengths[i] <= hi]
-    return included if len(included) >= 2 else list(range(n))
+    return included
 
 
 def adaptive_tail_window(
