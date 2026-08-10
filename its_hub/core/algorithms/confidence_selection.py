@@ -1,9 +1,12 @@
-"""ConfidenceSelection: select the best response by lowest tail entropy.
+"""ConfidenceSelection: select the best response by tail confidence metrics.
 
 Generates N candidate responses with logprobs enabled, computes per-token
-Shannon entropy from the top-k log probabilities, then selects the candidate
-whose tail (final portion) has the lowest aggregated entropy — indicating the
-model was most confident about its conclusion.
+confidence scores from the top-k log probabilities, then selects the candidate
+whose tail (final portion) shows the highest model confidence.
+
+Supports two metrics:
+- **entropy** (default): Shannon entropy; selects the *lowest* tail entropy.
+- **certainty**: KL(uniform || p_model); selects the *highest* tail certainty.
 """
 
 from __future__ import annotations
@@ -53,6 +56,40 @@ def compute_token_entropies(logprobs_content: list[dict]) -> list[float]:
     return entropies
 
 
+def compute_token_certainties(
+    logprobs_content: list[dict],
+    vocab_size: int | None = None,
+) -> list[float]:
+    """Compute per-token self-certainty from OpenAI-format logprobs.
+
+    Self-certainty is defined as ``KL(uniform || p_model)``:
+
+        certainty(t) = -log(V) - (1/V) * sum_v log p(v)
+
+    Higher values indicate a more peaked (decisive) distribution.
+
+    Args:
+        logprobs_content: The ``choice["logprobs"]["content"]`` list.
+        vocab_size: Vocabulary size *V* in the formula.  When *None*
+            (default), uses the number of top-k logprobs at each position.
+
+    Returns:
+        Per-token certainty values (nats).
+    """
+    certainties: list[float] = []
+    for token_info in logprobs_content:
+        top_lps = token_info.get("top_logprobs", [])
+        if not top_lps:
+            certainties.append(0.0)
+            continue
+        log_ps = np.array([t["logprob"] for t in top_lps])
+        v = vocab_size if vocab_size is not None else len(log_ps)
+        v = max(v, 1)
+        certainty = float(-np.log(v) - np.sum(log_ps) / v)
+        certainties.append(certainty)
+    return certainties
+
+
 def trim_length_outliers(
     lengths: list[int],
     trim_pct: float = 0.05,
@@ -99,21 +136,22 @@ def adaptive_tail_window(
 
 
 def tail_scores(
-    entropies_per_token: list[list[float]],
+    scores_per_token: list[list[float]],
     included: list[int],
     tail: int,
     agg: str = "median",
+    default_score: float = float("inf"),
 ) -> list[float]:
-    """Compute aggregated entropy over the tail window for each candidate."""
-    n = len(entropies_per_token)
+    """Compute aggregated score over the tail window for each candidate."""
+    n = len(scores_per_token)
     included_set = set(included)
     fn = np.median if agg == "median" else np.mean
     scores: list[float] = []
     for i in range(n):
-        if i not in included_set or not entropies_per_token[i]:
-            scores.append(float("inf"))
+        if i not in included_set or not scores_per_token[i]:
+            scores.append(default_score)
         else:
-            window = entropies_per_token[i][-tail:]
+            window = scores_per_token[i][-tail:]
             scores.append(float(fn(window)))
     return scores
 
@@ -153,6 +191,37 @@ def select_by_tail_entropy(
     return selected, scores, tail
 
 
+def select_by_tail_certainty(
+    certainties_per_token: list[list[float]],
+    tail_min: int = 64,
+    tail_max: int = 2048,
+    agg: str = "median",
+    trim_pct: float = 0.05,
+) -> tuple[int, list[float], int]:
+    """Select the response with highest tail certainty.
+
+    Same adaptive pipeline as :func:`select_by_tail_entropy` but picks by
+    **argmax** (higher certainty = more peaked distribution = more confident).
+
+    Returns:
+        ``(selected_index, scores, tail_window)``
+    """
+    usable = [i for i, c in enumerate(certainties_per_token) if c]
+    if not usable:
+        raise ValueError("No candidates have certainty data; cannot select.")
+
+    usable_lengths = [len(certainties_per_token[i]) for i in usable]
+    trimmed_usable = trim_length_outliers(usable_lengths, trim_pct)
+    included = [usable[j] for j in trimmed_usable]
+
+    tail = adaptive_tail_window(certainties_per_token, included, tail_min, tail_max)
+    scores = tail_scores(
+        certainties_per_token, included, tail, agg, default_score=float("-inf")
+    )
+    selected = int(np.argmax(scores))
+    return selected, scores, tail
+
+
 # ---------------------------------------------------------------------------
 # Algorithm class
 # ---------------------------------------------------------------------------
@@ -172,12 +241,15 @@ class ConfidenceSelectionResult(AbstractScalingResult):
 
 
 class ConfidenceSelection(AbstractScalingAlgorithm):
-    """Select the best-of-N response by lowest tail entropy.
+    """Select the best-of-N response by tail confidence metrics.
 
     Generates *budget* candidate responses with token-level logprobs,
-    computes per-token Shannon entropy from the top-k log probabilities,
-    then picks the candidate whose tail (final tokens) has the lowest
-    aggregated entropy — the response where the model was most confident.
+    computes per-token confidence scores, then picks the most confident
+    candidate based on the chosen metric:
+
+    - ``"entropy"`` (default): selects **lowest** tail entropy.
+    - ``"certainty"``: selects **highest** tail certainty
+      (KL divergence from uniform).
 
     No external reward model is required.
     """
@@ -189,18 +261,26 @@ class ConfidenceSelection(AbstractScalingAlgorithm):
         tail_max: int = 2048,
         agg: str = "median",
         trim_pct: float = 0.05,
+        metric: str = "entropy",
+        vocab_size: int | None = None,
         orchestrator: AbstractOrchestrator | None = None,
     ):
         if agg not in ("median", "mean"):
             raise ValueError(f"agg must be 'median' or 'mean', got: {agg!r}")
         if not 1 <= top_logprobs <= 20:
             raise ValueError(f"top_logprobs must be 1-20, got: {top_logprobs}")
+        if metric not in ("entropy", "certainty"):
+            raise ValueError(
+                f"metric must be 'entropy' or 'certainty', got: {metric!r}"
+            )
 
         self.top_logprobs = top_logprobs
         self.tail_min = tail_min
         self.tail_max = tail_max
         self.agg = agg
         self.trim_pct = trim_pct
+        self.metric = metric
+        self.vocab_size = vocab_size
 
         if orchestrator is None:
             orchestrator = LMOrchestrator()
@@ -230,19 +310,34 @@ class ConfidenceSelection(AbstractScalingAlgorithm):
             top_logprobs=self.top_logprobs,
         )
 
-        entropies_per_token: list[list[float]] = []
+        use_certainty = self.metric == "certainty"
+        if use_certainty:
+
+            def score_fn(content: list[dict]) -> list[float]:
+                return compute_token_certainties(content, self.vocab_size)
+
+            select_fn = select_by_tail_certainty
+            label = "certainty"
+        else:
+            score_fn = compute_token_entropies
+            select_fn = select_by_tail_entropy
+            label = "entropy"
+
+        scores_per_token: list[list[float]] = []
         for i, resp in enumerate(responses):
             lp = resp.get("_logprobs")
             if lp is not None and lp.get("content"):
-                entropies_per_token.append(compute_token_entropies(lp["content"]))
+                scores_per_token.append(score_fn(lp["content"]))
             else:
                 logging.warning(
-                    "Response %d has no logprobs data; assigning infinite entropy", i
+                    "Response %d has no logprobs data; excluded from %s selection",
+                    i,
+                    label,
                 )
-                entropies_per_token.append([])
+                scores_per_token.append([])
 
-        selected_index, scores, tail_window = select_by_tail_entropy(
-            entropies_per_token,
+        selected_index, scores, tail_window = select_fn(
+            scores_per_token,
             tail_min=self.tail_min,
             tail_max=self.tail_max,
             agg=self.agg,
