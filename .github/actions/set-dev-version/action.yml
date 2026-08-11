@@ -22,7 +22,8 @@ runs:
         # commit; base off rust/Cargo.toml (already the next release version).
         # Cargo requires SemVer, so the pre-release is written as "-dev.N";
         # maturin maps that to the PEP 440 "<base>.devN" the wheels ship as.
-        base=$(rg -m1 '^version = ' rust/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
+        # grep (not rg) because ripgrep isn't installed on the CI runners here.
+        base=$(grep -m1 '^version = ' rust/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
         dev="${base}-dev.$(git rev-list --count HEAD)"
         sed -i -E "0,/^version = .*/s//version = \"${dev}\"/" rust/Cargo.toml
         sed -i -E "/^name = \"its_hub_rust\"/{n;s/^version = .*/version = \"${dev}\"/}" rust/Cargo.lock
