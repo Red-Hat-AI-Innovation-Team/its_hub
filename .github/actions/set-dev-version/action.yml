@@ -1,0 +1,34 @@
+name: Set dev version
+description: On main pushes, stamp a unique PEP 440 dev version so every Test PyPI upload is a brand-new release.
+
+# Test PyPI releases are write-once: republishing the same static version on
+# every push to main collides with the existing file, and once that release is
+# more than 14 days old the upload is rejected outright. To avoid both, we stamp
+# each main build with a unique <base>.devN version (the PyPA/setuptools-scm
+# convention) so every upload is a brand-new release. Tag builds keep their
+# static version so real releases stay clean.
+# Ref: https://packaging.python.org/en/latest/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+          echo "Tag build (${GITHUB_REF}); keeping the static version."
+          exit 0
+        fi
+        # rev-list --count is a monotonic commit counter, so devN is unique per
+        # commit; base off rust/Cargo.toml (already the next release version).
+        # Cargo requires SemVer, so the pre-release is written as "-dev.N";
+        # maturin maps that to the PEP 440 "<base>.devN" the wheels ship as.
+        # grep (not rg) because ripgrep isn't installed on the CI runners here.
+        base=$(grep -m1 '^version = ' rust/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
+        dev="${base}-dev.$(git rev-list --count HEAD)"
+        # perl -i (not sed -i) so this works on both the GNU (Linux) and BSD
+        # (macOS) runners; macOS sed rejects the address/grouping forms below.
+        # Cargo.toml has a single top-level version; Cargo.lock has many, so
+        # target only the its_hub_rust entry.
+        perl -i -pe 's/^version = .*/version = "'"${dev}"'"/' rust/Cargo.toml
+        perl -0777 -i -pe 's/(name = "its_hub_rust"\nversion = )"[^"]*"/${1}"'"${dev}"'"/' rust/Cargo.lock
+        echo "Set dev version: ${dev}"
