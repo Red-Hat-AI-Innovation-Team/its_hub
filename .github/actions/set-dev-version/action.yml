@@ -25,6 +25,10 @@ runs:
         # grep (not rg) because ripgrep isn't installed on the CI runners here.
         base=$(grep -m1 '^version = ' rust/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
         dev="${base}-dev.$(git rev-list --count HEAD)"
-        sed -i -E "0,/^version = .*/s//version = \"${dev}\"/" rust/Cargo.toml
-        sed -i -E "/^name = \"its_hub_rust\"/{n;s/^version = .*/version = \"${dev}\"/}" rust/Cargo.lock
+        # perl -i (not sed -i) so this works on both the GNU (Linux) and BSD
+        # (macOS) runners; macOS sed rejects the address/grouping forms below.
+        # Cargo.toml has a single top-level version; Cargo.lock has many, so
+        # target only the its_hub_rust entry.
+        perl -i -pe 's/^version = .*/version = "'"${dev}"'"/' rust/Cargo.toml
+        perl -0777 -i -pe 's/(name = "its_hub_rust"\nversion = )"[^"]*"/${1}"'"${dev}"'"/' rust/Cargo.lock
         echo "Set dev version: ${dev}"
