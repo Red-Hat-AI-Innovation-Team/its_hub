@@ -20,7 +20,7 @@ runs:
         fi
         # rev-list --count is a monotonic commit counter, so devN is unique per
         # commit; base off rust/Cargo.toml (already the next release version).
-        base=$(grep -m1 '^version = ' rust/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
+        base=$(rg -m1 '^version = ' rust/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
         dev="${base}.dev$(git rev-list --count HEAD)"
         sed -i -E "0,/^version = .*/s//version = \"${dev}\"/" rust/Cargo.toml
         sed -i -E "/^name = \"its_hub_rust\"/{n;s/^version = .*/version = \"${dev}\"/}" rust/Cargo.lock
