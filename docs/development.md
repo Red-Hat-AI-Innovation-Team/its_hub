@@ -463,16 +463,36 @@ The package version comes from `rust/Cargo.toml` (maturin reads it from there):
 version = "0.2.0"
 ```
 
+This value is the **next unreleased version** — it should always be one step
+ahead of the latest published release. Bump it as soon as you cut a release so
+`main` starts building dev versions toward the next one (see below).
+
+### Dev versions on `main`
+
+Every push to `main` publishes to Test PyPI. Because (Test) PyPI releases are
+write-once, the `set-dev-version` composite action rewrites the version to a
+unique `<version>.devN` (where `N` is the commit count) before each build on
+`main`, so every upload is a brand-new release and never collides or hits Test
+PyPI's "no new files on releases older than 14 days" rule. Tag builds skip this
+step and use the static `rust/Cargo.toml` version as-is.
+
+So with `version = "1.2.1"` in `Cargo.toml`, merges to `main` publish
+`1.2.1.dev1`, `1.2.1.dev2`, … to Test PyPI, and tagging `v1.2.1` publishes the
+clean `1.2.1` to PyPI.
+
 ### Creating Releases
 
-1. Update the version in `rust/Cargo.toml`
+1. Make sure `rust/Cargo.toml` holds the exact version you're releasing (it
+   should already, since it tracks the next unreleased version)
 2. Update CHANGELOG.md
-3. Create git tag: `git tag -a v0.2.0 -m "Release v0.2.0"`
-4. Push tag: `git push origin v0.2.0`
+3. Create git tag: `git tag -a v1.2.1 -m "Release v1.2.1"`
+4. Push tag: `git push origin v1.2.1` (or publish a GitHub Release)
 5. GitHub Actions will handle PyPI publishing
+6. Bump `rust/Cargo.toml` to the next version (e.g. `1.2.2`) and merge to `main`
+   so dev builds move on to `1.2.2.devN`
 
 > The release workflow's `check-version` job fails the build if the release tag
-> (e.g. `v0.2.0`) doesn't match the version in `rust/Cargo.toml`, so keep the two
+> (e.g. `v1.2.1`) doesn't match the version in `rust/Cargo.toml`, so keep the two
 > in sync when bumping.
 
 ## Contributing

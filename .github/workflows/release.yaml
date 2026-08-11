@@ -61,6 +61,9 @@ jobs:
             - name: "Compile Envoy proto files"
               uses: ./.github/actions/compile-protos
 
+            - name: "Set dev version"
+              uses: ./.github/actions/set-dev-version
+
             - name: "Build sdist"
               uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
               with:
@@ -106,6 +109,9 @@ jobs:
 
             - name: "Compile Envoy proto files"
               uses: ./.github/actions/compile-protos
+
+            - name: "Set dev version"
+              uses: ./.github/actions/set-dev-version
 
             - name: "Build wheels"
               uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -171,6 +177,9 @@ jobs:
             # wheels would carry them.
             - name: "Compile Envoy proto files"
               uses: ./.github/actions/compile-protos
+
+            - name: "Set dev version"
+              uses: ./.github/actions/set-dev-version
 
             - name: "Build wheels"
               uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -259,6 +268,10 @@ jobs:
               uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # v1.14.1
               with:
                   repository-url: https://test.pypi.org/legacy/
+                  # dev versions already keep each version unique; this only
+                  # matters when the workflow is re-run on the same commit and
+                  # some files from the earlier attempt already uploaded.
+                  skip-existing: true
 
     # push to Production PyPI on
     # - a new GitHub release is published

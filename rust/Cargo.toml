@@ -1,6 +1,9 @@
 [package]
 name = "its_hub_rust"
-version = "1.1.0"
+# This is the next, unreleased version. Every push to main publishes a
+# <version>.devN build to Test PyPI, so it must stay one step ahead of the
+# latest released version. Bump it whenever you cut a release.
+version = "1.2.1"
 edition = "2024"
 
 [lib]
