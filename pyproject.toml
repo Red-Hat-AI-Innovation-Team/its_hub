@@ -100,6 +100,7 @@ features = ["extension-module"]
 # Data files and the generated proto package (produced by `make proto-compile`,
 # gitignored) must be listed explicitly so maturin ships them in the wheel/sdist.
 include = [
+    "LICENSE", # we need to explicitly list the license because pypi requires it but maturin omits it in sdist
     "its_hub/integration/ext_proc/envoy_config.yaml",
     "its_hub/integration/iaas/envoy_config.yaml",
     "its_hub/integration/proto/**/*.py",
