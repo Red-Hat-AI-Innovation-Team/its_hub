@@ -112,6 +112,12 @@ class ChatCompletionUsage(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+    num_calls: int = 0
+    """Number of underlying LM calls the ITS algorithm made for this request.
+
+    Lets clients measure how many samples adaptive algorithms (adaptive/beta
+    self-consistency) actually used versus the requested budget.
+    """
 
 
 class ChatCompletionResponse(BaseModel):
