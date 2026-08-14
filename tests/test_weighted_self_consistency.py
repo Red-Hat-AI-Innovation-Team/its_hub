@@ -307,7 +307,10 @@ class TestWeightedSelfConsistencyAinfer:
         result = await algo.ainfer(lm, "test", budget=3, return_response_only=False)
 
         assert isinstance(result, WeightedSelfConsistencyResult)
-        assert result.weights[1] == 0.0
+        no_lp_idx = next(
+            i for i, r in enumerate(result.responses) if "_logprobs" not in r
+        )
+        assert result.weights[no_lp_idx] == 0.0
 
     @pytest.mark.asyncio
     async def test_no_logprobs_at_all_raises(self):
