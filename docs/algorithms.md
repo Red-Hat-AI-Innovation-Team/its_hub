@@ -18,6 +18,9 @@ The `budget` parameter controls computational resources allocated to each algori
 | Particle Filtering | Number of particles | `ParticleFiltering(sg, prm)` |
 | Entropic Particle Filtering | Number of particles | `EntropicParticleFiltering(sg, prm)` |
 | Beta Self-Consistency (experimental) | Maximum number of parallel generations | `BetaSelfConsistency()` |
+| Adaptive Self-Consistency | Maximum number of parallel generations | `AdaptiveSelfConsistency()` |
+| Confidence Selection | Number of parallel generations | `ConfidenceSelection(metric="entropy")` |
+| Weighted Self-Consistency | Number of parallel generations | `WeightedSelfConsistency(metric="entropy")` |
 
 ## Self-Consistency
 
@@ -284,6 +287,91 @@ The `budget` is the maximum number of generations. Like `SelfConsistency`, this 
 **Reference:** Pranjal Aggarwal, Aman Madaan, Yiming Yang, and Mausam. 2023. [“Let’s Sample Step by Step: Adaptive-Consistency for Efficient Reasoning and Coding with LLMs.”](https://aclanthology.org/2023.emnlp-main.761/) In *Proceedings of EMNLP 2023*, pages 12375–12396. Association for Computational Linguistics.
 
 
+## Adaptive Self-Consistency
+
+Self-Consistency with exponential doubling and early stopping. Starts with 2 samples, checks if a supermajority agree, and doubles the sample count each round until `budget` is reached or consensus is achieved. Previous samples are kept across rounds — no resampling.
+
+```python
+from its_hub import AdaptiveSelfConsistency
+
+# Stop early when 75% of samples agree (default)
+algo = AdaptiveSelfConsistency(supermajority_threshold=0.75)
+result = algo.infer(lm, “Solve x^2 + 5x + 6 = 0”, budget=64)
+```
+
+Inherits `tool_vote`, `exclude_args`, and `consistency_space_projection_func` from `SelfConsistency`.
+
+**When to use:**
+- When many problems are easy and full budget would be wasteful
+- High-throughput pipelines where average latency matters more than worst-case
+- Drop-in replacement for `SelfConsistency` — same interface, lower average cost
+
+
+## Confidence Selection
+
+Selects the single best response based on the model’s own confidence, measured from token-level logprobs. No reward model needed.
+
+```python
+from its_hub import ConfidenceSelection
+
+# Entropy metric (default) — lower tail entropy = more confident
+algo = ConfidenceSelection(metric=”entropy”)
+result = algo.infer(lm, “What is 2+2?”, budget=8)
+
+# Self-certainty metric — higher KL(uniform || model) = more confident
+algo = ConfidenceSelection(metric=”certainty”)
+result = algo.infer(lm, “What is 2+2?”, budget=8)
+```
+
+The algorithm generates `budget` candidates with `logprobs=True`, computes per-token confidence scores from the top-k log probabilities, aggregates over an adaptive tail window, and picks the candidate with the best score.
+
+**Key parameters:**
+- `metric`: `”entropy”` (default) or `”certainty”`
+- `top_logprobs`: Number of top logprobs to request (1–20, default 20)
+- `agg`: Tail aggregation — `”median”` (default, robust) or `”mean”`
+
+**When to use:**
+- When logprobs are available but no reward model is
+- Single-best-answer selection without voting
+- Quick confidence-based filtering before more expensive evaluation
+
+
+## Weighted Self-Consistency
+
+Confidence-weighted majority voting, inspired by [DeepConf](https://arxiv.org/abs/2508.15260). Each candidate’s vote is weighted by its tail confidence score from logprobs, fusing the consistency signal (agreement across responses) with the confidence signal (model-internal certainty).
+
+```python
+from its_hub import WeightedSelfConsistency
+
+# Entropy-weighted voting (default)
+algo = WeightedSelfConsistency(metric=”entropy”)
+result = algo.infer(lm, “What is 2+2?”, budget=16)
+
+# With custom answer projection
+import re
+
+def extract_boxed(text):
+    matches = re.findall(r’\\boxed\{([^{}]+)\}’, text)
+    return matches[-1] if matches else “”
+
+algo = WeightedSelfConsistency(
+    consistency_space_projection_func=extract_boxed,
+    metric=”certainty”,
+)
+result = algo.infer(lm, prompt, budget=32, return_response_only=False)
+print(result.group_weights)  # {“42”: 5.83, “99”: 0.41}
+```
+
+**Degeneration properties:**
+- When all candidates have **equal confidence** → degenerates to standard majority voting (`SelfConsistency`)
+- When all candidates **disagree** → degenerates to picking the most confident response (`ConfidenceSelection`)
+
+**When to use:**
+- When a confident minority may have the right answer but would lose a simple vote
+- Mathematical reasoning where some reasoning paths are more decisive than others
+- Drop-in improvement over `SelfConsistency` when logprobs are available
+
+
 ## Advanced Configuration
 
 ### Step Generation
@@ -347,9 +435,12 @@ asyncio.run(lm.close())
 ## Performance Tips
 
 1. **Start with Self-Consistency** for quick improvements
-2. **Use Best-of-N** when you have a good reward model
-3. **Try Beam Search** for step-by-step reasoning
-4. **Use Particle Filtering** for the most complex problems
-5. **Use Entropic Particle Filtering** to mitigate early exploitation
-6. **Adjust budget** based on problem complexity and time constraints
-7. **Monitor GPU memory** when using large reward models
+2. **Try Adaptive Self-Consistency** to save compute on easy problems
+3. **Use Confidence Selection** when logprobs are available but no reward model
+4. **Use Weighted Self-Consistency** to combine voting with confidence signals
+5. **Use Best-of-N** when you have a good reward model
+6. **Try Beam Search** for step-by-step reasoning
+7. **Use Particle Filtering** for the most complex problems
+8. **Use Entropic Particle Filtering** to mitigate early exploitation
+9. **Adjust budget** based on problem complexity and time constraints
+10. **Monitor GPU memory** when using large reward models

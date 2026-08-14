@@ -31,7 +31,7 @@ pip install its_hub
 ```
 
 This includes:
-- ✓ Self-Consistency and Best-of-N algorithms
+- ✓ All scaling algorithms (Self-Consistency, Best-of-N, Confidence Selection, Weighted Self-Consistency, Adaptive Self-Consistency)
 - ✓ Abstract base classes (`AbstractLanguageModel`, `AbstractOutcomeRewardModel`)
 - ✓ Only 2 dependencies: `numpy`, `typing-extensions`
 
@@ -166,7 +166,7 @@ asyncio.run(lm.close())
 
 ## Key Features
 
-- 🔬 **Multiple Algorithms**: Self-Consistency, Best-of-N, Beam Search (experimental), Particle Filtering (experimental)
+- 🔬 **Multiple Algorithms**: Voting (Self-Consistency, Adaptive, Weighted), confidence-based selection, Best-of-N, Beam Search, Particle Filtering — see [Algorithms](docs/algorithms.md)
 - 🚀 **Gateway Integration**: Clean abstractions (`AbstractLanguageModel`, `AbstractOrchestrator`) for easy integration with AI gateways
 - 🔄 **Orchestration**: `AbstractOrchestrator` provides structured concurrency, rate limiting, and error propagation for parallel LM calls — essential for production gateway deployments
 - 🧮 **Math-Optimized**: Built for mathematical reasoning tasks
