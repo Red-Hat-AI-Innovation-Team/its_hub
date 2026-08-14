@@ -122,7 +122,13 @@ async def test_agenerate_single_honors_env_proxy(monkeypatch):
     server = TestServer(app)
     await server.start_server()
     try:
-        monkeypatch.setenv("HTTP_PROXY", f"http://127.0.0.1:{server.port}")
+        # Isolate from inherited proxy config: no_proxy could bypass our
+        # stand-in, and a lowercase http_proxy could shadow the value we set.
+        for var in ("NO_PROXY", "no_proxy", "http_proxy"):
+            monkeypatch.delenv(var, raising=False)
+        proxy = f"http://127.0.0.1:{server.port}"
+        monkeypatch.setenv("HTTP_PROXY", proxy)
+        monkeypatch.setenv("http_proxy", proxy)
         lm = OpenAICompatibleLanguageModel(
             endpoint="http://blackhole.invalid/v1",  # unresolvable without a proxy
             api_key="k",
