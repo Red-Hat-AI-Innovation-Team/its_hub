@@ -61,17 +61,17 @@ def _make_response_raw(content: str, logprobs_content: list[dict]) -> dict:
     }
 
 
-class LogprobsMockLM:
-    """Mock LM that returns pre-built responses in order."""
+class _FakeOrchestrator:
+    """Orchestrator that returns predefined responses in batch order.
+
+    Bypasses the LM entirely, avoiding scheduling-dependent call ordering.
+    """
 
     def __init__(self, responses: list[dict]):
         self.responses = responses
-        self.call_count = 0
 
-    async def agenerate_single(self, messages, **kwargs):
-        idx = self.call_count % len(self.responses)
-        self.call_count += 1
-        return self.responses[idx]
+    async def agenerate(self, lm, messages_lst, **kwargs):
+        return list(self.responses[: len(messages_lst)])
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +107,11 @@ class TestScoresToWeights:
         weights = _scores_to_weights(scores, "entropy")
         assert weights[0] == pytest.approx(weights[1])
         assert weights[1] == pytest.approx(weights[2])
+
+    def test_large_certainty_scores_no_overflow(self):
+        scores = [710.0, 709.0]
+        weights = _scores_to_weights(scores, "certainty")
+        assert weights[0] > weights[1] > 0
 
 
 # ---------------------------------------------------------------------------
@@ -194,10 +199,10 @@ class TestWeightedSelfConsistencyAinfer:
             _make_response("99", [1.0] * n_tokens),
             _make_response("99", [1.2] * n_tokens),
         ]
-        lm = LogprobsMockLM(responses)
-        algo = WeightedSelfConsistency(metric="entropy")
+        orch = _FakeOrchestrator(responses)
+        algo = WeightedSelfConsistency(metric="entropy", orchestrator=orch)
 
-        result = await algo.ainfer(lm, "test", budget=5, return_response_only=False)
+        result = await algo.ainfer(None, "test", budget=5, return_response_only=False)
 
         assert isinstance(result, WeightedSelfConsistencyResult)
         assert result.the_one["content"] == "42"
@@ -208,18 +213,16 @@ class TestWeightedSelfConsistencyAinfer:
         confident_lp = _make_logprobs_content([0.01] * n_tokens)
         uncertain_lp = _make_uniform_logprobs_content(n_tokens, k=20)
         responses = [
-            # 2 very confident "42" candidates (entropy ≈ 0.06)
             _make_response_raw("42", confident_lp),
             _make_response_raw("42", confident_lp),
-            # 3 very uncertain "99" candidates (entropy ≈ log(20) ≈ 3.0)
             _make_response_raw("99", uncertain_lp),
             _make_response_raw("99", uncertain_lp),
             _make_response_raw("99", uncertain_lp),
         ]
-        lm = LogprobsMockLM(responses)
-        algo = WeightedSelfConsistency(metric="entropy")
+        orch = _FakeOrchestrator(responses)
+        algo = WeightedSelfConsistency(metric="entropy", orchestrator=orch)
 
-        result = await algo.ainfer(lm, "test", budget=5, return_response_only=False)
+        result = await algo.ainfer(None, "test", budget=5, return_response_only=False)
 
         assert result.the_one["content"] == "42"
         assert result.group_weights["42"] > result.group_weights["99"]
@@ -234,10 +237,10 @@ class TestWeightedSelfConsistencyAinfer:
             _make_response("99", [entropy_val] * n_tokens),
             _make_response("99", [entropy_val] * n_tokens),
         ]
-        lm = LogprobsMockLM(responses)
-        algo = WeightedSelfConsistency(metric="entropy")
+        orch = _FakeOrchestrator(responses)
+        algo = WeightedSelfConsistency(metric="entropy", orchestrator=orch)
 
-        result = await algo.ainfer(lm, "test", budget=4, return_response_only=False)
+        result = await algo.ainfer(None, "test", budget=4, return_response_only=False)
 
         assert result.the_one["content"] == "99"
 
@@ -249,13 +252,13 @@ class TestWeightedSelfConsistencyAinfer:
             _make_response("A", [0.02] * n_tokens),
             _make_response("B", [0.5] * n_tokens),
         ]
-        lm = LogprobsMockLM(responses)
-        algo = WeightedSelfConsistency(metric="certainty")
+        orch = _FakeOrchestrator(responses)
+        algo = WeightedSelfConsistency(metric="certainty", orchestrator=orch)
 
-        result = await algo.ainfer(lm, "test", budget=3, return_response_only=False)
+        result = await algo.ainfer(None, "test", budget=3, return_response_only=False)
 
         assert isinstance(result, WeightedSelfConsistencyResult)
-        assert result.the_one["content"] in ("A", "B")
+        assert result.the_one["content"] == "A"
 
     @pytest.mark.asyncio
     async def test_return_response_only(self):
@@ -263,10 +266,10 @@ class TestWeightedSelfConsistencyAinfer:
         responses = [
             _make_response("answer", [0.1] * n_tokens),
         ]
-        lm = LogprobsMockLM(responses)
-        algo = WeightedSelfConsistency()
+        orch = _FakeOrchestrator(responses)
+        algo = WeightedSelfConsistency(orchestrator=orch)
 
-        result = await algo.ainfer(lm, "test", budget=1, return_response_only=True)
+        result = await algo.ainfer(None, "test", budget=1, return_response_only=True)
 
         assert isinstance(result, dict)
         assert result["content"] == "answer"
@@ -283,13 +286,14 @@ class TestWeightedSelfConsistencyAinfer:
             _make_response("result: 42", [0.02] * n_tokens),
             _make_response("I think 99", [1.0] * n_tokens),
         ]
-        lm = LogprobsMockLM(responses)
+        orch = _FakeOrchestrator(responses)
         algo = WeightedSelfConsistency(
             consistency_space_projection_func=extract_last_word,
             metric="entropy",
+            orchestrator=orch,
         )
 
-        result = await algo.ainfer(lm, "test", budget=3, return_response_only=False)
+        result = await algo.ainfer(None, "test", budget=3, return_response_only=False)
 
         assert result.the_one["content"] in ("the answer is 42", "result: 42")
 
@@ -301,16 +305,13 @@ class TestWeightedSelfConsistencyAinfer:
             _make_response("42", None),  # no logprobs
             _make_response("99", [0.5] * n_tokens),
         ]
-        lm = LogprobsMockLM(responses)
-        algo = WeightedSelfConsistency(metric="entropy")
+        orch = _FakeOrchestrator(responses)
+        algo = WeightedSelfConsistency(metric="entropy", orchestrator=orch)
 
-        result = await algo.ainfer(lm, "test", budget=3, return_response_only=False)
+        result = await algo.ainfer(None, "test", budget=3, return_response_only=False)
 
         assert isinstance(result, WeightedSelfConsistencyResult)
-        no_lp_idx = next(
-            i for i, r in enumerate(result.responses) if "_logprobs" not in r
-        )
-        assert result.weights[no_lp_idx] == 0.0
+        assert result.weights[1] == 0.0
 
     @pytest.mark.asyncio
     async def test_no_logprobs_at_all_raises(self):
@@ -318,11 +319,11 @@ class TestWeightedSelfConsistencyAinfer:
             _make_response("42", None),
             _make_response("99", None),
         ]
-        lm = LogprobsMockLM(responses)
-        algo = WeightedSelfConsistency()
+        orch = _FakeOrchestrator(responses)
+        algo = WeightedSelfConsistency(orchestrator=orch)
 
         with pytest.raises(ValueError, match="No candidates have logprobs"):
-            await algo.ainfer(lm, "test", budget=2)
+            await algo.ainfer(None, "test", budget=2)
 
 
 # ---------------------------------------------------------------------------

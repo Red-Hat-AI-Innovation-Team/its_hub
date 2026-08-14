@@ -58,12 +58,12 @@ def _scores_to_weights(scores: list[float], metric: str) -> list[float]:
     """Convert tail confidence scores to positive vote weights.
 
     For entropy (lower is better):  weight = exp(-score)
-    For certainty (higher is better): weight = exp(score)
+    For certainty (higher is better): weight = score  (raw, no transform)
 
-    Excluded candidates (score=inf/-inf) naturally get weight ≈ 0.
+    Excluded candidates (score=inf/-inf) get weight 0.
     """
     arr = np.array(scores, dtype=np.float64)
-    raw = np.exp(-arr) if metric == "entropy" else np.exp(arr)
+    raw = np.exp(-arr) if metric == "entropy" else np.maximum(arr, 0.0)
     raw = np.where(np.isfinite(raw), raw, 0.0)
     return raw.tolist()
 
