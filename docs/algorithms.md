@@ -284,7 +284,7 @@ result = beta_sc.infer(lm, "Solve x^2 + 5x + 6 = 0", budget=64)
 
 The `budget` is the maximum number of generations. Like `SelfConsistency`, this experimental algorithm supports response projection and tool voting.
 
-**Reference:** Pranjal Aggarwal, Aman Madaan, Yiming Yang, and Mausam. 2023. [“Let’s Sample Step by Step: Adaptive-Consistency for Efficient Reasoning and Coding with LLMs.”](https://aclanthology.org/2023.emnlp-main.761/) In *Proceedings of EMNLP 2023*, pages 12375–12396. Association for Computational Linguistics.
+**Reference:** Pranjal Aggarwal, Aman Madaan, Yiming Yang, and Mausam. 2023. ["Let's Sample Step by Step: Adaptive-Consistency for Efficient Reasoning and Coding with LLMs."](https://aclanthology.org/2023.emnlp-main.761/) In *Proceedings of EMNLP 2023*, pages 12375–12396. Association for Computational Linguistics.
 
 
 ## Adaptive Self-Consistency
@@ -296,7 +296,7 @@ from its_hub import AdaptiveSelfConsistency
 
 # Stop early when 75% of samples agree (default)
 algo = AdaptiveSelfConsistency(supermajority_threshold=0.75)
-result = algo.infer(lm, “Solve x^2 + 5x + 6 = 0”, budget=64)
+result = algo.infer(lm, "Solve x^2 + 5x + 6 = 0", budget=64)
 ```
 
 Inherits `tool_vote`, `exclude_args`, and `consistency_space_projection_func` from `SelfConsistency`.
@@ -309,26 +309,26 @@ Inherits `tool_vote`, `exclude_args`, and `consistency_space_projection_func` fr
 
 ## Confidence Selection
 
-Selects the single best response based on the model’s own confidence, measured from token-level logprobs. No reward model needed.
+Selects the single best response based on the model's own confidence, measured from token-level logprobs. No reward model needed.
 
 ```python
 from its_hub import ConfidenceSelection
 
-# Entropy metric (default) — lower tail entropy = more confident
-algo = ConfidenceSelection(metric=”entropy”)
-result = algo.infer(lm, “What is 2+2?”, budget=8)
+# Entropy metric (default) -- lower tail entropy = more confident
+algo = ConfidenceSelection(metric="entropy")
+result = algo.infer(lm, "What is 2+2?", budget=8)
 
-# Self-certainty metric — higher KL(uniform || model) = more confident
-algo = ConfidenceSelection(metric=”certainty”)
-result = algo.infer(lm, “What is 2+2?”, budget=8)
+# Self-certainty metric -- higher KL(uniform || model) = more confident
+algo = ConfidenceSelection(metric="certainty")
+result = algo.infer(lm, "What is 2+2?", budget=8)
 ```
 
 The algorithm generates `budget` candidates with `logprobs=True`, computes per-token confidence scores from the top-k log probabilities, aggregates over an adaptive tail window, and picks the candidate with the best score.
 
 **Key parameters:**
-- `metric`: `”entropy”` (default) or `”certainty”`
-- `top_logprobs`: Number of top logprobs to request (1–20, default 20)
-- `agg`: Tail aggregation — `”median”` (default, robust) or `”mean”`
+- `metric`: `"entropy"` (default) or `"certainty"`
+- `top_logprobs`: Number of top logprobs to request (1-20, default 20)
+- `agg`: Tail aggregation -- `"median"` (default, robust) or `"mean"`
 
 **When to use:**
 - When logprobs are available but no reward model is
@@ -338,28 +338,28 @@ The algorithm generates `budget` candidates with `logprobs=True`, computes per-t
 
 ## Weighted Self-Consistency
 
-Confidence-weighted majority voting, inspired by [DeepConf](https://arxiv.org/abs/2508.15260). Each candidate’s vote is weighted by its tail confidence score from logprobs, fusing the consistency signal (agreement across responses) with the confidence signal (model-internal certainty).
+Confidence-weighted majority voting, inspired by [DeepConf](https://arxiv.org/abs/2508.15260). Each candidate's vote is weighted by its tail confidence score from logprobs, fusing the consistency signal (agreement across responses) with the confidence signal (model-internal certainty).
 
 ```python
 from its_hub import WeightedSelfConsistency
 
 # Entropy-weighted voting (default)
-algo = WeightedSelfConsistency(metric=”entropy”)
-result = algo.infer(lm, “What is 2+2?”, budget=16)
+algo = WeightedSelfConsistency(metric="entropy")
+result = algo.infer(lm, "What is 2+2?", budget=16)
 
 # With custom answer projection
 import re
 
 def extract_boxed(text):
-    matches = re.findall(r’\\boxed\{([^{}]+)\}’, text)
-    return matches[-1] if matches else “”
+    matches = re.findall(r'\\boxed\{([^{}]+)\}', text)
+    return matches[-1] if matches else ""
 
 algo = WeightedSelfConsistency(
     consistency_space_projection_func=extract_boxed,
-    metric=”certainty”,
+    metric="certainty",
 )
 result = algo.infer(lm, prompt, budget=32, return_response_only=False)
-print(result.group_weights)  # {“42”: 5.83, “99”: 0.41}
+print(result.group_weights)  # {"42": 5.83, "99": 0.41}
 ```
 
 **Degeneration properties:**
