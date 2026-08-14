@@ -1,6 +1,8 @@
 """Tests for max_tokens → max_completion_tokens migration."""
 
 import pytest
+from aiohttp import web
+from aiohttp.test_utils import TestServer
 
 from its_hub.api.types import ChatMessage
 from its_hub.core.lms.openai_lm import OpenAICompatibleLanguageModel
@@ -100,3 +102,36 @@ class TestRequestBodyKey:
         )
         assert "logprobs" not in data
         assert "top_logprobs" not in data
+
+
+@pytest.mark.asyncio
+async def test_agenerate_single_honors_env_proxy(monkeypatch):
+    """The LM must route through HTTP(S)_PROXY, else proxy-gated upstreams break.
+
+    The endpoint host is unresolvable, so a direct connection can only fail; the
+    request succeeds only because it is routed to our stand-in proxy.
+    """
+
+    async def handler(request):
+        return web.json_response(
+            {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+        )
+
+    app = web.Application()
+    app.router.add_route("*", "/{tail:.*}", handler)
+    server = TestServer(app)
+    await server.start_server()
+    try:
+        monkeypatch.setenv("HTTP_PROXY", f"http://127.0.0.1:{server.port}")
+        lm = OpenAICompatibleLanguageModel(
+            endpoint="http://blackhole.invalid/v1",  # unresolvable without a proxy
+            api_key="k",
+            model_name="m",
+            max_tries=1,
+        )
+        message = await lm.agenerate_single([ChatMessage(role="user", content="hi")])
+        await lm.close()
+    finally:
+        await server.close()
+
+    assert message["content"] == "ok"
