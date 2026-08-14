@@ -24,7 +24,12 @@ def _make_result(usage=None):
 
 
 def _make_config(**overrides):
-    defaults = {"budget": 3, "api_endpoint": "http://llm/v1", "model": "gpt-4", "api_key": "sk-test"}
+    defaults = {
+        "budget": 3,
+        "api_endpoint": "http://llm/v1",
+        "model": "gpt-4",
+        "api_key": "sk-test",
+    }
     defaults.update(overrides)
     return ITSRequestConfig(**defaults)
 
@@ -99,7 +104,9 @@ class TestLMClientCaching:
         gw = ITSGateway(algorithm=MagicMock())
         mock_lm = MagicMock()
         mock_lm.close = AsyncMock()
-        with patch("its_hub.core.gateway.OpenAICompatibleLanguageModel", return_value=mock_lm):
+        with patch(
+            "its_hub.core.gateway.OpenAICompatibleLanguageModel", return_value=mock_lm
+        ):
             await gw._get_or_create_lm("http://a/v1", "m1", "key1")
         assert len(gw._lm_cache) == 1
         await gw.ashutdown()
@@ -160,7 +167,9 @@ class TestRunChatCompletion:
         gw = ITSGateway(algorithm=algo)
         tools = [{"type": "function", "function": {"name": "f"}}]
         with patch.object(gw, "_get_or_create_lm", return_value=MagicMock()):
-            await gw.arun_chat_completion(_make_config(), MESSAGES, tools=tools, tool_choice="auto")
+            await gw.arun_chat_completion(
+                _make_config(), MESSAGES, tools=tools, tool_choice="auto"
+            )
         call_kwargs = algo.ainfer.call_args.kwargs
         assert call_kwargs["tools"] is tools
         assert call_kwargs["tool_choice"] == "auto"
@@ -177,8 +186,10 @@ class TestRunChatCompletion:
         algo = MagicMock()
         algo.ainfer = AsyncMock(side_effect=RuntimeError("boom"))
         gw = ITSGateway(algorithm=algo)
-        with patch.object(gw, "_get_or_create_lm", return_value=MagicMock()), \
-             pytest.raises(RuntimeError, match="boom"):
+        with (
+            patch.object(gw, "_get_or_create_lm", return_value=MagicMock()),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
             await gw.arun_chat_completion(_make_config(), MESSAGES)
 
     @pytest.mark.asyncio
@@ -215,6 +226,12 @@ class TestConfigure:
             regex_patterns=[r"\\boxed{([^}]+)}"],
         )
         assert gw._algorithm_name == "SelfConsistency"
+
+    def test_configure_defaults_tool_vote_when_omitted(self):
+        """With neither regex nor tool_vote, the algorithm's DEFAULT_TOOL_VOTE applies."""
+        gw = ITSGateway(algorithm=MagicMock())
+        gw.configure(alg="self-consistency")
+        assert gw._algorithm.tool_vote == "tool_hierarchical"
 
     def test_configure_with_tool_vote(self):
         gw = ITSGateway(algorithm=MagicMock())
@@ -258,10 +275,73 @@ class TestConfigure:
                 tool_vote="invalid",
             )
 
+    def test_configure_adaptive_self_consistency(self):
+        gw = ITSGateway(algorithm=MagicMock())
+        gw.configure(
+            alg="adaptive-self-consistency",
+            regex_patterns=[r"\\boxed{([^}]+)}"],
+        )
+        assert gw._algorithm_name == "AdaptiveSelfConsistency"
+        # Unset threshold falls back to the class default.
+        assert gw._algorithm.threshold == pytest.approx(0.75)
+
+    def test_configure_adaptive_threshold_plumbed(self):
+        gw = ITSGateway(algorithm=MagicMock())
+        gw.configure(
+            alg="adaptive-self-consistency",
+            regex_patterns=[r"\\boxed{([^}]+)}"],
+            threshold=0.9,
+        )
+        assert gw._algorithm.threshold == pytest.approx(0.9)
+
+    def test_configure_beta_self_consistency(self):
+        gw = ITSGateway(algorithm=MagicMock())
+        gw.configure(
+            alg="beta-self-consistency",
+            regex_patterns=[r"\\boxed{([^}]+)}"],
+        )
+        assert gw._algorithm_name == "BetaSelfConsistency"
+        # Unset confidence_threshold falls back to the class default.
+        assert gw._algorithm.confidence_threshold == pytest.approx(0.95)
+
+    def test_configure_beta_confidence_threshold_plumbed(self):
+        gw = ITSGateway(algorithm=MagicMock())
+        gw.configure(
+            alg="beta-self-consistency",
+            regex_patterns=[r"\\boxed{([^}]+)}"],
+            confidence_threshold=0.8,
+        )
+        assert gw._algorithm.confidence_threshold == pytest.approx(0.8)
+
+    @pytest.mark.parametrize(
+        "alg",
+        ["adaptive-self-consistency", "beta-self-consistency"],
+    )
+    def test_configure_family_shares_tool_vote(self, alg):
+        """Adaptive/beta inherit the tool-vote voting surface from SelfConsistency."""
+        gw = ITSGateway(algorithm=MagicMock())
+        gw.configure(alg=alg, tool_vote="tool_name")
+        assert gw._algorithm.tool_vote == "tool_name"
+
+    def test_configure_preserves_orchestrator_for_family(self):
+        orch = MagicMock()
+        gw = ITSGateway(algorithm=MagicMock(), orchestrator=orch)
+        gw.configure(
+            alg="beta-self-consistency",
+            regex_patterns=[r"\\boxed{([^}]+)}"],
+        )
+        assert gw._algorithm.orchestrator is orch
+
 
 class TestSupportedAlgorithms:
     def test_self_consistency_supported(self):
         assert "self-consistency" in SUPPORTED_ALGORITHMS
+
+    def test_adaptive_self_consistency_supported(self):
+        assert "adaptive-self-consistency" in SUPPORTED_ALGORITHMS
+
+    def test_beta_self_consistency_supported(self):
+        assert "beta-self-consistency" in SUPPORTED_ALGORITHMS
 
     def test_is_frozenset(self):
         assert isinstance(SUPPORTED_ALGORITHMS, frozenset)
