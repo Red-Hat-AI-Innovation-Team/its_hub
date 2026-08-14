@@ -336,7 +336,7 @@ CUDA_VISIBLE_DEVICES=1 uv run its-iaas \
 |---|---|---|
 | Service not configured (no `/configure` call) | 200 (SSE) / 400 | `"Service not configured"` error in stream or HTTP 400 |
 | Invalid budget (non-integer, out of range) | 400 | `"Bad Request"` with detail |
-| Unsupported algorithm | 400 | `"Algorithm 'X' not supported"` |
+| Unsupported algorithm | 422 | `"Algorithm 'X' not supported"` (Pydantic validation on `/configure`) |
 | Invalid regex pattern in `/configure` | 400 | Regex compilation error detail |
 | Downstream LLM unreachable / timeout | 500 | `"Generation failed. Check server logs for details."` |
 | Algorithm execution error | 500 | `"Generation failed. Check server logs for details."` |
