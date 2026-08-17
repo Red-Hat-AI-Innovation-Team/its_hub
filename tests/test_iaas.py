@@ -355,7 +355,15 @@ class TestChatCompletions:
 
         mock_gw = MagicMock()
         mock_gw.arun_chat_completion = AsyncMock(
-            return_value=_mock_gateway_result("Tool voting response")
+            return_value=_mock_gateway_result(
+                "Tool voting response",
+                usage={
+                    "prompt_tokens": 10,
+                    "completion_tokens": 15,
+                    "total_tokens": 25,
+                    "num_calls": 6,
+                },
+            )
         )
         _state.gateway = mock_gw
 
@@ -368,6 +376,9 @@ class TestChatCompletions:
         data = response.json()
         assert data["choices"][0]["message"]["content"] == "Tool voting response"
         assert data["usage"]["prompt_tokens"] == 10
+        # num_calls is surfaced so clients can see how many LM calls the
+        # (possibly adaptive) algorithm actually made for this ITS request.
+        assert data["usage"]["num_calls"] == 6
         mock_gw.arun_chat_completion.assert_called_once()
 
     def test_chat_completion_full_result(self, iaas_client, vllm_endpoint):
