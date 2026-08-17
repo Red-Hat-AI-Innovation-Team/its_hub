@@ -164,6 +164,26 @@ print(result)  # Best response as judged by LLM
 asyncio.run(lm.close())
 ```
 
+### Proxy Configuration
+
+Like `requests`, `httpx`, and the OpenAI SDK, `OpenAICompatibleLanguageModel`
+respects the standard proxy environment variables, so you can reach an upstream
+that is only accessible through a proxy without any code changes. Set them in the
+environment before creating the LM:
+
+| Variable | Purpose |
+| --- | --- |
+| `HTTP_PROXY` / `HTTPS_PROXY` | Proxy URL for `http://` / `https://` requests |
+| `NO_PROXY` | Comma-separated hosts/domains to connect to directly, bypassing the proxy |
+
+```bash
+export HTTPS_PROXY="http://proxy.example.com:8080"
+export NO_PROXY="localhost,127.0.0.1"
+```
+
+Credentials in `.netrc` are also honored. Lowercase variants (`http_proxy`, etc.)
+work as well.
+
 ## Key Features
 
 - 🔬 **Multiple Algorithms**: Self-Consistency, Best-of-N, Beam Search (experimental), Particle Filtering (experimental)

@@ -106,38 +106,39 @@ class TestRequestBodyKey:
 
 @pytest.mark.asyncio
 async def test_agenerate_single_honors_env_proxy(monkeypatch):
-    """The LM must route through HTTP(S)_PROXY, else proxy-gated upstreams break.
+    """The LM routes through HTTP_PROXY (requires trust_env=True on the session).
 
-    The endpoint host is unresolvable, so a direct connection can only fail; the
-    request succeeds only because it is routed to our stand-in proxy.
+    Pointing the LM at an unresolvable host means a direct connection can only
+    fail; the request succeeds only because it is routed to our stand-in proxy.
     """
 
-    async def handler(request):
+    # Stand-in proxy: answers every path with a valid chat-completion payload.
+    async def stand_in_proxy_handler(request):
         return web.json_response(
             {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
         )
 
-    app = web.Application()
-    app.router.add_route("*", "/{tail:.*}", handler)
-    server = TestServer(app)
-    await server.start_server()
+    proxy_app = web.Application()
+    proxy_app.router.add_route("*", "/{tail:.*}", stand_in_proxy_handler)
+    stand_in_proxy = TestServer(proxy_app)
+    await stand_in_proxy.start_server()
     try:
-        # Isolate from inherited proxy config: no_proxy could bypass our
-        # stand-in, and a lowercase http_proxy could shadow the value we set.
-        for var in ("NO_PROXY", "no_proxy", "http_proxy"):
-            monkeypatch.delenv(var, raising=False)
-        proxy = f"http://127.0.0.1:{server.port}"
-        monkeypatch.setenv("HTTP_PROXY", proxy)
-        monkeypatch.setenv("http_proxy", proxy)
+        # Clear inherited no-proxy config that could bypass our stand-in.
+        for inherited_var in ("NO_PROXY", "no_proxy"):
+            monkeypatch.delenv(inherited_var, raising=False)
+        proxy_url = f"http://127.0.0.1:{stand_in_proxy.port}"
+        monkeypatch.setenv("HTTP_PROXY", proxy_url)
+        monkeypatch.setenv("http_proxy", proxy_url)
+
         lm = OpenAICompatibleLanguageModel(
             endpoint="http://blackhole.invalid/v1",  # unresolvable without a proxy
             api_key="k",
             model_name="m",
             max_tries=1,
         )
-        message = await lm.agenerate_single([ChatMessage(role="user", content="hi")])
+        response = await lm.agenerate_single([ChatMessage(role="user", content="hi")])
         await lm.close()
     finally:
-        await server.close()
+        await stand_in_proxy.close()
 
-    assert message["content"] == "ok"
+    assert response["content"] == "ok"
