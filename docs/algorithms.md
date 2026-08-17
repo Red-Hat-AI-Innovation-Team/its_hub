@@ -14,10 +14,10 @@ The `budget` parameter controls computational resources allocated to each algori
 |-----------|----------------------|---------|
 | Self-Consistency | Number of parallel generations | `SelfConsistency()` |
 | Best-of-N | Number of candidate responses | `BestOfN(rm)` |
-| Beam Search | Total generations ÷ beam width | `BeamSearch(sg, prm, beam_width=4)` |
-| Particle Filtering | Number of particles | `ParticleFiltering(sg, prm)` |
-| Entropic Particle Filtering | Number of particles | `EntropicParticleFiltering(sg, prm)` |
-| Beta Self-Consistency (experimental) | Maximum number of parallel generations | `BetaSelfConsistency()` |
+| Beam Search (experimental) | Total generations ÷ beam width | `BeamSearch(sg, prm, beam_width=4)` |
+| Particle Filtering (experimental) | Number of particles | `ParticleFiltering(sg, prm)` |
+| Entropic Particle Filtering (experimental) | Number of particles | `EntropicParticleFiltering(sg, prm)` |
+| Beta Self-Consistency | Maximum number of parallel generations | `BetaSelfConsistency()` |
 | Adaptive Self-Consistency | Maximum number of parallel generations | `AdaptiveSelfConsistency()` |
 | Confidence Selection | Number of parallel generations | `ConfidenceSelection(metric="entropy")` |
 | Weighted Self-Consistency | Number of parallel generations | `WeightedSelfConsistency(metric="entropy")` |
@@ -282,7 +282,7 @@ beta_sc = BetaSelfConsistency(confidence_threshold=0.95)
 result = beta_sc.infer(lm, "Solve x^2 + 5x + 6 = 0", budget=64)
 ```
 
-The `budget` is the maximum number of generations. Like `SelfConsistency`, this experimental algorithm supports response projection and tool voting.
+The `budget` is the maximum number of generations. Like `SelfConsistency`, this algorithm supports response projection and tool voting.
 
 **Reference:** Pranjal Aggarwal, Aman Madaan, Yiming Yang, and Mausam. 2023. ["Let's Sample Step by Step: Adaptive-Consistency for Efficient Reasoning and Coding with LLMs."](https://aclanthology.org/2023.emnlp-main.761/) In *Proceedings of EMNLP 2023*, pages 12375–12396. Association for Computational Linguistics.
 
