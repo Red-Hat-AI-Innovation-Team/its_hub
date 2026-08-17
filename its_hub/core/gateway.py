@@ -19,6 +19,8 @@ from its_hub.api import (
     GenerationUsage,
     ITSRequestConfig,
 )
+from its_hub.core.algorithms.adaptive_self_consistency import AdaptiveSelfConsistency
+from its_hub.core.algorithms.beta_self_consistency import BetaSelfConsistency
 from its_hub.core.algorithms.self_consistency import (
     SelfConsistency,
     create_regex_projection_function,
@@ -29,7 +31,18 @@ from its_hub.core.orchestrator import LMOrchestrator
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_ALGORITHMS = frozenset({"self-consistency"})
+# The self-consistency family shares the same voting surface (regex/tool-vote
+# projection) and only differs in how it decides when to stop sampling.
+SELF_CONSISTENCY_ALGORITHMS = frozenset(
+    {
+        "self-consistency",
+        "adaptive-self-consistency",
+        "beta-self-consistency",
+    }
+)
+
+# All currently supported algorithms are self-consistency variants.
+SUPPORTED_ALGORITHMS = SELF_CONSISTENCY_ALGORITHMS
 
 
 class ITSGateway(AbstractGateway):
@@ -85,8 +98,14 @@ class ITSGateway(AbstractGateway):
         regex_patterns: list[str] | None = None,
         tool_vote: str | None = None,
         exclude_tool_args: list[str] | None = None,
+        threshold: float | None = None,
+        confidence_threshold: float | None = None,
     ) -> None:
         """Configure the gateway's scaling algorithm at runtime.
+
+        ``threshold`` applies only to ``adaptive-self-consistency`` and
+        ``confidence_threshold`` only to ``beta-self-consistency``; both fall
+        back to the algorithm's own default when left as ``None``.
 
         Raises ValueError for unsupported algorithms or invalid options.
         """
@@ -95,17 +114,35 @@ class ITSGateway(AbstractGateway):
                 f"Algorithm {alg!r} not supported. Choose from: {SUPPORTED_ALGORITHMS}"
             )
 
-        if alg == "self-consistency":
-            projection_func = None
-            if regex_patterns:
-                validate_regex_patterns(regex_patterns)
-                projection_func = create_regex_projection_function(regex_patterns)
-            algorithm = SelfConsistency(
-                consistency_space_projection_func=projection_func,
-                tool_vote=tool_vote,
-                exclude_args=exclude_tool_args,
-                orchestrator=self._orchestrator,
+        # The self-consistency family shares projection/tool-vote plumbing.
+        projection_func = None
+        if regex_patterns:
+            validate_regex_patterns(regex_patterns)
+            projection_func = create_regex_projection_function(regex_patterns)
+
+        common_kwargs = {
+            "consistency_space_projection_func": projection_func,
+            "exclude_args": exclude_tool_args,
+            "orchestrator": self._orchestrator,
+        }
+        # Only override the algorithm's default tool_vote when one is explicitly
+        # provided; otherwise let it fall back to DEFAULT_TOOL_VOTE so that
+        # tool-calling responses still vote sensibly with no extra config.
+        if tool_vote is not None:
+            common_kwargs["tool_vote"] = tool_vote
+
+        if alg == "adaptive-self-consistency":
+            extra = {} if threshold is None else {"threshold": threshold}
+            algorithm = AdaptiveSelfConsistency(**common_kwargs, **extra)
+        elif alg == "beta-self-consistency":
+            extra = (
+                {}
+                if confidence_threshold is None
+                else {"confidence_threshold": confidence_threshold}
             )
+            algorithm = BetaSelfConsistency(**common_kwargs, **extra)
+        else:  # self-consistency
+            algorithm = SelfConsistency(**common_kwargs)
 
         self._algorithm = algorithm
         self._algorithm_name = type(algorithm).__name__

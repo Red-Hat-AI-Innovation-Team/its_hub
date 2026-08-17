@@ -34,14 +34,24 @@ def vllm_endpoint(vllm_server):
 def _mock_gateway_result(content="answer", usage=None):
     """Build a dict matching ITSGateway.arun_chat_completion return (response_only=True)."""
     if usage is None:
-        usage = {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25, "num_calls": 1}
+        usage = {
+            "prompt_tokens": 10,
+            "completion_tokens": 15,
+            "total_tokens": 25,
+            "num_calls": 1,
+        }
     return {"message": {"role": "assistant", "content": content}, "usage": usage}
 
 
 def _mock_gateway_full_result(content="answer", usage=None):
     """Build a dict matching ITSGateway.arun_chat_completion return (response_only=False)."""
     if usage is None:
-        usage = {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25, "num_calls": 1}
+        usage = {
+            "prompt_tokens": 10,
+            "completion_tokens": 15,
+            "total_tokens": 25,
+            "num_calls": 1,
+        }
     return {
         "the_one": {"role": "assistant", "content": content},
         "responses": [
@@ -223,6 +233,115 @@ class TestSelfConsistencyToolVote:
             assert call_args.kwargs["exclude_args"] == ["timestamp", "id"]
 
 
+class TestAdaptiveAndBetaSelfConsistency:
+    """Configuration of the adaptive/beta self-consistency variants via /configure."""
+
+    @pytest.mark.parametrize(
+        "alg",
+        ["adaptive-self-consistency", "beta-self-consistency"],
+    )
+    def test_family_basic_configuration(self, iaas_client, vllm_endpoint, alg):
+        config = {
+            "endpoint": vllm_endpoint,
+            "api_key": TEST_CONSTANTS["DEFAULT_API_KEY"],
+            "model": TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            "alg": alg,
+            "regex_patterns": [r"\\boxed{([^}]+)}"],
+        }
+        response = iaas_client.post("/configure", json=config)
+        assert response.status_code == 200
+        assert "success" in response.json()["status"]
+        assert _state.config.alg == alg
+
+    def test_adaptive_threshold_forwarded_to_algorithm(
+        self, iaas_client, vllm_endpoint
+    ):
+        with patch("its_hub.core.gateway.AdaptiveSelfConsistency") as mock_alg:
+            mock_alg.return_value = MagicMock()
+            config = {
+                "endpoint": vllm_endpoint,
+                "api_key": TEST_CONSTANTS["DEFAULT_API_KEY"],
+                "model": TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+                "alg": "adaptive-self-consistency",
+                "regex_patterns": [r"\\boxed{([^}]+)}"],
+                "threshold": 0.9,
+            }
+            response = iaas_client.post("/configure", json=config)
+            assert response.status_code == 200
+            mock_alg.assert_called_once()
+            assert mock_alg.call_args.kwargs["threshold"] == 0.9
+
+    def test_beta_confidence_threshold_forwarded_to_algorithm(
+        self, iaas_client, vllm_endpoint
+    ):
+        with patch("its_hub.core.gateway.BetaSelfConsistency") as mock_alg:
+            mock_alg.return_value = MagicMock()
+            config = {
+                "endpoint": vllm_endpoint,
+                "api_key": TEST_CONSTANTS["DEFAULT_API_KEY"],
+                "model": TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+                "alg": "beta-self-consistency",
+                "regex_patterns": [r"\\boxed{([^}]+)}"],
+                "confidence_threshold": 0.8,
+            }
+            response = iaas_client.post("/configure", json=config)
+            assert response.status_code == 200
+            mock_alg.assert_called_once()
+            assert mock_alg.call_args.kwargs["confidence_threshold"] == 0.8
+
+    def test_threshold_omitted_uses_algorithm_default(self, iaas_client, vllm_endpoint):
+        """When threshold is unset, it is not forwarded so the class default applies."""
+        with patch("its_hub.core.gateway.AdaptiveSelfConsistency") as mock_alg:
+            mock_alg.return_value = MagicMock()
+            config = {
+                "endpoint": vllm_endpoint,
+                "api_key": TEST_CONSTANTS["DEFAULT_API_KEY"],
+                "model": TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+                "alg": "adaptive-self-consistency",
+                "regex_patterns": [r"\\boxed{([^}]+)}"],
+            }
+            response = iaas_client.post("/configure", json=config)
+            assert response.status_code == 200
+            assert "threshold" not in mock_alg.call_args.kwargs
+
+    @pytest.mark.parametrize(
+        ("field", "alg"),
+        [
+            ("threshold", "adaptive-self-consistency"),
+            ("confidence_threshold", "beta-self-consistency"),
+        ],
+    )
+    def test_threshold_out_of_range_rejected(
+        self, iaas_client, vllm_endpoint, field, alg
+    ):
+        config = {
+            "endpoint": vllm_endpoint,
+            "api_key": TEST_CONSTANTS["DEFAULT_API_KEY"],
+            "model": TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            "alg": alg,
+            "regex_patterns": [r"\\boxed{([^}]+)}"],
+            field: 0.5,  # not > 0.5
+        }
+        response = iaas_client.post("/configure", json=config)
+        assert response.status_code == 422
+
+    def test_family_tool_vote_forwarded(self, iaas_client, vllm_endpoint):
+        with patch("its_hub.core.gateway.BetaSelfConsistency") as mock_alg:
+            mock_alg.return_value = MagicMock()
+            config = {
+                "endpoint": vllm_endpoint,
+                "api_key": TEST_CONSTANTS["DEFAULT_API_KEY"],
+                "model": TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+                "alg": "beta-self-consistency",
+                "tool_vote": "tool_hierarchical",
+                "exclude_tool_args": ["timestamp"],
+            }
+            response = iaas_client.post("/configure", json=config)
+            assert response.status_code == 200
+            assert mock_alg.call_args.kwargs["tool_vote"] == "tool_hierarchical"
+            assert mock_alg.call_args.kwargs["exclude_args"] == ["timestamp"]
+
+
 class TestChatCompletions:
     def test_chat_completion_with_gateway(self, iaas_client, vllm_endpoint):
         config = {
@@ -277,6 +396,31 @@ class TestChatCompletions:
         assert data["metadata"]["algorithm"] == "self-consistency"
         assert data["metadata"]["selected_index"] == 0
 
+    def test_chat_completion_metadata_reports_configured_algorithm(
+        self, iaas_client, vllm_endpoint
+    ):
+        """Metadata reflects the configured algorithm, not a hardcoded value."""
+        config = {
+            "endpoint": vllm_endpoint,
+            "api_key": TEST_CONSTANTS["DEFAULT_API_KEY"],
+            "model": TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            "alg": "beta-self-consistency",
+            "regex_patterns": [r"\\boxed{([^}]+)}"],
+        }
+        iaas_client.post("/configure", json=config)
+
+        mock_gw = MagicMock()
+        mock_gw.arun_chat_completion = AsyncMock(
+            return_value=_mock_gateway_full_result()
+        )
+        _state.gateway = mock_gw
+
+        request_data = TestDataFactory.create_chat_completion_request(budget=4)
+        request_data["return_response_only"] = False
+        response = iaas_client.post("/v1/chat/completions", json=request_data)
+        assert response.status_code == 200
+        assert response.json()["metadata"]["algorithm"] == "beta-self-consistency"
+
     @pytest.mark.parametrize(
         "invalid_request",
         [
@@ -303,14 +447,16 @@ class TestStreamingChatCompletions:
         chunks = []
         for line in response.text.splitlines():
             if line.startswith("data: "):
-                payload = line[len("data: "):]
+                payload = line[len("data: ") :]
                 if payload == "[DONE]":
                     chunks.append("[DONE]")
                 else:
                     chunks.append(json.loads(payload))
         return chunks
 
-    def _configure_and_mock(self, iaas_client, endpoint, mock_return=None, side_effect=None):
+    def _configure_and_mock(
+        self, iaas_client, endpoint, mock_return=None, side_effect=None
+    ):
         _state.config.endpoint = endpoint
         _state.config.model = TEST_CONSTANTS["DEFAULT_MODEL_NAME"]
         _state.config.api_key = TEST_CONSTANTS["DEFAULT_API_KEY"]
@@ -350,9 +496,16 @@ class TestStreamingChatCompletions:
                     }
                 ],
             },
-            "usage": {"prompt_tokens": 5, "completion_tokens": 10, "total_tokens": 15, "num_calls": 1},
+            "usage": {
+                "prompt_tokens": 5,
+                "completion_tokens": 10,
+                "total_tokens": 15,
+                "num_calls": 1,
+            },
         }
-        self._configure_and_mock(iaas_client, vllm_endpoint, mock_return=tool_call_result)
+        self._configure_and_mock(
+            iaas_client, vllm_endpoint, mock_return=tool_call_result
+        )
 
         request_data = TestDataFactory.create_chat_completion_request(budget=4)
         request_data["stream"] = True
@@ -505,7 +658,9 @@ class TestHeaderConfig:
         call_kwargs = mock_gw.arun_chat_completion.call_args.kwargs
         assert call_kwargs["config"].budget == 16
 
-    def test_endpoint_from_header_overrides_service_default(self, iaas_client, vllm_endpoint):
+    def test_endpoint_from_header_overrides_service_default(
+        self, iaas_client, vllm_endpoint
+    ):
         config = {
             "endpoint": vllm_endpoint,
             "api_key": TEST_CONSTANTS["DEFAULT_API_KEY"],
@@ -697,14 +852,36 @@ class TestErrorSanitization:
 class TestModelValidatorFixes:
     """Tests that model validators fire even when fields are omitted."""
 
-    def test_self_consistency_requires_regex_when_omitted(self):
-        with pytest.raises(ValueError, match="regex_patterns are required"):
-            ConfigRequest(
-                endpoint="http://example.com:8000",
-                api_key="sk-test",
-                model="test-model",
-                alg="self-consistency",
-            )
+    @pytest.mark.parametrize(
+        "alg",
+        [
+            "self-consistency",
+            "adaptive-self-consistency",
+            "beta-self-consistency",
+        ],
+    )
+    def test_family_accepts_neither_regex_nor_tool_vote(self, alg):
+        """Neither projection field is required; the algorithm defaults handle voting."""
+        config = ConfigRequest(
+            endpoint="http://example.com:8000",
+            api_key="sk-test",
+            model="test-model",
+            alg=alg,
+        )
+        assert config.regex_patterns is None
+        assert config.tool_vote is None
+
+    def test_self_consistency_accepts_tool_vote_without_regex(self):
+        """tool_vote alone is a valid projection surface."""
+        config = ConfigRequest(
+            endpoint="http://example.com:8000",
+            api_key="sk-test",
+            model="test-model",
+            alg="self-consistency",
+            tool_vote="tool_hierarchical",
+        )
+        assert config.regex_patterns is None
+        assert config.tool_vote == "tool_hierarchical"
 
     def test_openai_requires_api_key_when_omitted(self):
         with pytest.raises(ValueError, match="api_key is required"):
@@ -743,18 +920,21 @@ class TestExtProcessor:
     @pytest.fixture
     def ext_proc(self):
         from its_hub.integration.iaas.ext_processor import ExternalProcessorService
+
         return ExternalProcessorService()
 
     @pytest.mark.asyncio
     async def test_routes_and_preserves_headers_when_budget_present(
         self, ext_proc, _make_headers_request
     ):
-        request = _make_headers_request({
-            ":path": "/v1/chat/completions",
-            "x-its-budget": "4",
-            "x-its-endpoint": "http://localhost:8100/v1",
-            "x-its-api-key": "secret",
-        })
+        request = _make_headers_request(
+            {
+                ":path": "/v1/chat/completions",
+                "x-its-budget": "4",
+                "x-its-endpoint": "http://localhost:8100/v1",
+                "x-its-api-key": "secret",
+            }
+        )
 
         async def _stream():
             yield request
@@ -782,10 +962,12 @@ class TestExtProcessor:
     async def test_passes_through_without_budget_header(
         self, ext_proc, _make_headers_request
     ):
-        request = _make_headers_request({
-            ":path": "/v1/chat/completions",
-            "content-type": "application/json",
-        })
+        request = _make_headers_request(
+            {
+                ":path": "/v1/chat/completions",
+                "content-type": "application/json",
+            }
+        )
 
         async def _stream():
             yield request
@@ -807,11 +989,13 @@ class TestExtProcessor:
         self, ext_proc, _make_headers_request
     ):
         """Stray ITS headers without budget are stripped on pass-through."""
-        request = _make_headers_request({
-            ":path": "/v1/chat/completions",
-            "x-its-endpoint": "http://localhost:8100/v1",
-            "x-its-api-key": "secret",
-        })
+        request = _make_headers_request(
+            {
+                ":path": "/v1/chat/completions",
+                "x-its-endpoint": "http://localhost:8100/v1",
+                "x-its-api-key": "secret",
+            }
+        )
 
         async def _stream():
             yield request
@@ -838,9 +1022,7 @@ class TestAppServer:
         from its_hub.integration.iaas.app_server import _configure_logging
 
         _configure_logging("DEBUG")
-        assert (
-            logging.getLogger("its_hub.integration.iaas.app").level == logging.DEBUG
-        )
+        assert logging.getLogger("its_hub.integration.iaas.app").level == logging.DEBUG
 
     def test_configure_logging_invalid_level(self):
         from its_hub.integration.iaas.app_server import _configure_logging
