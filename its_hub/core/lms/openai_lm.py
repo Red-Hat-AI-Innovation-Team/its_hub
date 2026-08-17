@@ -124,9 +124,10 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             if session is not None and not session.closed:
                 return session
 
-            # Create new session for the event loop
+            # Create new session for the event loop.
+            # trust_env=True so aiohttp honors HTTP(S)_PROXY/NO_PROXY/.netrc.
             connector = aiohttp.TCPConnector(ssl=self.ssl_context)
-            session = aiohttp.ClientSession(connector=connector)
+            session = aiohttp.ClientSession(connector=connector, trust_env=True)
             self._sessions[loop] = session
 
             return session
@@ -273,7 +274,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         # create a single session for all requests in this call
         # Use the same SSL behavior as requests library
         connector = aiohttp.TCPConnector(ssl=self.ssl_context)
-        async with aiohttp.ClientSession(connector=connector) as session:
+        async with aiohttp.ClientSession(
+            connector=connector, trust_env=True
+        ) as session:
 
             @backoff.on_exception(
                 backoff.expo,

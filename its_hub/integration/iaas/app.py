@@ -38,6 +38,7 @@ class _ServiceConfig:
     api_key: str | None = None
     budget: int = 4
     temperature: float | None = None
+    alg: str = "self-consistency"
 
 
 class _ServiceState:
@@ -106,10 +107,13 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
             regex_patterns=request.regex_patterns,
             tool_vote=request.tool_vote,
             exclude_tool_args=request.exclude_tool_args,
+            threshold=request.threshold,
+            confidence_threshold=request.confidence_threshold,
         )
         _state.config.endpoint = request.endpoint
         _state.config.model = request.model
         _state.config.api_key = request.api_key
+        _state.config.alg = request.alg
         if request.budget is not None:
             _state.config.budget = request.budget
         if request.temperature is not None:
@@ -198,7 +202,7 @@ async def chat_completions(
         metadata = None
         if not request.return_response_only:
             metadata = {
-                "algorithm": "self-consistency",
+                "algorithm": _state.config.alg,
                 "all_responses": result.get("responses"),
                 "response_counts": result.get("response_counts"),
                 "selected_index": result.get("selected_index"),

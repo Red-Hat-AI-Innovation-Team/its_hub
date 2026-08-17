@@ -10,6 +10,7 @@ from its_hub.api import (
     GenerationUsage,
 )
 from its_hub.core.algorithms.self_consistency import (
+    DEFAULT_TOOL_VOTE,
     SelfConsistency,
     SelfConsistencyResult,
 )
@@ -32,7 +33,7 @@ class AdaptiveSelfConsistency(SelfConsistency):
         self,
         threshold: float = 0.75,
         consistency_space_projection_func: Callable | None = None,
-        tool_vote: str | None = None,
+        tool_vote: str | None = DEFAULT_TOOL_VOTE,
         exclude_args: list[str] | None = None,
         orchestrator: AbstractOrchestrator | None = None,
     ):

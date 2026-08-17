@@ -4,7 +4,7 @@ This guide provides comprehensive instructions for setting up and running the it
 
 ## Overview
 
-The IaaS service provides an OpenAI-compatible API with inference-time scaling algorithms. **Optimized for tool-calling applications** including agents, function calling, and multi-step reasoning. Currently supports **Self-Consistency**, with **Best-of-N** coming soon.
+The IaaS service provides an OpenAI-compatible API with inference-time scaling algorithms. **Optimized for tool-calling applications** including agents, function calling, and multi-step reasoning. Currently supports the **Self-Consistency** family — plain **Self-Consistency** plus the adaptive-stopping variants **Adaptive Self-Consistency** and **Beta Self-Consistency** — with **Best-of-N** coming soon.
 
 ### Architecture
 
@@ -40,8 +40,22 @@ ext_proc routing but are also accepted on the standalone IaaS endpoint.
 ### Algorithm Selection
 
 The algorithm is configured globally via `POST /configure` with the `alg` field.
-Per-request algorithm selection is not supported. Currently only `self-consistency` is
-available through the gateway.
+Per-request algorithm selection is not supported. The following algorithms are available
+through the gateway:
+
+| `alg` | Description | Early-stopping option |
+|---|---|---|
+| `self-consistency` | Generate `budget` responses, vote for the most common answer | — |
+| `adaptive-self-consistency` | Sample in doubling rounds (2 → 4 → …), stop once a supermajority agrees | `threshold` (vote share, default `0.75`) |
+| `beta-self-consistency` | Fire up to `budget` samples concurrently, stop once the Beta posterior is confident in the leader | `confidence_threshold` (posterior probability, default `0.95`) |
+
+All three share the same voting surface (`regex_patterns` / `tool_vote`); the adaptive
+variants only differ in *when they stop sampling*, treating `budget` as a maximum.
+
+Neither `regex_patterns` nor `tool_vote` is required. By default the family votes on
+tool calls using the `tool_hierarchical` strategy, and text responses fall back to
+exact-content matching. Supply `regex_patterns` to vote on extracted text answers, or
+set `tool_vote` to pick a different tool-voting strategy.
 
 ## API Key Handling
 
@@ -104,9 +118,54 @@ curl -X POST http://localhost:8109/configure \
 ```
 
 **Parameters:**
-- `regex_patterns`: Required for self-consistency — each pattern needs a capturing group that extracts the answer to vote on (used for text responses; tool responses vote via `tool_vote`)
+- `regex_patterns`: Each pattern needs a capturing group that extracts the answer to vote on (used for text responses; tool responses vote via `tool_vote`). Optional: if omitted, text responses fall back to exact-content matching, which rarely agrees on free-form output — supply a pattern whenever you want meaningful voting over text answers.
 - `tool_vote`: Voting strategy - `"tool_name"`, `"tool_args"`, or `"tool_hierarchical"` (recommended)
 - `exclude_tool_args`: List of argument names to exclude from voting (e.g., timestamps, IDs)
+
+---
+
+### Adaptive & Beta Self-Consistency
+
+Best for: reducing average generation cost when many prompts reach agreement well before
+the full `budget` is spent. Both variants accept the same `regex_patterns` / `tool_vote` /
+`exclude_tool_args` options as plain self-consistency, treat `budget` as a **maximum**, and
+add a single early-stopping knob.
+
+Adaptive self-consistency samples in doubling rounds and stops when the leading answer's
+vote share reaches `threshold`:
+
+```bash
+curl -X POST http://localhost:8109/configure \
+  -H "Content-Type: application/json" \
+  -d '{
+    "endpoint": "https://api.openai.com/v1",
+    "api_key": "your-openai-api-key",
+    "model": "gpt-4o-mini",
+    "alg": "adaptive-self-consistency",
+    "tool_vote": "tool_hierarchical",
+    "threshold": 0.75
+  }'
+```
+
+Beta self-consistency fires samples concurrently and stops once the Beta posterior
+probability that the leader is the true majority reaches `confidence_threshold`:
+
+```bash
+curl -X POST http://localhost:8109/configure \
+  -H "Content-Type: application/json" \
+  -d '{
+    "endpoint": "https://api.openai.com/v1",
+    "api_key": "your-openai-api-key",
+    "model": "gpt-4o-mini",
+    "alg": "beta-self-consistency",
+    "tool_vote": "tool_hierarchical",
+    "confidence_threshold": 0.95
+  }'
+```
+
+**Parameters:**
+- `threshold`: (adaptive only) supermajority vote-share cutoff in `(0.5, 1.0]`, default `0.75`. Omit to use the default.
+- `confidence_threshold`: (beta only) Beta posterior probability cutoff in `(0.5, 1.0]`, default `0.95`. Omit to use the default.
 
 ---
 
@@ -336,7 +395,7 @@ CUDA_VISIBLE_DEVICES=1 uv run its-iaas \
 |---|---|---|
 | Service not configured (no `/configure` call) | 200 (SSE) / 400 | `"Service not configured"` error in stream or HTTP 400 |
 | Invalid budget (non-integer, out of range) | 400 | `"Bad Request"` with detail |
-| Unsupported algorithm | 400 | `"Algorithm 'X' not supported"` |
+| Unsupported algorithm | 422 | `"Algorithm 'X' not supported"` (Pydantic validation on `/configure`) |
 | Invalid regex pattern in `/configure` | 400 | Regex compilation error detail |
 | Downstream LLM unreachable / timeout | 500 | `"Generation failed. Check server logs for details."` |
 | Algorithm execution error | 500 | `"Generation failed. Check server logs for details."` |

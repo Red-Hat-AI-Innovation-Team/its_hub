@@ -19,6 +19,12 @@ from its_hub.api import (
 from its_hub.core.orchestrator import LMOrchestrator
 from its_hub.core.utils import extract_content_from_lm_response
 
+# Default tool-call voting strategy for the self-consistency family. Chosen so
+# that responses containing tool calls vote sensibly out of the box (the primary
+# use case for the IaaS gateway). Pass tool_vote=None to force content-only
+# voting, which raises if every response is a tool call.
+DEFAULT_TOOL_VOTE = "tool_hierarchical"
+
 
 def _default_projection_func(response: str) -> str:
     """Default projection function that uses exact content matching.
@@ -130,7 +136,7 @@ class SelfConsistency(AbstractScalingAlgorithm):
     def __init__(
         self,
         consistency_space_projection_func: Callable | None = None,
-        tool_vote: str | None = None,
+        tool_vote: str | None = DEFAULT_TOOL_VOTE,
         exclude_args: list[str] | None = None,
         orchestrator: AbstractOrchestrator | None = None,
     ):
@@ -142,10 +148,12 @@ class SelfConsistency(AbstractScalingAlgorithm):
                 responses don't contain tool calls. Can return str, tuple, or any hashable type.
 
             tool_vote: Tool voting strategy when responses contain tool calls. Options:
-                - None (default): Vote on message content using consistency_space_projection_func
+                - "tool_hierarchical" (default): Vote on tool name first, then arguments
+                - None: Vote on message content using consistency_space_projection_func;
+                  used when no tool calls are present, or to force content-only voting.
+                  Raises at inference time if every response is a tool call.
                 - "tool_name": Vote on tool function names only
                 - "tool_args": Vote on tool function arguments only (as dicts)
-                - "tool_hierarchical": Vote on tool name first, then arguments (hierarchical)
                 - "tool_flat_all": Vote on ALL tool calls combined as a flat sorted signature.
                   Unlike other modes which only consider the first tool call, this creates a
                   single signature from all tool calls in a response. Two responses calling
