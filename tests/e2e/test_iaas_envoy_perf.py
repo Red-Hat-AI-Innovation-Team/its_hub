@@ -217,6 +217,9 @@ def main():
 
         # --- Configure IaaS ---
         if iaas_url:
+            if not llm_url:
+                print("Error: --iaas-url requires --llm-url or --mock-llm")
+                sys.exit(1)
             configure_iaas(iaas_url, llm_url, args.model_name, args.api_key)
             print("IaaS configured")
 

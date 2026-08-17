@@ -80,7 +80,7 @@ class _Result:
 # ---------------------------------------------------------------------------
 
 
-def test_iaas_direct(iaas_url, llm_endpoint, model_name, api_key, result):
+def check_iaas_direct(iaas_url, llm_endpoint, model_name, api_key, result):
     """Test IaaS service directly (without Envoy)."""
     print("\n--- IaaS Direct Tests ---")
 
@@ -152,7 +152,7 @@ def test_iaas_direct(iaas_url, llm_endpoint, model_name, api_key, result):
 # ---------------------------------------------------------------------------
 
 
-def test_envoy_routed(envoy_url, iaas_url, llm_endpoint, model_name, api_key, result):
+def check_envoy_routed(envoy_url, iaas_url, llm_endpoint, model_name, api_key, result):
     """Test requests routed through Envoy."""
     print("\n--- Envoy-Routed Tests ---")
 
@@ -204,7 +204,11 @@ def test_envoy_routed(envoy_url, iaas_url, llm_endpoint, model_name, api_key, re
         headers={"X-ITS-Endpoint": "http://should-be-stripped/v1"},
     )
     if status == 200:
-        result.ok("envoy_stray_header_stripped")
+        stray = body.get("its_headers_received") or {}
+        if stray:
+            result.fail("envoy_stray_header_stripped", f"ITS headers reached LLM: {stray}")
+        else:
+            result.ok("envoy_stray_header_stripped")
     else:
         result.fail("envoy_stray_header_stripped", f"status {status}")
 
@@ -258,7 +262,7 @@ def main():
         processes.extend(stack_procs)
 
         # --- Run IaaS direct tests ---
-        test_iaas_direct(iaas_url, llm_endpoint, model_name, api_key, result)
+        check_iaas_direct(iaas_url, llm_endpoint, model_name, api_key, result)
 
         # --- Envoy tests ---
         if args.skip_envoy:
@@ -274,7 +278,7 @@ def main():
             else:
                 envoy_proc, envoy_url, envoy_tmpdir, _ = envoy_result
                 processes.append(("envoy", envoy_proc))
-                test_envoy_routed(envoy_url, iaas_url, llm_endpoint, model_name, api_key, result)
+                check_envoy_routed(envoy_url, iaas_url, llm_endpoint, model_name, api_key, result)
 
     finally:
         print("\nShutting down services...")

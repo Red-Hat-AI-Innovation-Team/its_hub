@@ -232,6 +232,8 @@ class TestIaaSExtProcLifecycle:
 
         assert len(responses) == 3
         assert responses[0] == _PASS_THROUGH
+        assert responses[1].HasField("response_headers")
+        assert responses[2].HasField("response_body")
 
 
 # ---------------------------------------------------------------------------

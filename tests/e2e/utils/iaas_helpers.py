@@ -10,6 +10,7 @@ import tempfile
 import textwrap
 import threading
 import time
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -55,6 +56,13 @@ def wait_for_http(url, timeout=15):
 # ---------------------------------------------------------------------------
 
 
+def _decode_json(raw):
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return {"raw": raw.decode(errors="replace")[:500]}
+
+
 def http_post(url, data, headers=None, timeout=30):
     req_headers = {"Content-Type": "application/json"}
     if headers:
@@ -64,17 +72,21 @@ def http_post(url, data, headers=None, timeout=30):
     req = urllib.request.Request(url, data=body, headers=req_headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status, json.loads(resp.read())
+            return resp.status, _decode_json(resp.read())
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read())
+        return e.code, _decode_json(e.read())
+    except urllib.error.URLError as e:
+        return 0, {"error": str(e)}
 
 
 def http_get(url, timeout=10):
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
-            return resp.status, json.loads(resp.read())
+            return resp.status, _decode_json(resp.read())
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read())
+        return e.code, _decode_json(e.read())
+    except urllib.error.URLError as e:
+        return 0, {"error": str(e)}
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +110,11 @@ class MockLLMHandler(BaseHTTPRequestHandler):
             messages = body.get("messages", [])
             user_msg = messages[-1]["content"] if messages else "unknown"
 
+            its_headers = {
+                k: v for k, v in self.headers.items()
+                if k.lower().startswith("x-its-")
+            }
+
             response = {
                 "id": "mock-llm-001",
                 "object": "chat.completion",
@@ -112,6 +129,7 @@ class MockLLMHandler(BaseHTTPRequestHandler):
                     "finish_reason": "stop",
                 }],
                 "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+                "its_headers_received": its_headers,
             }
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -200,7 +218,8 @@ def generate_envoy_config(envoy_port, ext_proc_port, iaas_port, llm_port):
                           prefix: "/"
                           headers:
                           - name: X-ITS-Route
-                            exact_match: "its-service"
+                            string_match:
+                              exact: "its-service"
                         route:
                           cluster: iaas_upstream
                           timeout: 60s
