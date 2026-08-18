@@ -204,9 +204,13 @@ def check_envoy_routed(envoy_url, iaas_url, llm_endpoint, model_name, api_key, r
         headers={"X-ITS-Endpoint": "http://should-be-stripped/v1"},
     )
     if status == 200:
-        stray = body.get("its_headers_received") or {}
-        if stray:
-            result.fail("envoy_stray_header_stripped", f"ITS headers reached LLM: {stray}")
+        if "its_headers_received" not in body:
+            result.skip(
+                "envoy_stray_header_stripped",
+                "upstream does not report received headers (use --mock-llm)",
+            )
+        elif body["its_headers_received"]:
+            result.fail("envoy_stray_header_stripped", f"ITS headers reached LLM: {body['its_headers_received']}")
         else:
             result.ok("envoy_stray_header_stripped")
     else:

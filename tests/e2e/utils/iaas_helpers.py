@@ -111,7 +111,8 @@ class MockLLMHandler(BaseHTTPRequestHandler):
             user_msg = messages[-1]["content"] if messages else "unknown"
 
             its_headers = {
-                k: v for k, v in self.headers.items()
+                k: "<redacted>" if k.lower() == "x-its-api-key" else v
+                for k, v in self.headers.items()
                 if k.lower().startswith("x-its-")
             }
 
