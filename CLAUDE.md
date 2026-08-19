@@ -23,7 +23,7 @@ git commit -s -m "commit message"
 
 ### Testing
 ```bash
-# Run all tests
+# Run tests
 uv run pytest tests/ --ignore=tests/e2e
 ```
 `tests/e2e/` is excluded because it requires a running OpenAI-compatible model server (see `tests/e2e/README.md`).
