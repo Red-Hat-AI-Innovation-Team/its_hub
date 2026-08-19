@@ -54,8 +54,32 @@ from tests.e2e.utils.iaas_helpers import (
 # ---------------------------------------------------------------------------
 
 
+def _compute_stats(latencies, errors, error_details, wall_time, num_requests):
+    if error_details:
+        print(f"    Error details (first 5):")
+        for detail in error_details[:5]:
+            print(f"      {detail}")
+
+    if not latencies:
+        return None
+
+    latencies.sort()
+    return {
+        "count": len(latencies),
+        "errors": errors,
+        "wall_time_s": round(wall_time, 2),
+        "rps": round(len(latencies) / wall_time, 1),
+        "p50_ms": round(latencies[len(latencies) // 2], 1),
+        "p95_ms": round(latencies[int(len(latencies) * 0.95)], 1),
+        "p99_ms": round(latencies[int(len(latencies) * 0.99)], 1),
+        "mean_ms": round(statistics.mean(latencies), 1),
+        "min_ms": round(latencies[0], 1),
+        "max_ms": round(latencies[-1], 1),
+    }
+
+
 async def benchmark_endpoint(url, model_name, num_requests, concurrency, budget=None, headers=None, timeout_s=120):
-    """Send num_requests concurrent requests and collect latencies."""
+    """Send num_requests concurrent requests to an HTTP endpoint and collect latencies."""
     sem = asyncio.Semaphore(concurrency)
     latencies = []
     errors = 0
@@ -104,27 +128,59 @@ async def benchmark_endpoint(url, model_name, num_requests, concurrency, budget=
         wall_time = timeout_s
         print(f"    TIMEOUT after {timeout_s}s ({completed}/{num_requests} completed)")
 
-    if error_details:
-        print(f"    Error details (first 5):")
-        for detail in error_details[:5]:
-            print(f"      {detail}")
+    return _compute_stats(latencies, errors, error_details, wall_time, num_requests)
 
-    if not latencies:
-        return None
 
-    latencies.sort()
-    return {
-        "count": len(latencies),
-        "errors": errors,
-        "wall_time_s": round(wall_time, 2),
-        "rps": round(len(latencies) / wall_time, 1),
-        "p50_ms": round(latencies[len(latencies) // 2], 1),
-        "p95_ms": round(latencies[int(len(latencies) * 0.95)], 1),
-        "p99_ms": round(latencies[int(len(latencies) * 0.99)], 1),
-        "mean_ms": round(statistics.mean(latencies), 1),
-        "min_ms": round(latencies[0], 1),
-        "max_ms": round(latencies[-1], 1),
-    }
+async def benchmark_algorithm(llm_url, model_name, api_key, num_requests, concurrency, budget, timeout_s=120):
+    """Benchmark using SelfConsistency algorithm directly (no IaaS service).
+
+    This is the true baseline: same algorithm and orchestrator as IaaS, but
+    without the FastAPI/Envoy service layers. Overhead of IaaS vs this baseline
+    isolates the HTTP service cost.
+    """
+    from its_hub.core.algorithms.self_consistency import SelfConsistency
+    from its_hub.core.lms.openai_lm import OpenAICompatibleLanguageModel
+
+    sem = asyncio.Semaphore(concurrency)
+    latencies = []
+    errors = 0
+    completed = 0
+    error_details = []
+
+    lm = OpenAICompatibleLanguageModel(
+        endpoint=llm_url, api_key=api_key, model_name=model_name,
+    )
+    alg = SelfConsistency()
+
+    async def _single_request(i):
+        nonlocal errors, completed
+        async with sem:
+            start = time.perf_counter()
+            try:
+                await alg.ainfer(
+                    lm, "What is 2+2?", budget=budget, return_response_only=True,
+                )
+                elapsed = (time.perf_counter() - start) * 1000
+                latencies.append(elapsed)
+            except Exception as e:
+                errors += 1
+                error_details.append(f"req {i}: {type(e).__name__}: {e}")
+            completed += 1
+            if completed % 10 == 0 or completed == num_requests:
+                print(f"    {completed}/{num_requests} done", flush=True)
+
+    try:
+        wall_start = time.perf_counter()
+        tasks = [asyncio.create_task(_single_request(i)) for i in range(num_requests)]
+        await asyncio.wait_for(asyncio.gather(*tasks), timeout=timeout_s)
+        wall_time = time.perf_counter() - wall_start
+    except asyncio.TimeoutError:
+        wall_time = timeout_s
+        print(f"    TIMEOUT after {timeout_s}s ({completed}/{num_requests} completed)")
+    finally:
+        await lm.close()
+
+    return _compute_stats(latencies, errors, error_details, wall_time, num_requests)
 
 
 def print_stats(label, stats):
@@ -242,21 +298,21 @@ def main():
         print(f"\nBenchmark: {args.num_requests} requests, concurrency={args.concurrency}")
         print("=" * 60)
 
-        # 1. Direct LLM baseline
-        if llm_url:
-            chat_url = f"{llm_url}/chat/completions"
-            print("\n[Direct LLM]")
-            stats = asyncio.run(benchmark_endpoint(
-                chat_url, args.model_name, args.num_requests, args.concurrency,
-            ))
-            print_stats("direct", stats)
-            baseline_p50 = stats["p50_ms"] if stats else None
-        else:
+        for budget in budgets:
+            print(f"\n--- budget={budget} ---")
+
             baseline_p50 = None
 
-        # 2. IaaS with varying budgets
-        if iaas_url:
-            for budget in budgets:
+            if llm_url:
+                print(f"\n[Algorithm direct, budget={budget}]")
+                stats = asyncio.run(benchmark_algorithm(
+                    llm_url, args.model_name, args.api_key,
+                    args.num_requests, args.concurrency, budget=budget,
+                ))
+                print_stats(f"algorithm(budget={budget})", stats)
+                baseline_p50 = stats["p50_ms"] if stats else None
+
+            if iaas_url:
                 print(f"\n[IaaS, budget={budget}]")
                 stats = asyncio.run(benchmark_endpoint(
                     f"{iaas_url}/v1/chat/completions",
@@ -270,9 +326,7 @@ def main():
                     overhead = stats["p50_ms"] - baseline_p50
                     print(f"    Overhead vs direct: {overhead:+.1f}ms (p50)")
 
-        # 3. Envoy-routed ITS with varying budgets
-        if envoy_url:
-            for budget in budgets:
+            if envoy_url:
                 print(f"\n[Envoy -> IaaS, budget={budget}]")
                 stats = asyncio.run(benchmark_endpoint(
                     f"{envoy_url}/v1/chat/completions",
@@ -290,7 +344,8 @@ def main():
                     overhead = stats["p50_ms"] - baseline_p50
                     print(f"    Overhead vs direct: {overhead:+.1f}ms (p50)")
 
-            # 4. Envoy pass-through (no ITS headers)
+        if envoy_url:
+            print("\n--- pass-through ---")
             print("\n[Envoy pass-through (no ITS)]")
             stats = asyncio.run(benchmark_endpoint(
                 f"{envoy_url}/v1/chat/completions",
@@ -299,9 +354,6 @@ def main():
                 args.concurrency,
             ))
             print_stats("envoy-passthrough", stats)
-            if stats and baseline_p50:
-                overhead = stats["p50_ms"] - baseline_p50
-                print(f"    Overhead vs direct: {overhead:+.1f}ms (p50)")
 
         print("\n" + "=" * 60)
         print("Done.")
