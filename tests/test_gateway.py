@@ -120,11 +120,6 @@ class TestLMClientLifecycle:
         lm.close.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_ashutdown_is_noop(self):
-        gw = ITSGateway()
-        await gw.ashutdown()
-
-    @pytest.mark.asyncio
     async def test_concurrent_different_models_do_not_interfere(self, llm_server):
         gw = ITSGateway()
         # On main the gateway has an LM cache; shrink it to 1 so the second
@@ -147,7 +142,6 @@ class TestLMClientLifecycle:
 
         result_a = await task_a
         result_b = await task_b
-        await gw.ashutdown()
 
         assert result_a["message"]["content"] == "answer from model-A"
         assert result_b["message"]["content"] == "answer from model-B"
@@ -243,7 +237,6 @@ class TestRunChatCompletion:
         gw = ITSGateway()
         config = _make_config(api_endpoint=f"{llm_server}/v1", temperature=0.7)
         await gw.arun_chat_completion(config, MESSAGES)
-        await gw.ashutdown()
         assert RecordingLLMHandler.received_bodies[-1].get("temperature") == 0.7
 
     @pytest.mark.asyncio
@@ -278,7 +271,6 @@ class TestRunChatCompletion:
 
         RecordingLLMHandler.release()
         result = await task
-        await gw.ashutdown()
 
         assert result["alg"] == "self-consistency"
         assert gw.default_config.alg == "beta-self-consistency"

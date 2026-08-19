@@ -9,7 +9,6 @@ import json
 import logging
 import time
 import uuid
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -40,17 +39,10 @@ class _ServiceState:
 _state = _ServiceState()
 
 
-@asynccontextmanager
-async def _lifespan(application: FastAPI):
-    yield
-    await _state.gateway.ashutdown()
-
-
 app = FastAPI(
     title="its_hub Inference-as-a-Service",
     description="OpenAI-compatible API for inference-time scaling algorithms",
     version="0.1.0-alpha",
-    lifespan=_lifespan,
 )
 
 

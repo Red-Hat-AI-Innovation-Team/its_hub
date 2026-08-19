@@ -34,7 +34,8 @@ used.
 | Request body | `budget` | Compute budget | 2 |
 | `/configure` | `budget`, `endpoint`, `api_key` | Service defaults | 3 (lowest) |
 
-Priority chain: **header > body > service default**. Headers are intended for
+Priority chain: **header > body > service default**. A field is applied if it is
+not `None`; otherwise the next tier down supplies the value. Headers are intended for
 Envoy ext_proc routing but are also accepted on the standalone IaaS endpoint.
 
 ### Algorithm Selection
@@ -56,6 +57,12 @@ Neither `regex_patterns` nor `tool_vote` is required. By default the family vote
 tool calls using the `tool_hierarchical` strategy, and text responses fall back to
 exact-content matching. Supply `regex_patterns` to vote on extracted text answers, or
 set `tool_vote` to pick a different tool-voting strategy.
+
+> **Note on clearing optional fields.** Because `None` means "use the tier below," a
+> `/configure` call cannot explicitly reset `tool_vote` back to its default once set.
+> To switch voting strategies, supply the new value; to revert to the built-in default
+> (`tool_hierarchical`), pass `"tool_hierarchical"` explicitly. `regex_patterns` and
+> `exclude_tool_args` can be cleared by passing an empty list (`[]`).
 
 ## API Key Handling
 

@@ -349,8 +349,3 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
         except (ValueError, TypeError) as e:
             logger.error("Failed to parse ITS headers: %s", e)
             return None
-
-    async def shutdown(self):
-        """Cleanup resources on service shutdown."""
-        logger.info("External Processor shutting down")
-        await self.gateway.ashutdown()

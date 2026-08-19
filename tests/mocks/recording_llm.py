@@ -7,32 +7,31 @@ Lives outside conftest.py: pytest loads conftest.py as plugin module ``conftest`
 import json
 import threading
 from http.server import BaseHTTPRequestHandler
-from typing import ClassVar
 
 
 class RecordingLLMHandler(BaseHTTPRequestHandler):
     """Upstream LLM stand-in that records requests and can hold them."""
 
-    received_bodies: ClassVar[list[dict]] = []
-    _hold: ClassVar[threading.Event] = threading.Event()
+    received_bodies: list[dict] = []  # noqa: RUF012 - shared across per-request instances
+    _hold = threading.Event()
     _hold.set()
-    _lock: ClassVar[threading.Lock] = threading.Lock()
+    _lock = threading.Lock()
 
     @classmethod
-    def reset(cls) -> None:
+    def reset(cls):
         with cls._lock:
-            cls.received_bodies = []
+            cls.received_bodies.clear()
         cls._hold.set()
 
     @classmethod
-    def hold(cls) -> None:
+    def hold(cls):
         cls._hold.clear()
 
     @classmethod
-    def release(cls) -> None:
+    def release(cls):
         cls._hold.set()
 
-    def do_POST(self) -> None:
+    def do_POST(self):
         if self.path != "/v1/chat/completions":
             self.send_response(404)
             self.end_headers()
@@ -73,6 +72,3 @@ class RecordingLLMHandler(BaseHTTPRequestHandler):
             self.wfile.write(payload)
         except (BrokenPipeError, ConnectionResetError):
             pass
-
-    def log_message(self, *args) -> None:
-        pass

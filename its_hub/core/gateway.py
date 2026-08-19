@@ -248,11 +248,3 @@ class ITSGateway(AbstractGateway):
             "usage": usage_dict,
             "alg": merged.alg,
         }
-
-    async def ashutdown(self) -> None:
-        """Cleanup resources on service shutdown.
-
-        LM clients are created and closed per request, so there is nothing
-        cached to release here.
-        """
-        logger.info("ITSGateway shutting down")
