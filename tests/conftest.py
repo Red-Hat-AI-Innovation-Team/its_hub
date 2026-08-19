@@ -4,11 +4,12 @@ import json
 import socket
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
 import pytest
 
 from its_hub import AbstractLanguageModel, AbstractOutcomeRewardModel
+from tests.mocks.recording_llm import RecordingLLMHandler
 
 
 def find_free_port() -> int:
@@ -351,3 +352,19 @@ TEST_CONSTANTS = {
     "ERROR_TRIGGER": "trigger_error",
     "VLLM_ERROR_TRIGGER": "error",
 }
+
+
+@pytest.fixture
+def llm_server():
+    """Controllable upstream LLM server; see RecordingLLMHandler."""
+    RecordingLLMHandler.reset()
+    port = find_free_port()
+    server = ThreadingHTTPServer(("localhost", port), RecordingLLMHandler)
+    thread = threading.Thread(target=server.serve_forever)
+    thread.daemon = True
+    thread.start()
+    time.sleep(0.1)
+    yield f"http://localhost:{port}"
+    server.shutdown()
+    thread.join()
+    RecordingLLMHandler.reset()

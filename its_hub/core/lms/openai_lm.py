@@ -27,7 +27,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
     def __init__(
         self,
         endpoint: str,
-        api_key: str,
+        api_key: str | None,
         model_name: str,
         system_prompt: str | None = None,
         is_async: bool = False,  # Deprecated: parameter is ignored (always async internally)

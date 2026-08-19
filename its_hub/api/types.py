@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, fields
 from typing import Literal
 
@@ -18,7 +19,7 @@ class ChatMessage:
     """
 
     role: Literal["system", "user", "assistant", "tool"]
-    content: str | list[dict] | None
+    content: str | list[dict] | None = None
     tool_calls: list[dict] | None = None  # Store as plain dicts
     tool_call_id: str | None = None
 
@@ -164,26 +165,78 @@ class GenerationUsage:
         return self.prompt_tokens + self.completion_tokens
 
 
+SELF_CONSISTENCY_ALGORITHMS = frozenset(
+    {"self-consistency", "adaptive-self-consistency", "beta-self-consistency"}
+)
+
+# All currently supported algorithms are self-consistency variants.
+SUPPORTED_ALGORITHMS = SELF_CONSISTENCY_ALGORITHMS
+
+# Valid values for ITSRequestConfig.tool_vote / SelfConsistency.tool_vote.
+VALID_TOOL_VOTE_OPTIONS = frozenset(
+    {"tool_name", "tool_args", "tool_hierarchical", "tool_flat_all"}
+)
+
+
 @dataclass
 class ITSRequestConfig:
     """Per-request configuration for ITS execution.
 
-    Can be constructed incrementally — headers provide budget/endpoint/api_key,
-    then model is set from the request body.
+    Holds every knob that governs a request: the LM target
+    (``api_endpoint``, ``model``, ``api_key``, ``temperature``) and the scaling
+    parameters (``budget``, ``alg``, ``regex_patterns``, ``tool_vote``,
+    ``exclude_tool_args``, ``threshold``, ``confidence_threshold``).
     """
 
-    budget: int
-    api_endpoint: str
+    # LM target
+    api_endpoint: str | None = None
     model: str | None = None
     api_key: str | None = None
+    temperature: float | None = None
+    # Scaling parameters
+    budget: int | None = None
+    alg: str | None = None
+    regex_patterns: list[str] | None = None
+    tool_vote: str | None = None
+    exclude_tool_args: list[str] | None = None
+    threshold: float | None = None
+    confidence_threshold: float | None = None
 
     def __post_init__(self):
-        if self.budget < 1 or self.budget > 1000:
+        if self.budget is not None and not (1 <= self.budget <= 1000):
             raise ValueError("budget must be between 1 and 1000")
+        if self.alg is not None and self.alg not in SUPPORTED_ALGORITHMS:
+            raise ValueError(
+                f"Algorithm {self.alg!r} not supported. "
+                f"Choose from: {SUPPORTED_ALGORITHMS}"
+            )
+        if self.regex_patterns is not None:
+            for p in self.regex_patterns:
+                try:
+                    re.compile(p)
+                except re.error as e:
+                    raise ValueError(f"Invalid regex pattern {p!r}: {e}") from e
+        if self.threshold is not None and not (0.5 < self.threshold <= 1.0):
+            raise ValueError(f"threshold must be in (0.5, 1.0], got: {self.threshold}")
+        if self.confidence_threshold is not None and not (
+            0.5 < self.confidence_threshold <= 1.0
+        ):
+            raise ValueError(
+                f"confidence_threshold must be in (0.5, 1.0], "
+                f"got: {self.confidence_threshold}"
+            )
+        if self.tool_vote is not None and self.tool_vote not in VALID_TOOL_VOTE_OPTIONS:
+            raise ValueError(
+                f"tool_vote must be one of {VALID_TOOL_VOTE_OPTIONS}, "
+                f"got: {self.tool_vote}"
+            )
 
     def __repr__(self) -> str:
         return (
-            f"ITSRequestConfig(budget={self.budget}, "
-            f"api_endpoint='{self.api_endpoint}', "
-            f"model={self.model!r}, api_key={'***' if self.api_key else None})"
+            "ITSRequestConfig("
+            + ", ".join(
+                f"{f.name}={'***' if f.name == 'api_key' else getattr(self, f.name)!r}"
+                for f in fields(self)
+            )
+            + ")"
         )

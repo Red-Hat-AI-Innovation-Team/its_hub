@@ -24,7 +24,14 @@ from .lm import AbstractLanguageModel
 from .orchestrator import AbstractOrchestrator
 from .reward_models.orm import AbstractOutcomeRewardModel
 from .reward_models.prm import AbstractProcessRewardModel
-from .types import ChatMessage, ChatMessages, GenerationUsage, ITSRequestConfig
+from .types import (
+    SUPPORTED_ALGORITHMS,
+    VALID_TOOL_VOTE_OPTIONS,
+    ChatMessage,
+    ChatMessages,
+    GenerationUsage,
+    ITSRequestConfig,
+)
 
 __all__ = [  # noqa: RUF022
     # Algorithm abstractions
@@ -44,6 +51,8 @@ __all__ = [  # noqa: RUF022
     "ChatMessages",
     "GenerationUsage",
     "ITSRequestConfig",
+    "SUPPORTED_ALGORITHMS",
+    "VALID_TOOL_VOTE_OPTIONS",
     # Error types
     "APIError",
     "RateLimitError",

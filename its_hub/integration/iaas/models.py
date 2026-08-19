@@ -4,21 +4,16 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from its_hub.api.types import ChatMessage
-from its_hub.core.gateway import SUPPORTED_ALGORITHMS
+from its_hub.api.types import SUPPORTED_ALGORITHMS, ChatMessage
 
 
 class ConfigRequest(BaseModel):
     """Configuration request for setting up the IaaS service."""
 
-    provider: str = Field("openai", description="LM provider: 'openai'")
     endpoint: str = Field(..., description="Language model endpoint URL")
     api_key: str | None = Field(None, description="API key for the language model")
     model: str = Field(..., description="Model name identifier")
     alg: str = Field(..., description="Scaling algorithm to use")
-    extra_args: dict[str, Any] | None = Field(
-        None, description="Additional provider-specific arguments"
-    )
     regex_patterns: list[str] | None = Field(
         None, description="Regex patterns for self-consistency projection function"
     )
@@ -66,8 +61,8 @@ class ConfigRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_config_requirements(self):
-        if self.provider == "openai" and not self.api_key:
-            raise ValueError("api_key is required when using openai provider")
+        if not self.api_key:
+            raise ValueError("api_key is required")
         return self
 
 

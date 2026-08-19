@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from its_hub.api import (
+    VALID_TOOL_VOTE_OPTIONS,
     AbstractLanguageModel,
     AbstractOrchestrator,
     AbstractScalingAlgorithm,
@@ -170,16 +171,10 @@ class SelfConsistency(AbstractScalingAlgorithm):
             ValueError: If tool_vote is not one of the supported options.
         """
         # Validate tool_vote parameter - only validation needed since typing handles the rest
-        valid_tool_vote_options = {
-            None,
-            "tool_name",
-            "tool_args",
-            "tool_hierarchical",
-            "tool_flat_all",
-        }
-        if tool_vote not in valid_tool_vote_options:
+        valid_options = VALID_TOOL_VOTE_OPTIONS | {None}
+        if tool_vote not in valid_options:
             raise ValueError(
-                f"tool_vote must be one of {valid_tool_vote_options}, got: {tool_vote}"
+                f"tool_vote must be one of {valid_options}, got: {tool_vote}"
             )
         # Set default projection function if provided None
         self.consistency_space_projection_func = (
