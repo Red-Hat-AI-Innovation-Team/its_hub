@@ -126,7 +126,9 @@ async def benchmark_endpoint(url, model_name, num_requests, concurrency, budget=
             wall_time = time.perf_counter() - wall_start
     except asyncio.TimeoutError:
         wall_time = timeout_s
-        print(f"    TIMEOUT after {timeout_s}s ({completed}/{num_requests} completed)")
+        cancelled = num_requests - completed
+        errors += cancelled
+        print(f"    TIMEOUT after {timeout_s}s ({completed}/{num_requests} completed, {cancelled} cancelled)")
 
     return _compute_stats(latencies, errors, error_details, wall_time, num_requests)
 
@@ -176,7 +178,9 @@ async def benchmark_algorithm(llm_url, model_name, api_key, num_requests, concur
         wall_time = time.perf_counter() - wall_start
     except asyncio.TimeoutError:
         wall_time = timeout_s
-        print(f"    TIMEOUT after {timeout_s}s ({completed}/{num_requests} completed)")
+        cancelled = num_requests - completed
+        errors += cancelled
+        print(f"    TIMEOUT after {timeout_s}s ({completed}/{num_requests} completed, {cancelled} cancelled)")
     finally:
         await lm.close()
 
