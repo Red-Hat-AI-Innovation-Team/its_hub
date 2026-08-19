@@ -11,7 +11,7 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 from httpx import ASGITransport
 
-from its_hub.api.types import ChatMessage, ITSRequestConfig
+from its_hub.api.types import ChatMessage, ITSRequestConfigUpdate
 from its_hub.integration.iaas.app import _state, app
 from its_hub.integration.iaas.models import (
     ChatCompletionRequest,
@@ -529,7 +529,7 @@ class TestStreamingChatCompletions:
         return _install_mock_gateway(
             mock_return=mock_return,
             side_effect=side_effect,
-            default=ITSRequestConfig(
+            default=ITSRequestConfigUpdate(
                 api_endpoint=endpoint,
                 model=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
                 api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],

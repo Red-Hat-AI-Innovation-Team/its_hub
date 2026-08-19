@@ -18,7 +18,7 @@ from envoy.service.ext_proc.v3 import external_processor_pb2 as ext_proc_pb2
 from envoy.service.ext_proc.v3 import external_processor_pb2_grpc as ext_proc_grpc
 from envoy.type.v3 import http_status_pb2
 
-from its_hub.api import ChatMessage, ITSRequestConfig
+from its_hub.api import ChatMessage, ITSRequestConfigUpdate
 from its_hub.core.gateway import ITSGateway
 
 _ITS_HEADER_PREFIX = "x-its-"
@@ -185,7 +185,7 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
 
     async def _apply_its(
         self,
-        its_config: ITSRequestConfig,
+        its_config: ITSRequestConfigUpdate,
         body: bytes,
         request_id: str,
     ) -> ext_proc_pb2.ProcessingResponse:
@@ -324,7 +324,7 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
             )
         )
 
-    def _parse_its_headers(self, headers: dict[str, str]) -> ITSRequestConfig | None:
+    def _parse_its_headers(self, headers: dict[str, str]) -> ITSRequestConfigUpdate | None:
         """Parse ITS configuration from request headers.
 
         Model is NOT extracted from headers - it will be set from request body later.
@@ -339,7 +339,7 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
             budget = int(budget_str)
             api_key = headers.get("x-its-api-key")
 
-            return ITSRequestConfig(
+            return ITSRequestConfigUpdate(
                 budget=budget,
                 api_endpoint=endpoint,
                 api_key=api_key,

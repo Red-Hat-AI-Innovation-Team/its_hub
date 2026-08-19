@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from typing import Literal
 
 
@@ -178,14 +178,110 @@ VALID_TOOL_VOTE_OPTIONS = frozenset(
 )
 
 
-@dataclass
-class ITSRequestConfig:
-    """Per-request configuration for ITS execution.
+def _validate_optional_fields(
+    budget: int | None,
+    alg: str | None,
+    regex_patterns: list[str] | None,
+    tool_vote: str | None,
+    threshold: float | None,
+    confidence_threshold: float | None,
+) -> None:
+    """Validate the optional scaling fields. Shared by ITSRequestConfig and
+    ITSRequestConfigUpdate so the two cannot drift. Each check is guarded so
+    that ``None`` ("not supplied") is always accepted."""
+    if budget is not None and not (1 <= budget <= 1000):
+        raise ValueError("budget must be between 1 and 1000")
+    if alg is not None and alg not in SUPPORTED_ALGORITHMS:
+        raise ValueError(
+            f"Algorithm {alg!r} not supported. "
+            f"Choose from: {SUPPORTED_ALGORITHMS}"
+        )
+    if regex_patterns is not None:
+        for p in regex_patterns:
+            try:
+                re.compile(p)
+            except re.error as e:
+                raise ValueError(f"Invalid regex pattern {p!r}: {e}") from e
+    if threshold is not None and not (0.5 < threshold <= 1.0):
+        raise ValueError(f"threshold must be in (0.5, 1.0], got: {threshold}")
+    if confidence_threshold is not None and not (0.5 < confidence_threshold <= 1.0):
+        raise ValueError(
+            f"confidence_threshold must be in (0.5, 1.0], "
+            f"got: {confidence_threshold}"
+        )
+    if tool_vote is not None and tool_vote not in VALID_TOOL_VOTE_OPTIONS:
+        raise ValueError(
+            f"tool_vote must be one of {VALID_TOOL_VOTE_OPTIONS}, got: {tool_vote}"
+        )
 
-    Holds every knob that governs a request: the LM target
-    (``api_endpoint``, ``model``, ``api_key``, ``temperature``) and the scaling
-    parameters (``budget``, ``alg``, ``regex_patterns``, ``tool_vote``,
-    ``exclude_tool_args``, ``threshold``, ``confidence_threshold``).
+
+def _config_repr(obj: ITSRequestConfig | ITSRequestConfigUpdate) -> str:
+    return (
+        type(obj).__name__
+        + "("
+        + ", ".join(
+            f"{f.name}={'***' if f.name == 'api_key' else getattr(obj, f.name)!r}"
+            for f in fields(obj)
+        )
+        + ")"
+    )
+
+
+@dataclass(frozen=True)
+class ITSRequestConfig:
+    """A fully-resolved configuration snapshot, ready to drive one request.
+
+    ``api_endpoint`` and ``model`` are mandatory — constructing without them
+    raises. The remaining fields carry system defaults (``budget``, ``alg``,
+    ``api_key``) or are genuinely optional (``None`` is a meaningful "not set",
+    e.g. ``temperature=None`` means "don't send it upstream").
+    """
+
+    # LM target
+    api_endpoint: str
+    model: str
+    api_key: str | None = None
+    temperature: float | None = None
+    # Scaling parameters
+    budget: int = 4
+    alg: str = "self-consistency"
+    regex_patterns: list[str] | None = None
+    tool_vote: str | None = None
+    exclude_tool_args: list[str] | None = None
+    threshold: float | None = None
+    confidence_threshold: float | None = None
+
+    def __post_init__(self):
+        if not self.api_endpoint:
+            raise ValueError("api_endpoint must be specified")
+        if not self.model:
+            raise ValueError("model must be specified")
+        _validate_optional_fields(
+            self.budget,
+            self.alg,
+            self.regex_patterns,
+            self.tool_vote,
+            self.threshold,
+            self.confidence_threshold,
+        )
+
+    def __repr__(self) -> str:
+        return _config_repr(self)
+
+
+@dataclass
+class ITSRequestConfigUpdate:
+    """A partial configuration overlay.
+
+    Every field is ``Optional``: ``None`` means "not supplied — keep the value
+    below in the merge hierarchy". Because of this, ``tool_vote`` cannot be
+    cleared back to its default once set (pass the new value, or
+    ``"tool_hierarchical"`` explicitly); ``regex_patterns`` and
+    ``exclude_tool_args`` can be cleared by passing ``[]``.
+
+    Use :meth:`merge` to layer one update over another, and :meth:`resolve` to
+    materialize a complete :class:`ITSRequestConfig` (the only point at which
+    mandatory-field presence is checked).
     """
 
     # LM target
@@ -203,40 +299,52 @@ class ITSRequestConfig:
     confidence_threshold: float | None = None
 
     def __post_init__(self):
-        if self.budget is not None and not (1 <= self.budget <= 1000):
-            raise ValueError("budget must be between 1 and 1000")
-        if self.alg is not None and self.alg not in SUPPORTED_ALGORITHMS:
-            raise ValueError(
-                f"Algorithm {self.alg!r} not supported. "
-                f"Choose from: {SUPPORTED_ALGORITHMS}"
-            )
-        if self.regex_patterns is not None:
-            for p in self.regex_patterns:
-                try:
-                    re.compile(p)
-                except re.error as e:
-                    raise ValueError(f"Invalid regex pattern {p!r}: {e}") from e
-        if self.threshold is not None and not (0.5 < self.threshold <= 1.0):
-            raise ValueError(f"threshold must be in (0.5, 1.0], got: {self.threshold}")
-        if self.confidence_threshold is not None and not (
-            0.5 < self.confidence_threshold <= 1.0
-        ):
-            raise ValueError(
-                f"confidence_threshold must be in (0.5, 1.0], "
-                f"got: {self.confidence_threshold}"
-            )
-        if self.tool_vote is not None and self.tool_vote not in VALID_TOOL_VOTE_OPTIONS:
-            raise ValueError(
-                f"tool_vote must be one of {VALID_TOOL_VOTE_OPTIONS}, "
-                f"got: {self.tool_vote}"
-            )
+        _validate_optional_fields(
+            self.budget,
+            self.alg,
+            self.regex_patterns,
+            self.tool_vote,
+            self.threshold,
+            self.confidence_threshold,
+        )
 
     def __repr__(self) -> str:
-        return (
-            "ITSRequestConfig("
-            + ", ".join(
-                f"{f.name}={'***' if f.name == 'api_key' else getattr(self, f.name)!r}"
-                for f in fields(self)
-            )
-            + ")"
+        return _config_repr(self)
+
+    def merge(self, overlay: ITSRequestConfigUpdate) -> ITSRequestConfigUpdate:
+        """Return a copy of ``self`` with non-``None`` fields of ``overlay``
+        applied. ``replace()`` re-fires ``__post_init__``, so the result is
+        format-validated."""
+        return replace(
+            self,
+            **{
+                f.name: getattr(overlay, f.name)
+                for f in fields(overlay)
+                if getattr(overlay, f.name) is not None
+            },
+        )
+
+    def resolve(self) -> ITSRequestConfig:
+        """Materialize a complete :class:`ITSRequestConfig`.
+
+        Raises ``ValueError`` if ``api_endpoint`` or ``model`` are absent;
+        this is the single point at which mandatory-field presence is
+        checked. Optional fields are forwarded only when non-``None``;
+        otherwise the resolved config's defaults (``budget=4``,
+        ``alg="self-consistency"``, ``api_key=None``) apply.
+        """
+        if not self.api_endpoint:
+            raise ValueError("api_endpoint must be specified")
+        if not self.model:
+            raise ValueError("model must be specified")
+        optionals = {
+            f.name: getattr(self, f.name)
+            for f in fields(self)
+            if f.name not in {"api_endpoint", "model"}
+            and getattr(self, f.name) is not None
+        }
+        return ITSRequestConfig(
+            api_endpoint=self.api_endpoint,
+            model=self.model,
+            **optionals,
         )

@@ -31,6 +31,7 @@ from .types import (
     ChatMessages,
     GenerationUsage,
     ITSRequestConfig,
+    ITSRequestConfigUpdate,
 )
 
 __all__ = [  # noqa: RUF022
@@ -51,6 +52,7 @@ __all__ = [  # noqa: RUF022
     "ChatMessages",
     "GenerationUsage",
     "ITSRequestConfig",
+    "ITSRequestConfigUpdate",
     "SUPPORTED_ALGORITHMS",
     "VALID_TOOL_VOTE_OPTIONS",
     # Error types

@@ -13,7 +13,7 @@ import uuid
 from fastapi import FastAPI, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 
-from its_hub.api.types import ITSRequestConfig
+from its_hub.api.types import ITSRequestConfigUpdate
 from its_hub.core.gateway import ITSGateway
 from its_hub.integration.iaas.models import (
     ChatCompletionChoice,
@@ -51,14 +51,14 @@ def _build_its_config(
     its_budget: int | None = None,
     its_endpoint: str | None = None,
     its_api_key: str | None = None,
-) -> ITSRequestConfig:
-    """Build a per-request ITSRequestConfig overlay.
+) -> ITSRequestConfigUpdate:
+    """Build a per-request ITSRequestConfigUpdate overlay.
 
     Only per-request fields (header > body) are populated; service-default
     fields are left ``None`` for the gateway to merge.
     """
     budget = its_budget if its_budget is not None else request.budget
-    return ITSRequestConfig(
+    return ITSRequestConfigUpdate(
         budget=budget,
         api_endpoint=its_endpoint,
         api_key=its_api_key,
@@ -71,7 +71,7 @@ def _build_its_config(
 async def config_service(request: ConfigRequest) -> dict[str, str]:
     """Configure the IaaS service with language model and scaling algorithm."""
     try:
-        config = ITSRequestConfig(
+        config = ITSRequestConfigUpdate(
             budget=request.budget,
             api_endpoint=request.endpoint,
             api_key=request.api_key,

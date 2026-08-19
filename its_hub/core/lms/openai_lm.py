@@ -93,7 +93,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         # set up headers for API requests
         self.headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {self.api_key or ''}",
         }
 
         # raw response preservation

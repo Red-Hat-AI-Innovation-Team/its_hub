@@ -6,7 +6,6 @@ similar to how HTTP services reuse client instances across requests.
 
 import logging
 import time
-from dataclasses import fields, replace
 from typing import Any
 
 from its_hub.api import (
@@ -17,6 +16,7 @@ from its_hub.api import (
     ChatMessages,
     GenerationUsage,
     ITSRequestConfig,
+    ITSRequestConfigUpdate,
 )
 from its_hub.core.algorithms.adaptive_self_consistency import AdaptiveSelfConsistency
 from its_hub.core.algorithms.beta_self_consistency import BetaSelfConsistency
@@ -42,10 +42,6 @@ SELF_CONSISTENCY_ALGORITHMS = frozenset(
 # All currently supported algorithms are self-consistency variants.
 SUPPORTED_ALGORITHMS = SELF_CONSISTENCY_ALGORITHMS
 
-# System defaults seeded into every gateway's default config.
-_DEFAULT_BUDGET = 4
-_DEFAULT_ALG = "self-consistency"
-
 
 class ITSGateway(AbstractGateway):
     """Long-lived gateway for running ITS algorithms.
@@ -58,7 +54,7 @@ class ITSGateway(AbstractGateway):
         gateway = ITSGateway()
 
         # Per request
-        config = ITSRequestConfig(
+        config = ITSRequestConfigUpdate(
             budget=10,
             api_endpoint="http://envoy-cluster/v1",
             model="gpt-4",
@@ -70,44 +66,33 @@ class ITSGateway(AbstractGateway):
     def __init__(
         self,
         orchestrator: AbstractOrchestrator | None = None,
-        default_config: ITSRequestConfig | None = None,
+        default_config: ITSRequestConfigUpdate | None = None,
     ):
         if orchestrator is None:
             orchestrator = LMOrchestrator()
         self._orchestrator = orchestrator
-        self._default_config = default_config or ITSRequestConfig(
-            budget=_DEFAULT_BUDGET, alg=_DEFAULT_ALG
-        )
+        # Stored as a partial update (format-validated, never completeness-
+        # validated): endpoint/model may be absent until a request supplies
+        # them. System defaults (budget=4, alg="self-consistency") are NOT
+        # stored here — they live on ITSRequestConfig and are injected at
+        # resolve() time.
+        self.default_config = default_config or ITSRequestConfigUpdate()
         logger.info(
-            f"ITSGateway initialized with default alg={self._default_config.alg} and budget={self._default_config.budget}"
+            "ITSGateway initialized with default alg=%s and budget=%s",
+            self.default_config.alg,
+            self.default_config.budget,
         )
 
-    @property
-    def default_config(self) -> ITSRequestConfig:
-        """The service-default config set via :meth:`configure`."""
-        return self._default_config
+    def configure(self, update: ITSRequestConfigUpdate) -> None:
+        """Merge ``update`` into the service default.
 
-    def configure(self, config: ITSRequestConfig) -> None:
-        """Merge ``config`` into the service default.
-
-        Validation (alg, regex, thresholds) runs automatically in
-        ``ITSRequestConfig.__post_init__`` via ``_merge``.
+        Format-validated (via ``ITSRequestConfigUpdate.__post_init__`` re-fired
+        by ``merge``); not completeness-validated — ``api_endpoint``/``model``
+        may remain absent until a request supplies them.
         """
-        self._default_config = self._merge(self._default_config, config)
+        self.default_config = self.default_config.merge(update)
         logger.info(
-            "ITSGateway reconfigured with default alg=%s", self._default_config.alg
-        )
-
-    @staticmethod
-    def _merge(base: ITSRequestConfig, overlay: ITSRequestConfig) -> ITSRequestConfig:
-        """Return a copy of ``base`` with non-``None`` fields from ``overlay``."""
-        return replace(
-            base,
-            **{
-                f.name: getattr(overlay, f.name)
-                for f in fields(overlay)
-                if getattr(overlay, f.name) is not None
-            },
+            "ITSGateway reconfigured with default alg=%s", self.default_config.alg
         )
 
     def _build_algorithm(self, config: ITSRequestConfig) -> AbstractScalingAlgorithm:
@@ -164,7 +149,7 @@ class ITSGateway(AbstractGateway):
 
     async def arun_chat_completion(
         self,
-        config: ITSRequestConfig,
+        config: ITSRequestConfigUpdate,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict[str, Any] | None = None,
@@ -174,18 +159,15 @@ class ITSGateway(AbstractGateway):
         request_id = kwargs.get("request_id")
         log_prefix = f"[{request_id}] " if request_id else ""
 
-        merged = self._merge(self._default_config, config)
+        # Merge the per-request overlay over the service default, then resolve
+        # to a complete snapshot. resolve() is the single completeness check
+        # (raises ValueError if api_endpoint/model are still absent). Nothing
+        # on `self` is mutated, so a concurrent /configure cannot swap the
+        # algorithm or close this request's HTTP session mid-flight.
+        resolved = self.default_config.merge(config).resolve()
 
-        if not merged.api_endpoint:
-            raise ValueError("api_endpoint must be specified")
-        if not merged.model:
-            raise ValueError("Model must be specified")
-
-        # Snapshot the algorithm + LM for this request only. Nothing on `self`
-        # is mutated, so a concurrent /configure cannot swap the algorithm or
-        # close this request's HTTP session mid-flight.
-        algorithm = self._build_algorithm(merged)
-        lm = self._build_lm(merged, request_id)
+        algorithm = self._build_algorithm(resolved)
+        lm = self._build_lm(resolved, request_id)
 
         chat_messages = ChatMessages([ChatMessage.from_dict(msg) for msg in messages])
 
@@ -193,9 +175,9 @@ class ITSGateway(AbstractGateway):
             "%sRunning ITS: algorithm=%s, budget=%s, endpoint=%s, model=%s, messages=%s, tools=%s",
             log_prefix,
             type(algorithm).__name__,
-            merged.budget,
-            merged.api_endpoint,
-            merged.model,
+            resolved.budget,
+            resolved.api_endpoint,
+            resolved.model,
             len(messages),
             "yes" if tools else "no",
         )
@@ -205,7 +187,7 @@ class ITSGateway(AbstractGateway):
             result = await algorithm.ainfer(
                 lm=lm,
                 prompt_or_messages=chat_messages,
-                budget=merged.budget,
+                budget=resolved.budget,
                 return_response_only=False,
                 tools=tools,
                 tool_choice=tool_choice,
@@ -231,7 +213,7 @@ class ITSGateway(AbstractGateway):
                 duration_s,
                 usage_dict,
             )
-            return {"message": result.the_one, "usage": usage_dict, "alg": merged.alg}
+            return {"message": result.the_one, "usage": usage_dict, "alg": resolved.alg}
 
         logger.info(
             "%sITS completed in %.2fs. Usage: %s (selected_index=%s)",
@@ -246,5 +228,5 @@ class ITSGateway(AbstractGateway):
             "selected_index": result.selected_index,
             "the_one": result.the_one,
             "usage": usage_dict,
-            "alg": merged.alg,
+            "alg": resolved.alg,
         }

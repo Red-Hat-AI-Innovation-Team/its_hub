@@ -6,7 +6,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import Any
 
-from its_hub.api.types import ITSRequestConfig
+from its_hub.api.types import ITSRequestConfigUpdate
 
 
 class AbstractGateway(ABC):
@@ -21,7 +21,7 @@ class AbstractGateway(ABC):
     @abstractmethod
     async def arun_chat_completion(
         self,
-        config: ITSRequestConfig,
+        config: ITSRequestConfigUpdate,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict[str, Any] | None = None,
@@ -31,7 +31,8 @@ class AbstractGateway(ABC):
         """Run chat completion with ITS algorithm asynchronously.
 
         Args:
-            config: Per-request ITS configuration
+            config: Per-request ITS configuration overlay (merged over the
+                gateway's service default at run time)
             messages: OpenAI-format conversation messages
             tools: Optional tool definitions for function calling
             tool_choice: Optional tool choice strategy
@@ -46,7 +47,7 @@ class AbstractGateway(ABC):
 
     def run_chat_completion(
         self,
-        config: ITSRequestConfig,
+        config: ITSRequestConfigUpdate,
         messages: list[dict[str, Any]],
         **kwargs,
     ) -> dict[str, Any]:

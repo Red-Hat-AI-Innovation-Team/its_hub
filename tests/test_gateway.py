@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from its_hub.api.types import SUPPORTED_ALGORITHMS, GenerationUsage, ITSRequestConfig
+from its_hub.api.types import (
+    SUPPORTED_ALGORITHMS,
+    GenerationUsage,
+    ITSRequestConfigUpdate,
+)
 from its_hub.core.gateway import ITSGateway
 from tests.mocks.recording_llm import RecordingLLMHandler
 
@@ -33,7 +37,7 @@ def _make_config(**overrides):
         "api_key": "sk-test",
     }
     defaults.update(overrides)
-    return ITSRequestConfig(**defaults)
+    return ITSRequestConfigUpdate(**defaults)
 
 
 MESSAGES = [{"role": "user", "content": "What is 2+2?"}]
@@ -50,17 +54,23 @@ def _patch_build_lm(gw):
 
 
 def _algo(gw):
-    return gw._build_algorithm(gw.default_config)
+    return gw._build_algorithm(gw.default_config.resolve())
 
 
 class TestGatewayConstruction:
     def test_default_init(self):
         gw = ITSGateway()
         assert gw._orchestrator is not None
-        assert gw.default_config.alg == "self-consistency"
+        # Stored default is partial; system defaults (alg, budget) materialize
+        # at resolve() time on ITSRequestConfig.
+        resolved = gw.default_config.merge(
+            ITSRequestConfigUpdate(api_endpoint="http://x/v1", model="m")
+        ).resolve()
+        assert resolved.alg == "self-consistency"
+        assert resolved.budget == 4
 
     def test_custom_default_config(self):
-        config = ITSRequestConfig(
+        config = ITSRequestConfigUpdate(
             alg="beta-self-consistency",
             api_endpoint="http://x/v1",
             model="m",
@@ -74,7 +84,7 @@ class TestGatewayConstruction:
         orch = MagicMock()
         gw = ITSGateway(orchestrator=orch)
         assert gw._orchestrator is orch
-        algo = gw._build_algorithm(_make_config())
+        algo = gw._build_algorithm(_make_config().resolve())
         assert algo.orchestrator is orch
 
 
@@ -205,7 +215,7 @@ class TestRunChatCompletion:
     async def test_missing_model_raises(self):
         gw = ITSGateway()
         config = _make_config(model=None)
-        with pytest.raises(ValueError, match="Model must be specified"):
+        with pytest.raises(ValueError, match="model must be specified"):
             await gw.arun_chat_completion(config, MESSAGES)
 
     @pytest.mark.asyncio
@@ -244,28 +254,25 @@ class TestRunChatCompletion:
         """Reconfigure mid-request must not swap the algorithm used by the
         in-flight request."""
         gw = ITSGateway()
-        base = ITSRequestConfig(
+        # `alg` is deliberately omitted from the per-request overlay so the
+        # algorithm is sourced from the (reconfigurable) service default —
+        # only then does a mid-flight /configure actually exercise the
+        # snapshot. With `alg` in the overlay, `result["alg"]` would be
+        # "self-consistency" regardless of any reconfigure.
+        base = ITSRequestConfigUpdate(
             api_endpoint=f"{llm_server}/v1",
             model="m",
-            api_key="k",
-            budget=4,
-            alg="self-consistency",
         )
         gw.configure(base)
 
         RecordingLLMHandler.hold()
 
         task = asyncio.create_task(gw.arun_chat_completion(base, MESSAGES))
-        await asyncio.sleep(0.12)
+        await asyncio.sleep(0.1)
 
         gw.configure(
-            ITSRequestConfig(
-                api_endpoint=f"{llm_server}/v1",
-                model="m",
-                api_key="k",
-                budget=4,
+            ITSRequestConfigUpdate(
                 alg="beta-self-consistency",
-                confidence_threshold=0.51,
             )
         )
 
@@ -303,6 +310,14 @@ class TestConfigure:
         algo = _algo(gw)
         assert algo.tool_vote == "tool_name"
         assert algo.exclude_args == ["timestamp"]
+
+    def test_configure_tool_vote_persists_when_omitted(self):
+        """`None` means trickle down, so a /configure omitting tool_vote
+        cannot clear a previously-set value."""
+        gw = ITSGateway()
+        gw.configure(_make_config(alg="self-consistency", tool_vote="tool_name"))
+        gw.configure(_make_config(alg="self-consistency"))  # no tool_vote
+        assert _algo(gw).tool_vote == "tool_name"
 
     def test_configure_unsupported_algorithm(self):
         gw = ITSGateway()
