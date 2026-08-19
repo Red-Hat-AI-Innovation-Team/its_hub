@@ -193,8 +193,7 @@ def _validate_optional_fields(
         raise ValueError("budget must be between 1 and 1000")
     if alg is not None and alg not in SUPPORTED_ALGORITHMS:
         raise ValueError(
-            f"Algorithm {alg!r} not supported. "
-            f"Choose from: {SUPPORTED_ALGORITHMS}"
+            f"Algorithm {alg!r} not supported. Choose from: {SUPPORTED_ALGORITHMS}"
         )
     if regex_patterns is not None:
         for p in regex_patterns:
@@ -206,8 +205,7 @@ def _validate_optional_fields(
         raise ValueError(f"threshold must be in (0.5, 1.0], got: {threshold}")
     if confidence_threshold is not None and not (0.5 < confidence_threshold <= 1.0):
         raise ValueError(
-            f"confidence_threshold must be in (0.5, 1.0], "
-            f"got: {confidence_threshold}"
+            f"confidence_threshold must be in (0.5, 1.0], got: {confidence_threshold}"
         )
     if tool_vote is not None and tool_vote not in VALID_TOOL_VOTE_OPTIONS:
         raise ValueError(

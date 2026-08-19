@@ -324,7 +324,9 @@ class ExternalProcessorService(ext_proc_grpc.ExternalProcessorServicer):
             )
         )
 
-    def _parse_its_headers(self, headers: dict[str, str]) -> ITSRequestConfigUpdate | None:
+    def _parse_its_headers(
+        self, headers: dict[str, str]
+    ) -> ITSRequestConfigUpdate | None:
         """Parse ITS configuration from request headers.
 
         Model is NOT extracted from headers - it will be set from request body later.
