@@ -4,6 +4,7 @@ Lives outside conftest.py: pytest loads conftest.py as plugin module ``conftest`
 (distinct from ``tests.conftest``), so a class defined there would be duplicated.
 """
 
+import asyncio
 import json
 import threading
 from http.server import BaseHTTPRequestHandler
@@ -30,6 +31,23 @@ class RecordingLLMHandler(BaseHTTPRequestHandler):
     @classmethod
     def release(cls):
         cls._hold.set()
+
+    @classmethod
+    async def wait_for_bodies(cls, n: int, timeout: float = 5.0) -> None:
+        """Poll until at least ``n`` request bodies have been recorded.
+
+        Replaces fixed ``asyncio.sleep`` coordination so tests fail fast and
+        deterministically when expected upstream traffic never arrives.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while len(cls.received_bodies) < n:
+            if loop.time() >= deadline:
+                raise AssertionError(
+                    f"timed out after {timeout}s waiting for {n} recorded "
+                    f"bodies; got {len(cls.received_bodies)}"
+                )
+            await asyncio.sleep(0.01)
 
     def do_POST(self):
         if self.path != "/v1/chat/completions":

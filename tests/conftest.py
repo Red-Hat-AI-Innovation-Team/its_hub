@@ -304,6 +304,7 @@ def vllm_server():
 
     server.shutdown()
     server_thread.join()
+    server.server_close()
 
 
 @pytest.fixture(scope="session")
@@ -322,6 +323,7 @@ def openai_server():
 
     server.shutdown()
     server_thread.join()
+    server.server_close()
 
 
 @pytest.fixture
@@ -367,4 +369,5 @@ def llm_server():
     yield f"http://localhost:{port}"
     server.shutdown()
     thread.join()
+    server.server_close()
     RecordingLLMHandler.reset()

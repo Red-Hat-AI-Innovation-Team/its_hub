@@ -132,10 +132,6 @@ class TestLMClientLifecycle:
     @pytest.mark.asyncio
     async def test_concurrent_different_models_do_not_interfere(self, llm_server):
         gw = ITSGateway()
-        # On main the gateway has an LM cache; shrink it to 1 so the second
-        # request evicts the first's client.  No-op on the fixed branch.
-        if hasattr(gw, "_max_lm_cache_size"):
-            gw._max_lm_cache_size = 1
 
         RecordingLLMHandler.hold()
 
@@ -143,10 +139,10 @@ class TestLMClientLifecycle:
         config_b = _make_config(api_endpoint=f"{llm_server}/v1", model="model-B")
 
         task_a = asyncio.create_task(gw.arun_chat_completion(config_a, MESSAGES))
-        await asyncio.sleep(0.3)
+        await RecordingLLMHandler.wait_for_bodies(3)
 
         task_b = asyncio.create_task(gw.arun_chat_completion(config_b, MESSAGES))
-        await asyncio.sleep(0.3)
+        await RecordingLLMHandler.wait_for_bodies(6)
 
         RecordingLLMHandler.release()
 
@@ -268,7 +264,7 @@ class TestRunChatCompletion:
         RecordingLLMHandler.hold()
 
         task = asyncio.create_task(gw.arun_chat_completion(base, MESSAGES))
-        await asyncio.sleep(0.1)
+        await RecordingLLMHandler.wait_for_bodies(1)
 
         gw.configure(
             ITSRequestConfigUpdate(
@@ -319,12 +315,12 @@ class TestConfigure:
         gw.configure(_make_config(alg="self-consistency"))  # no tool_vote
         assert _algo(gw).tool_vote == "tool_name"
 
-    def test_configure_unsupported_algorithm(self):
+    def test_overlay_unsupported_algorithm(self):
         gw = ITSGateway()
         with pytest.raises(ValueError, match="not supported"):
             gw.configure(_make_config(alg="beam-search"))
 
-    def test_configure_invalid_regex(self):
+    def test_overlay_invalid_regex(self):
         gw = ITSGateway()
         with pytest.raises(ValueError, match="Invalid regex pattern"):
             gw.configure(
@@ -339,7 +335,7 @@ class TestConfigure:
         )
         assert _algo(gw).orchestrator is orch
 
-    def test_configure_invalid_tool_vote(self):
+    def test_overlay_invalid_tool_vote(self):
         gw = ITSGateway()
         with pytest.raises(ValueError, match="tool_vote must be one of"):
             gw.configure(
@@ -349,6 +345,11 @@ class TestConfigure:
                     tool_vote="invalid",
                 ),
             )
+
+    def test_overlay_invalid_temperature(self):
+        gw = ITSGateway()
+        with pytest.raises(ValueError, match="temperature must be in"):
+            gw.configure(_make_config(temperature=3.0))
 
     def test_configure_adaptive_self_consistency(self):
         gw = ITSGateway()

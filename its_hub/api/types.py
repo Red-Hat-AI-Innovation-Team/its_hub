@@ -185,6 +185,7 @@ def _validate_optional_fields(
     tool_vote: str | None,
     threshold: float | None,
     confidence_threshold: float | None,
+    temperature: float | None,
 ) -> None:
     """Validate the optional scaling fields. Shared by ITSRequestConfig and
     ITSRequestConfigUpdate so the two cannot drift. Each check is guarded so
@@ -207,6 +208,8 @@ def _validate_optional_fields(
         raise ValueError(
             f"confidence_threshold must be in (0.5, 1.0], got: {confidence_threshold}"
         )
+    if temperature is not None and not (0.0 <= temperature <= 2.0):
+        raise ValueError(f"temperature must be in [0.0, 2.0], got: {temperature}")
     if tool_vote is not None and tool_vote not in VALID_TOOL_VOTE_OPTIONS:
         raise ValueError(
             f"tool_vote must be one of {VALID_TOOL_VOTE_OPTIONS}, got: {tool_vote}"
@@ -261,6 +264,7 @@ class ITSRequestConfig:
             self.tool_vote,
             self.threshold,
             self.confidence_threshold,
+            self.temperature,
         )
 
     def __repr__(self) -> str:
@@ -304,6 +308,7 @@ class ITSRequestConfigUpdate:
             self.tool_vote,
             self.threshold,
             self.confidence_threshold,
+            self.temperature,
         )
 
     def __repr__(self) -> str:

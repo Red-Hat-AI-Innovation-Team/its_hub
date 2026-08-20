@@ -491,7 +491,7 @@ class TestChatCompletions:
                 },
             )
         )
-        await asyncio.sleep(0.3)
+        await RecordingLLMHandler.wait_for_bodies(1)
 
         await async_iaas_client.post(
             "/configure", json={**base, "alg": "beta-self-consistency"}
