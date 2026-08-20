@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 from its_hub.api.types import SUPPORTED_ALGORITHMS, ChatMessage
 
@@ -58,12 +58,6 @@ class ConfigRequest(BaseModel):
                 f"Algorithm '{v}' not supported. Choose from: {SUPPORTED_ALGORITHMS}"
             )
         return v
-
-    @model_validator(mode="after")
-    def validate_config_requirements(self):
-        if not self.api_key:
-            raise ValueError("api_key is required")
-        return self
 
 
 class ChatCompletionRequest(BaseModel):

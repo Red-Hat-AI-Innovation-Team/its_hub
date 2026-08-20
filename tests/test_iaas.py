@@ -175,6 +175,18 @@ class TestConfiguration:
         )
         assert _state.gateway.default_config.api_endpoint == vllm_endpoint
 
+    def test_configure_without_api_key(self, iaas_client, vllm_endpoint):
+        """A no-auth local endpoint can be configured without an api_key."""
+        config = {
+            "endpoint": vllm_endpoint,
+            "model": TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            "alg": "self-consistency",
+        }
+        response = iaas_client.post("/configure", json=config)
+        assert response.status_code == 200
+        assert _state.gateway is not None
+        assert _state.gateway.default_config.api_key is None
+
     def test_models_endpoint_after_configure(self, iaas_client, vllm_endpoint):
         config = {
             "endpoint": vllm_endpoint,
@@ -937,14 +949,15 @@ class TestModelValidatorFixes:
         assert config.regex_patterns is None
         assert config.tool_vote == "tool_hierarchical"
 
-    def test_openai_requires_api_key_when_omitted(self):
-        with pytest.raises(ValueError, match="api_key is required"):
-            ConfigRequest(
-                endpoint="http://example.com:8000",
-                model="test-model",
-                alg="self-consistency",
-                regex_patterns=[r"\\boxed{([^}]+)}"],
-            )
+    def test_api_key_is_optional_when_omitted(self):
+        """A no-auth endpoint can be configured without an api_key."""
+        config = ConfigRequest(
+            endpoint="http://example.com:8000",
+            model="test-model",
+            alg="self-consistency",
+            regex_patterns=[r"\\boxed{([^}]+)}"],
+        )
+        assert config.api_key is None
 
 
 class TestExtProcessor:

@@ -34,19 +34,6 @@ from its_hub.core.orchestrator import LMOrchestrator
 
 logger = logging.getLogger(__name__)
 
-# The self-consistency family shares the same voting surface (regex/tool-vote
-# projection) and only differs in how it decides when to stop sampling.
-SELF_CONSISTENCY_ALGORITHMS = frozenset(
-    {
-        "self-consistency",
-        "adaptive-self-consistency",
-        "beta-self-consistency",
-    }
-)
-
-# All currently supported algorithms are self-consistency variants.
-SUPPORTED_ALGORITHMS = SELF_CONSISTENCY_ALGORITHMS
-
 
 class ITSGateway(AbstractGateway):
     """Long-lived gateway for running ITS algorithms.
@@ -85,11 +72,7 @@ class ITSGateway(AbstractGateway):
         self._ssl_context = ssl.create_default_context(cafile=certifi.where())
         # One connection pool per upstream endpoint
         self._connector_pool: dict[str, aiohttp.TCPConnector] = {}
-        logger.info(
-            "ITSGateway initialized with default alg=%s and budget=%s",
-            self.default_config.alg,
-            self.default_config.budget,
-        )
+        logger.info("ITSGateway initialized")
 
     def configure(self, update: ITSRequestConfigUpdate) -> None:
         """Merge ``update`` into the service default.

@@ -90,11 +90,11 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         else:
             self.ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-        # set up headers for API requests
-        self.headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key or ''}",
-        }
+        # set up headers for API requests; omit Authorization when no API key is
+        # configured (e.g. a local no-auth vLLM) rather than sending an empty token.
+        self.headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            self.headers["Authorization"] = f"Bearer {self.api_key}"
 
         # raw response preservation
         self.include_raw_choices = include_raw_choices
