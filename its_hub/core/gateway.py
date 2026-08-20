@@ -5,8 +5,13 @@ similar to how HTTP services reuse client instances across requests.
 """
 
 import logging
+import ssl
 import time
 from typing import Any
+from urllib.parse import urlparse
+
+import aiohttp
+import certifi
 
 from its_hub.api import (
     AbstractGateway,
@@ -77,6 +82,9 @@ class ITSGateway(AbstractGateway):
         # stored here — they live on ITSRequestConfig and are injected at
         # resolve() time.
         self.default_config = default_config or ITSRequestConfigUpdate()
+        self._ssl_context = ssl.create_default_context(cafile=certifi.where())
+        # One connection pool per upstream endpoint
+        self._connector_pool: dict[str, aiohttp.TCPConnector] = {}
         logger.info(
             "ITSGateway initialized with default alg=%s and budget=%s",
             self.default_config.alg,
@@ -127,6 +135,16 @@ class ITSGateway(AbstractGateway):
         else:  # self-consistency
             return SelfConsistency(**common_kwargs)
 
+    def _get_connector(self, endpoint: str) -> aiohttp.TCPConnector:
+        """Get or create the pooled connector."""
+        parsed = urlparse(endpoint)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        conn = self._connector_pool.get(origin)
+        if conn is None:
+            conn = aiohttp.TCPConnector(ssl=self._ssl_context)
+            self._connector_pool[origin] = conn
+        return conn
+
     def _build_lm(
         self,
         config: ITSRequestConfig,
@@ -145,6 +163,8 @@ class ITSGateway(AbstractGateway):
             api_key=config.api_key,
             model_name=config.model,
             temperature=config.temperature,
+            ssl_context=self._ssl_context,
+            connector=self._get_connector(config.api_endpoint),
         )
 
     async def arun_chat_completion(

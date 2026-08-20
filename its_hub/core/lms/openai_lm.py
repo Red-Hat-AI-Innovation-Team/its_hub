@@ -44,6 +44,8 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         ssl_context: ssl.SSLContext | None = None,
         # Raw response preservation
         include_raw_choices: bool = False,
+        # Borrowed connection pool (e.g. from ITSGateway); not closed by this LM
+        connector: aiohttp.BaseConnector | None = None,
     ):
         assert max_concurrency == -1 or max_concurrency > 0, (
             "max_concurrency must be -1 (unlimited concurrency) or a positive integer"
@@ -86,8 +88,6 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             self.ssl_context.check_hostname = False
             self.ssl_context.verify_mode = ssl.CERT_NONE
         else:
-            # For async requests, create SSL context using the same CA bundle as requests
-            # This ensures aiohttp uses the same certificates as requests library
             self.ssl_context = ssl.create_default_context(cafile=certifi.where())
 
         # set up headers for API requests
@@ -104,6 +104,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
 
         # Session cache: one session per event loop, entry is auto-cleaned via weak references.
         # Session(s) need to be closed via close or close_session function calls.
+        self._borrowed_connector = connector
         self._sessions: weakref.WeakKeyDictionary[
             asyncio.AbstractEventLoop, aiohttp.ClientSession
         ] = weakref.WeakKeyDictionary()
@@ -124,10 +125,16 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             if session is not None and not session.closed:
                 return session
 
-            # Create new session for the event loop.
-            # trust_env=True so aiohttp honors HTTP(S)_PROXY/NO_PROXY/.netrc.
-            connector = aiohttp.TCPConnector(ssl=self.ssl_context)
-            session = aiohttp.ClientSession(connector=connector, trust_env=True)
+            if self._borrowed_connector is not None:
+                # Borrowed pool: the session uses it but must not close it.
+                session = aiohttp.ClientSession(
+                    connector=self._borrowed_connector,
+                    connector_owner=False,
+                    trust_env=True,
+                )
+            else:
+                connector = aiohttp.TCPConnector(ssl=self.ssl_context)
+                session = aiohttp.ClientSession(connector=connector, trust_env=True)
             self._sessions[loop] = session
 
             return session
