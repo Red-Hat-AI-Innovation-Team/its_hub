@@ -1,0 +1,16 @@
+version: v0
+parent: null
+champion: true
+created_at: "2026-07-29T00:00:00+00:00"
+created_by: "lattice-init"
+pack_names:
+  - core
+  - python
+  - its-domain
+  - repo
+  - rust
+  - praxis-domain
+notes: >
+  Initial lattice v0 for its_hub. All rules land warn-only per Axiom A5
+  (evidence before enforcement). Core pack carries 10 policy decisions;
+  language/domain/repo packs mined from existing configurations and docs.
