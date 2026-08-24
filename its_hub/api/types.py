@@ -216,6 +216,13 @@ def _validate_optional_fields(
         )
 
 
+def _freeze_list(value: list[str] | None) -> tuple[str, ...] | None:
+    """Copy a list into an immutable tuple; leave ``None`` unchanged."""
+    if value is None:
+        return None
+    return tuple(value)
+
+
 def _config_repr(obj: ITSRequestConfig | ITSRequestConfigUpdate) -> str:
     return (
         type(obj).__name__
@@ -246,9 +253,9 @@ class ITSRequestConfig:
     # Scaling parameters
     budget: int = 4
     alg: str = "self-consistency"
-    regex_patterns: list[str] | None = None
+    regex_patterns: tuple[str, ...] | None = None
     tool_vote: str | None = None
-    exclude_tool_args: list[str] | None = None
+    exclude_tool_args: tuple[str, ...] | None = None
     threshold: float | None = None
     confidence_threshold: float | None = None
 
@@ -265,6 +272,13 @@ class ITSRequestConfig:
             self.threshold,
             self.confidence_threshold,
             self.temperature,
+        )
+        # frozen=True blocks attribute rebinding, not mutation of a referenced
+        # list. Copy these into tuples so neither the source list nor the
+        # snapshot can be mutated after validation to affect an in-flight request.
+        object.__setattr__(self, "regex_patterns", _freeze_list(self.regex_patterns))
+        object.__setattr__(
+            self, "exclude_tool_args", _freeze_list(self.exclude_tool_args)
         )
 
     def __repr__(self) -> str:

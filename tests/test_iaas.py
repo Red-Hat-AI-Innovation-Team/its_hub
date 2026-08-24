@@ -51,12 +51,15 @@ def _install_mock_gateway(mock_return=None, side_effect=None, default=None):
         default = _state.gateway._default_config
     mock_gw = MagicMock()
     mock_gw._default_config = default
+    # _lifespan awaits aclose() on shutdown; make the mock awaitable.
+    mock_gw.aclose = AsyncMock()
     if side_effect:
         mock_gw.arun_chat_completion = AsyncMock(side_effect=side_effect)
     else:
-        # Mirror the real gateway: inject the resolved alg from the merged
-        # default so metadata tests see the configured value, not a hardcoded one.
-        patched = {**(mock_return or {}), "alg": default.alg}
+        # Mirror resolve(): alg defaults to "self-consistency" when the update
+        # omits it. We can't call resolve() directly because the header-only
+        # path has no endpoint/model yet.
+        patched = {**(mock_return or {}), "alg": default.alg or "self-consistency"}
 
         async def _arun(*args, **kwargs):
             return patched
@@ -279,7 +282,7 @@ class TestSelfConsistencyToolVote:
             mock_sc.assert_called_once()
             call_args = mock_sc.call_args
             assert call_args.kwargs["tool_vote"] == "tool_hierarchical"
-            assert call_args.kwargs["exclude_args"] == ["timestamp", "id"]
+            assert call_args.kwargs["exclude_args"] == ("timestamp", "id")
 
 
 class TestAdaptiveAndBetaSelfConsistency:
@@ -392,7 +395,7 @@ class TestAdaptiveAndBetaSelfConsistency:
             assert response.status_code == 200
             _state.gateway._build_algorithm(_state.gateway._default_config.resolve())
             assert mock_alg.call_args.kwargs["tool_vote"] == "tool_hierarchical"
-            assert mock_alg.call_args.kwargs["exclude_args"] == ["timestamp"]
+            assert mock_alg.call_args.kwargs["exclude_args"] == ("timestamp",)
 
 
 class TestChatCompletions:

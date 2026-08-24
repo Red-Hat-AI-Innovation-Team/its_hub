@@ -342,7 +342,7 @@ class TestConfigure:
         )
         algo = _algo(gw)
         assert algo.tool_vote == "tool_name"
-        assert algo.exclude_args == ["timestamp"]
+        assert algo.exclude_args == ("timestamp",)
 
     def test_configure_tool_vote_persists_when_omitted(self):
         """`None` means trickle down, so a /configure omitting tool_vote
