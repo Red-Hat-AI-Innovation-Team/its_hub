@@ -240,7 +240,13 @@ class ITSGateway(AbstractGateway):
         Call on service shutdown to release keep-alive connections.
         Idempotent: closing an already-closed connector is a no-op.
         """
+        logger.info(
+            "ITSGateway shutting down, closing %d pooled connectors",
+            len(self._connector_pool),
+        )
         for conn in self._connector_pool.values():
             if not conn.closed:
                 await conn.close()
         self._connector_pool.clear()
+        if hasattr(self._orchestrator, "shutdown"):
+            self._orchestrator.shutdown()

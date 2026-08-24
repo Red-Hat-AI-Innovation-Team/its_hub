@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from its_hub._rust import _PyLMOrchestrator
 from its_hub.api import (
@@ -20,23 +21,25 @@ class _ThreadSafeAsyncSemaphore:
     limit is respected across event loops and threads, and wraps acquire/release for use in
     async contexts without blocking the event loop.
 
-    FIXME: When a task wants to acquire the semaphore, it submits self._sem.acquire (a blocking call)
-    to the default ThreadPoolExecutor. The default thread pool can be exhausted when max_concurrency
-    is low (e.g., 2-4) with large batches. Our default max_concurrency=32 should help avoid the issue
-    but needs further investigation, if necessary.
+    A dedicated ThreadPoolExecutor is used so that blocked acquires do not
+    exhaust the default executor and starve unrelated async operations.
     """
 
     def __init__(self, value: int):
         self._sem = threading.Semaphore(value)
+        self._executor = ThreadPoolExecutor(
+            max_workers=value, thread_name_prefix="lm-sem"
+        )
 
     async def acquire(self):
         loop = asyncio.get_running_loop()
-        # Run blocking acquire in the default executor so the event loop
-        # stays responsive while waiting for a slot.
-        await loop.run_in_executor(None, self._sem.acquire)
+        await loop.run_in_executor(self._executor, self._sem.acquire)
 
     def release(self):
         self._sem.release()
+
+    def shutdown(self):
+        self._executor.shutdown(wait=True)
 
     async def __aenter__(self):
         await self.acquire()
@@ -68,6 +71,10 @@ class LMOrchestrator(AbstractOrchestrator):
             if max_concurrency != -1
             else None
         )
+
+    def shutdown(self):
+        if self._semaphore is not None:
+            self._semaphore.shutdown()
 
     async def agenerate(
         self,
