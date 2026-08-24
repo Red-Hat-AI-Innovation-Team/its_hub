@@ -233,3 +233,14 @@ class ITSGateway(AbstractGateway):
             "usage": usage_dict,
             "alg": resolved.alg,
         }
+
+    async def aclose(self) -> None:
+        """Close all pooled connectors.
+
+        Call on service shutdown to release keep-alive connections.
+        Idempotent: closing an already-closed connector is a no-op.
+        """
+        for conn in self._connector_pool.values():
+            if not conn.closed:
+                await conn.close()
+        self._connector_pool.clear()

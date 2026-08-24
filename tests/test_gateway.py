@@ -153,6 +153,43 @@ class TestLMClientLifecycle:
         assert result_b["message"]["content"] == "answer from model-B"
 
 
+class TestGatewayShutdown:
+    @pytest.mark.asyncio
+    async def test_aclose_closes_pooled_connectors(self):
+        gw = ITSGateway()
+        c1 = gw._get_connector("http://upstream-a/v1")
+        c2 = gw._get_connector("http://upstream-b/v1")
+        assert not c1.closed
+        assert not c2.closed
+        assert len(gw._connector_pool) == 2
+
+        await gw.aclose()
+
+        assert c1.closed
+        assert c2.closed
+        assert len(gw._connector_pool) == 0
+
+    @pytest.mark.asyncio
+    async def test_aclose_is_idempotent(self):
+        gw = ITSGateway()
+        gw._get_connector("http://upstream/v1")
+        await gw.aclose()
+        await gw.aclose()  # second call must not raise
+
+    @pytest.mark.asyncio
+    async def test_get_connector_rebuilds_after_close(self):
+        """A request arriving after aclose() gets a fresh connector."""
+        gw = ITSGateway()
+        c1 = gw._get_connector("http://upstream/v1")
+        await gw.aclose()
+        assert c1.closed
+
+        c2 = gw._get_connector("http://upstream/v1")
+        assert not c2.closed
+        assert c2 is not c1
+        await gw.aclose()
+
+
 class TestRunChatCompletion:
     @pytest.mark.asyncio
     async def test_response_only(self):
