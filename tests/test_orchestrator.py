@@ -392,6 +392,33 @@ class TestConcurrencyLimiting:
         assert lm.peak == n
 
     @pytest.mark.asyncio
+    async def test_many_concurrent_agenerate_calls_do_not_deadlock(self, orchestrator_cls):
+        """Many concurrent agenerate() callers must not exhaust the default thread pool.
+
+        Simulates the gateway scenario: N requests arrive simultaneously,
+        each calling agenerate() with a small batch.  The orchestrator's
+        semaphore acquires must not starve the default executor that the
+        LM itself may need (e.g. for DNS, TLS, or other blocking I/O).
+        """
+        orch = orchestrator_cls(max_concurrency=2)
+
+        class ExecutorDependentLM:
+            """LM that uses the default executor, like a real HTTP client would."""
+            async def agenerate_single(self, messages, loop=None, **kwargs):
+                _loop = loop or asyncio.get_running_loop()
+                await _loop.run_in_executor(None, lambda: None)
+                await asyncio.sleep(0.01)
+                return {"role": "assistant", "content": "ok"}
+
+        lm = ExecutorDependentLM()
+        tasks = [
+            asyncio.create_task(orch.agenerate(lm, _make_batch(1)))
+            for _ in range(50)
+        ]
+        results = await asyncio.wait_for(asyncio.gather(*tasks), timeout=30)
+        assert len(results) == 50
+
+    @pytest.mark.asyncio
     async def test_shared_semaphore_across_sequential_calls(self, orchestrator_cls):
         """Two overlapping agenerate calls share the same semaphore."""
         orch = orchestrator_cls(max_concurrency=2)
