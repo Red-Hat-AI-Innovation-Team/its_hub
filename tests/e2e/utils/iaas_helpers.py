@@ -7,23 +7,13 @@ import socket
 import subprocess
 import sys
 import tempfile
-import textwrap
 import threading
 import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-
-# ---------------------------------------------------------------------------
-# Network helpers
-# ---------------------------------------------------------------------------
-
-
-def find_free_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
+from tests.conftest import find_free_port
 
 
 def wait_for_port(port, host="127.0.0.1", timeout=15):
@@ -172,112 +162,67 @@ def start_mock_llm(port, latency_ms=0):
 # ---------------------------------------------------------------------------
 
 
+_PROD_ENVOY_CONFIG = os.path.join(
+    os.path.dirname(__file__), os.pardir, os.pardir, os.pardir,
+    "its_hub", "integration", "iaas", "envoy_config.yaml",
+)
+
+
 def generate_envoy_config(envoy_port, ext_proc_port, iaas_port, llm_port):
+    """Load the production envoy_config.yaml and adapt it for local testing."""
+    import yaml
+
     admin_port = find_free_port()
-    config = textwrap.dedent(f"""\
-        admin:
-          address:
-            socket_address:
-              address: 127.0.0.1
-              port_value: {admin_port}
-        static_resources:
-          listeners:
-          - name: listener_0
-            address:
-              socket_address:
-                address: 127.0.0.1
-                port_value: {envoy_port}
-            filter_chains:
-            - filters:
-              - name: envoy.filters.network.http_connection_manager
-                typed_config:
-                  "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-                  stat_prefix: ingress_http
-                  http_filters:
-                  - name: envoy.filters.http.ext_proc
-                    typed_config:
-                      "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
-                      grpc_service:
-                        envoy_grpc:
-                          cluster_name: ext_proc_cluster
-                        timeout: 10s
-                      failure_mode_allow: false
-                      message_timeout: 10s
-                      processing_mode:
-                        request_header_mode: SEND
-                        response_header_mode: SKIP
-                  - name: envoy.filters.http.router
-                    typed_config:
-                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
-                  route_config:
-                    name: local_route
-                    virtual_hosts:
-                    - name: local_service
-                      domains: ["*"]
-                      routes:
-                      - match:
-                          prefix: "/"
-                          headers:
-                          - name: X-ITS-Route
-                            string_match:
-                              exact: "its-service"
-                        route:
-                          cluster: iaas_upstream
-                          timeout: 60s
-                      - match:
-                          prefix: "/"
-                        request_headers_to_remove:
-                        - x-its-budget
-                        - x-its-endpoint
-                        - x-its-api-key
-                        - x-its-route
-                        route:
-                          cluster: llm_upstream
-                          timeout: 60s
-          clusters:
-          - name: ext_proc_cluster
-            connect_timeout: 5s
-            type: STATIC
-            typed_extension_protocol_options:
-              envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
-                "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
-                explicit_http_config:
-                  http2_protocol_options: {{}}
-            load_assignment:
-              cluster_name: ext_proc_cluster
-              endpoints:
-              - lb_endpoints:
-                - endpoint:
-                    address:
-                      socket_address:
-                        address: 127.0.0.1
-                        port_value: {ext_proc_port}
-          - name: iaas_upstream
-            connect_timeout: 5s
-            type: STATIC
-            load_assignment:
-              cluster_name: iaas_upstream
-              endpoints:
-              - lb_endpoints:
-                - endpoint:
-                    address:
-                      socket_address:
-                        address: 127.0.0.1
-                        port_value: {iaas_port}
-          - name: llm_upstream
-            connect_timeout: 5s
-            type: STATIC
-            load_assignment:
-              cluster_name: llm_upstream
-              endpoints:
-              - lb_endpoints:
-                - endpoint:
-                    address:
-                      socket_address:
-                        address: 127.0.0.1
-                        port_value: {llm_port}
-    """)
-    return config, admin_port
+
+    with open(_PROD_ENVOY_CONFIG) as f:
+        config = yaml.safe_load(f)
+
+    # --- Admin: simple, no access log ---
+    config["admin"] = {
+        "address": {
+            "socket_address": {"address": "127.0.0.1", "port_value": admin_port},
+        },
+    }
+
+    # --- Listener port ---
+    listener = config["static_resources"]["listeners"][0]
+    sock_addr = listener["address"]["socket_address"]
+    sock_addr["port_value"] = envoy_port
+    sock_addr.pop("protocol", None)
+
+    # --- HTTP connection manager tweaks ---
+    hcm = listener["filter_chains"][0]["filters"][0]["typed_config"]
+    hcm.pop("access_log", None)
+
+    for hf in hcm.get("http_filters", []):
+        if "ext_proc" in hf.get("name", ""):
+            ep = hf["typed_config"]
+            ep["failure_mode_allow"] = False
+            ep["message_timeout"] = "10s"
+            ep["grpc_service"]["timeout"] = "10s"
+
+    for vh in hcm.get("route_config", {}).get("virtual_hosts", []):
+        for route in vh.get("routes", []):
+            if "route" in route:
+                route["route"]["timeout"] = "60s"
+
+    # --- Clusters: set test ports, remove health checks, use STATIC ---
+    port_map = {
+        "ext_proc_cluster": ext_proc_port,
+        "iaas_upstream": iaas_port,
+        "llm_upstream": llm_port,
+    }
+    for cluster in config["static_resources"]["clusters"]:
+        name = cluster["name"]
+        if name in port_map:
+            cluster["type"] = "STATIC"
+            cluster.pop("dns_lookup_family", None)
+            cluster.pop("health_checks", None)
+            ep = cluster["load_assignment"]["endpoints"][0]["lb_endpoints"][0]["endpoint"]
+            ep["address"]["socket_address"]["address"] = "127.0.0.1"
+            ep["address"]["socket_address"]["port_value"] = port_map[name]
+
+    return yaml.dump(config, default_flow_style=False, sort_keys=False), admin_port
 
 
 # ---------------------------------------------------------------------------

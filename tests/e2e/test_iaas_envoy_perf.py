@@ -48,7 +48,6 @@ from tests.e2e.utils.iaas_helpers import (
     stop_processes,
 )
 
-
 # ---------------------------------------------------------------------------
 # Async benchmark
 # ---------------------------------------------------------------------------
@@ -56,7 +55,7 @@ from tests.e2e.utils.iaas_helpers import (
 
 def _compute_stats(latencies, errors, error_details, wall_time, num_requests):
     if error_details:
-        print(f"    Error details (first 5):")
+        print("    Error details (first 5):")
         for detail in error_details[:5]:
             print(f"      {detail}")
 
@@ -103,7 +102,7 @@ async def benchmark_endpoint(url, model_name, num_requests, concurrency, budget=
         async with sem:
             start = time.perf_counter()
             try:
-                async with session.post(url, json=payload, headers=req_headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                async with session.post(url, json=payload, headers=req_headers, timeout=aiohttp.ClientTimeout(total=timeout_s)) as resp:
                     body = await resp.read()
                     elapsed = (time.perf_counter() - start) * 1000
                     if resp.status == 200:
@@ -124,7 +123,7 @@ async def benchmark_endpoint(url, model_name, num_requests, concurrency, budget=
             tasks = [asyncio.create_task(_single_request(session, i)) for i in range(num_requests)]
             await asyncio.wait_for(asyncio.gather(*tasks), timeout=timeout_s)
             wall_time = time.perf_counter() - wall_start
-    except asyncio.TimeoutError:
+    except TimeoutError:
         wall_time = timeout_s
         cancelled = num_requests - completed
         errors += cancelled
@@ -176,7 +175,7 @@ async def benchmark_algorithm(llm_url, model_name, api_key, num_requests, concur
         tasks = [asyncio.create_task(_single_request(i)) for i in range(num_requests)]
         await asyncio.wait_for(asyncio.gather(*tasks), timeout=timeout_s)
         wall_time = time.perf_counter() - wall_start
-    except asyncio.TimeoutError:
+    except TimeoutError:
         wall_time = timeout_s
         cancelled = num_requests - completed
         errors += cancelled
@@ -269,10 +268,9 @@ def main():
             iaas_port = urlparse(iaas_url).port
             envoy_result = start_envoy(ext_proc_port, iaas_port, llm_port)
             if envoy_result:
-                envoy_proc, envoy_url, envoy_tmpdir, envoy_admin_port = envoy_result
+                envoy_proc, envoy_url, envoy_tmpdir, _ = envoy_result
                 processes.append(("envoy", envoy_proc))
             else:
-                envoy_admin_port = None
                 print("Envoy not available, skipping Envoy benchmarks")
 
         # --- Configure IaaS ---
@@ -326,7 +324,7 @@ def main():
                     budget=budget,
                 ))
                 print_stats(f"iaas(budget={budget})", stats)
-                if stats and baseline_p50:
+                if stats and baseline_p50 is not None:
                     overhead = stats["p50_ms"] - baseline_p50
                     print(f"    Overhead vs direct: {overhead:+.1f}ms (p50)")
 
@@ -344,7 +342,7 @@ def main():
                     },
                 ))
                 print_stats(f"envoy(budget={budget})", stats)
-                if stats and baseline_p50:
+                if stats and baseline_p50 is not None:
                     overhead = stats["p50_ms"] - baseline_p50
                     print(f"    Overhead vs direct: {overhead:+.1f}ms (p50)")
 
