@@ -1,19 +1,24 @@
 """Tests for the Inference-as-a-Service (IaaS) integration."""
 
+import asyncio
 import logging
 from collections import Counter
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
+from httpx import ASGITransport
 
-from its_hub.api.types import ChatMessage
+from its_hub.api.types import ChatMessage, ITSRequestConfigUpdate
 from its_hub.integration.iaas.app import _state, app
 from its_hub.integration.iaas.models import (
     ChatCompletionRequest,
     ConfigRequest,
 )
 from tests.conftest import TEST_CONSTANTS
+from tests.mocks.recording_llm import RecordingLLMHandler
 from tests.mocks.test_data import TestDataFactory
 
 
@@ -25,10 +30,43 @@ def iaas_client():
     _state.reset()
 
 
+@pytest_asyncio.fixture
+async def async_iaas_client():
+    """Async client (allows concurrent /configure + /v1/...)."""
+    _state.reset()
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+    _state.reset()
+
+
 @pytest.fixture(scope="session")
 def vllm_endpoint(vllm_server):
-    """Alias the vllm_server fixture for clarity in IaaS tests."""
     return vllm_server
+
+
+def _install_mock_gateway(mock_return=None, side_effect=None, default=None):
+    """Replace _state.gateway with a mock, preserving _default_config for merging."""
+    if default is None:
+        default = _state.gateway._default_config
+    mock_gw = MagicMock()
+    mock_gw._default_config = default
+    # _lifespan awaits aclose() on shutdown; make the mock awaitable.
+    mock_gw.aclose = AsyncMock()
+    if side_effect:
+        mock_gw.arun_chat_completion = AsyncMock(side_effect=side_effect)
+    else:
+        # Mirror resolve(): alg defaults to "self-consistency" when the update
+        # omits it. We can't call resolve() directly because the header-only
+        # path has no endpoint/model yet.
+        patched = {**(mock_return or {}), "alg": default.alg or "self-consistency"}
+
+        async def _arun(*args, **kwargs):
+            return patched
+
+        mock_gw.arun_chat_completion = AsyncMock(side_effect=_arun)
+    _state.gateway = mock_gw
+    return mock_gw
 
 
 def _mock_gateway_result(content="answer", usage=None):
@@ -135,8 +173,22 @@ class TestConfiguration:
         response = iaas_client.post("/configure", json=config)
         assert response.status_code == 200
         assert _state.gateway is not None
-        assert _state.config.model == TEST_CONSTANTS["DEFAULT_MODEL_NAME"]
-        assert _state.config.endpoint == vllm_endpoint
+        assert (
+            _state.gateway._default_config.model == TEST_CONSTANTS["DEFAULT_MODEL_NAME"]
+        )
+        assert _state.gateway._default_config.api_endpoint == vllm_endpoint
+
+    def test_configure_without_api_key(self, iaas_client, vllm_endpoint):
+        """A no-auth local endpoint can be configured without an api_key."""
+        config = {
+            "endpoint": vllm_endpoint,
+            "model": TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+            "alg": "self-consistency",
+        }
+        response = iaas_client.post("/configure", json=config)
+        assert response.status_code == 200
+        assert _state.gateway is not None
+        assert _state.gateway._default_config.api_key is None
 
     def test_models_endpoint_after_configure(self, iaas_client, vllm_endpoint):
         config = {
@@ -226,11 +278,11 @@ class TestSelfConsistencyToolVote:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
-
+            _state.gateway._build_algorithm(_state.gateway._default_config.resolve())
             mock_sc.assert_called_once()
             call_args = mock_sc.call_args
             assert call_args.kwargs["tool_vote"] == "tool_hierarchical"
-            assert call_args.kwargs["exclude_args"] == ["timestamp", "id"]
+            assert call_args.kwargs["exclude_args"] == ("timestamp", "id")
 
 
 class TestAdaptiveAndBetaSelfConsistency:
@@ -251,7 +303,7 @@ class TestAdaptiveAndBetaSelfConsistency:
         response = iaas_client.post("/configure", json=config)
         assert response.status_code == 200
         assert "success" in response.json()["status"]
-        assert _state.config.alg == alg
+        assert _state.gateway._default_config.alg == alg
 
     def test_adaptive_threshold_forwarded_to_algorithm(
         self, iaas_client, vllm_endpoint
@@ -268,6 +320,7 @@ class TestAdaptiveAndBetaSelfConsistency:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
+            _state.gateway._build_algorithm(_state.gateway._default_config.resolve())
             mock_alg.assert_called_once()
             assert mock_alg.call_args.kwargs["threshold"] == 0.9
 
@@ -286,6 +339,7 @@ class TestAdaptiveAndBetaSelfConsistency:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
+            _state.gateway._build_algorithm(_state.gateway._default_config.resolve())
             mock_alg.assert_called_once()
             assert mock_alg.call_args.kwargs["confidence_threshold"] == 0.8
 
@@ -302,6 +356,7 @@ class TestAdaptiveAndBetaSelfConsistency:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
+            _state.gateway._build_algorithm(_state.gateway._default_config.resolve())
             assert "threshold" not in mock_alg.call_args.kwargs
 
     @pytest.mark.parametrize(
@@ -338,8 +393,9 @@ class TestAdaptiveAndBetaSelfConsistency:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
+            _state.gateway._build_algorithm(_state.gateway._default_config.resolve())
             assert mock_alg.call_args.kwargs["tool_vote"] == "tool_hierarchical"
-            assert mock_alg.call_args.kwargs["exclude_args"] == ["timestamp"]
+            assert mock_alg.call_args.kwargs["exclude_args"] == ("timestamp",)
 
 
 class TestChatCompletions:
@@ -353,11 +409,9 @@ class TestChatCompletions:
         }
         iaas_client.post("/configure", json=config)
 
-        mock_gw = MagicMock()
-        mock_gw.arun_chat_completion = AsyncMock(
-            return_value=_mock_gateway_result("Tool voting response")
+        mock_gw = _install_mock_gateway(
+            mock_return=_mock_gateway_result("Tool voting response")
         )
-        _state.gateway = mock_gw
 
         request_data = TestDataFactory.create_chat_completion_request(
             user_content="What is 2+2?", budget=8
@@ -380,11 +434,7 @@ class TestChatCompletions:
         }
         iaas_client.post("/configure", json=config)
 
-        mock_gw = MagicMock()
-        mock_gw.arun_chat_completion = AsyncMock(
-            return_value=_mock_gateway_full_result()
-        )
-        _state.gateway = mock_gw
+        _install_mock_gateway(mock_return=_mock_gateway_full_result())
 
         request_data = TestDataFactory.create_chat_completion_request(budget=4)
         request_data["return_response_only"] = False
@@ -409,17 +459,51 @@ class TestChatCompletions:
         }
         iaas_client.post("/configure", json=config)
 
-        mock_gw = MagicMock()
-        mock_gw.arun_chat_completion = AsyncMock(
-            return_value=_mock_gateway_full_result()
-        )
-        _state.gateway = mock_gw
+        _install_mock_gateway(mock_return=_mock_gateway_full_result())
 
         request_data = TestDataFactory.create_chat_completion_request(budget=4)
         request_data["return_response_only"] = False
         response = iaas_client.post("/v1/chat/completions", json=request_data)
         assert response.status_code == 200
         assert response.json()["metadata"]["algorithm"] == "beta-self-consistency"
+
+    @pytest.mark.asyncio
+    async def test_metadata_reports_request_time_algorithm(
+        self, llm_server, async_iaas_client
+    ):
+        """A reconfigure during a request must not change the reported algorithm."""
+        base = {
+            "endpoint": f"{llm_server}/v1",
+            "api_key": "test-key",
+            "model": "test-model",
+            "budget": 1,
+        }
+        await async_iaas_client.post(
+            "/configure", json={**base, "alg": "self-consistency"}
+        )
+
+        RecordingLLMHandler.hold()
+
+        request_task = asyncio.create_task(
+            async_iaas_client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "test-model",
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "return_response_only": False,
+                },
+            )
+        )
+        await RecordingLLMHandler.wait_for_bodies(1)
+
+        await async_iaas_client.post(
+            "/configure", json={**base, "alg": "beta-self-consistency"}
+        )
+
+        RecordingLLMHandler.release()
+        resp = await request_task
+        assert resp.status_code == 200
+        assert resp.json()["metadata"]["algorithm"] == "self-consistency"
 
     @pytest.mark.parametrize(
         "invalid_request",
@@ -457,16 +541,15 @@ class TestStreamingChatCompletions:
     def _configure_and_mock(
         self, iaas_client, endpoint, mock_return=None, side_effect=None
     ):
-        _state.config.endpoint = endpoint
-        _state.config.model = TEST_CONSTANTS["DEFAULT_MODEL_NAME"]
-        _state.config.api_key = TEST_CONSTANTS["DEFAULT_API_KEY"]
-        mock_gw = MagicMock()
-        if side_effect:
-            mock_gw.arun_chat_completion = AsyncMock(side_effect=side_effect)
-        else:
-            mock_gw.arun_chat_completion = AsyncMock(return_value=mock_return)
-        _state.gateway = mock_gw
-        return mock_gw
+        return _install_mock_gateway(
+            mock_return=mock_return,
+            side_effect=side_effect,
+            default=ITSRequestConfigUpdate(
+                api_endpoint=endpoint,
+                model=TEST_CONSTANTS["DEFAULT_MODEL_NAME"],
+                api_key=TEST_CONSTANTS["DEFAULT_API_KEY"],
+            ),
+        )
 
     def test_stream_content_response(self, iaas_client, vllm_endpoint):
         self._configure_and_mock(
@@ -643,9 +726,7 @@ class TestHeaderConfig:
         }
         iaas_client.post("/configure", json=config)
 
-        mock_gw = MagicMock()
-        mock_gw.arun_chat_completion = AsyncMock(return_value=_mock_gateway_result())
-        _state.gateway = mock_gw
+        mock_gw = _install_mock_gateway(mock_return=_mock_gateway_result())
 
         request_data = TestDataFactory.create_chat_completion_request(budget=4)
         response = iaas_client.post(
@@ -670,9 +751,7 @@ class TestHeaderConfig:
         }
         iaas_client.post("/configure", json=config)
 
-        mock_gw = MagicMock()
-        mock_gw.arun_chat_completion = AsyncMock(return_value=_mock_gateway_result())
-        _state.gateway = mock_gw
+        mock_gw = _install_mock_gateway(mock_return=_mock_gateway_result())
 
         request_data = TestDataFactory.create_chat_completion_request(budget=4)
         response = iaas_client.post(
@@ -695,9 +774,7 @@ class TestHeaderConfig:
         }
         iaas_client.post("/configure", json=config)
 
-        mock_gw = MagicMock()
-        mock_gw.arun_chat_completion = AsyncMock(return_value=_mock_gateway_result())
-        _state.gateway = mock_gw
+        mock_gw = _install_mock_gateway(mock_return=_mock_gateway_result())
 
         request_data = TestDataFactory.create_chat_completion_request(budget=4)
         response = iaas_client.post(
@@ -712,9 +789,7 @@ class TestHeaderConfig:
 
     def test_headers_without_service_config(self, iaas_client):
         """Headers alone can configure a request — no /configure needed."""
-        mock_gw = MagicMock()
-        mock_gw.arun_chat_completion = AsyncMock(return_value=_mock_gateway_result())
-        _state.gateway = mock_gw
+        mock_gw = _install_mock_gateway(mock_return=_mock_gateway_result())
 
         request_data = TestDataFactory.create_chat_completion_request(budget=4)
         response = iaas_client.post(
@@ -773,9 +848,7 @@ class TestBudgetValidation:
         }
         iaas_client.post("/configure", json=config)
 
-        mock_gw = MagicMock()
-        mock_gw.arun_chat_completion = AsyncMock(return_value=_mock_gateway_result())
-        _state.gateway = mock_gw
+        _install_mock_gateway(mock_return=_mock_gateway_result())
 
         request_data = TestDataFactory.create_chat_completion_request(budget=4)
         response = iaas_client.post(
@@ -796,9 +869,7 @@ class TestBudgetValidation:
         }
         iaas_client.post("/configure", json=config)
 
-        mock_gw = MagicMock()
-        mock_gw.arun_chat_completion = AsyncMock(return_value=_mock_gateway_result())
-        _state.gateway = mock_gw
+        _install_mock_gateway(mock_return=_mock_gateway_result())
 
         request_data = TestDataFactory.create_chat_completion_request(budget=4)
         response = iaas_client.post(
@@ -835,11 +906,9 @@ class TestErrorSanitization:
         }
         iaas_client.post("/configure", json=config)
 
-        mock_gw = MagicMock()
-        mock_gw.arun_chat_completion = AsyncMock(
+        _install_mock_gateway(
             side_effect=RuntimeError("Connection to http://internal:8100 refused")
         )
-        _state.gateway = mock_gw
 
         request_data = TestDataFactory.create_chat_completion_request(budget=4)
         response = iaas_client.post("/v1/chat/completions", json=request_data)
@@ -883,14 +952,15 @@ class TestModelValidatorFixes:
         assert config.regex_patterns is None
         assert config.tool_vote == "tool_hierarchical"
 
-    def test_openai_requires_api_key_when_omitted(self):
-        with pytest.raises(ValueError, match="api_key is required"):
-            ConfigRequest(
-                endpoint="http://example.com:8000",
-                model="test-model",
-                alg="self-consistency",
-                regex_patterns=[r"\\boxed{([^}]+)}"],
-            )
+    def test_api_key_is_optional_when_omitted(self):
+        """A no-auth endpoint can be configured without an api_key."""
+        config = ConfigRequest(
+            endpoint="http://example.com:8000",
+            model="test-model",
+            alg="self-consistency",
+            regex_patterns=[r"\\boxed{([^}]+)}"],
+        )
+        assert config.api_key is None
 
 
 class TestExtProcessor:

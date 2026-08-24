@@ -1,16 +1,21 @@
 """Tests for ITSGateway (core/gateway.py)."""
 
+import asyncio
 from collections import Counter
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from its_hub.api.types import GenerationUsage, ITSRequestConfig
-from its_hub.core.gateway import SUPPORTED_ALGORITHMS, ITSGateway
+from its_hub.api.types import (
+    SUPPORTED_ALGORITHMS,
+    GenerationUsage,
+    ITSRequestConfigUpdate,
+)
+from its_hub.core.gateway import ITSGateway
+from tests.mocks.recording_llm import RecordingLLMHandler
 
 
 def _make_result(usage=None):
-    """Build a mock SelfConsistencyResult-like object."""
     result = MagicMock()
     result.the_one = {"role": "assistant", "content": "answer"}
     result.responses = [
@@ -26,107 +31,163 @@ def _make_result(usage=None):
 def _make_config(**overrides):
     defaults = {
         "budget": 3,
+        "alg": "self-consistency",
         "api_endpoint": "http://llm/v1",
         "model": "gpt-4",
         "api_key": "sk-test",
     }
     defaults.update(overrides)
-    return ITSRequestConfig(**defaults)
+    return ITSRequestConfigUpdate(**defaults)
 
 
 MESSAGES = [{"role": "user", "content": "What is 2+2?"}]
 
 
+def _mock_lm():
+    lm = MagicMock()
+    lm.close = AsyncMock()
+    return lm
+
+
+def _patch_build_lm(gw):
+    return patch.object(gw, "_build_lm", return_value=_mock_lm())
+
+
+def _algo(gw):
+    return gw._build_algorithm(gw._default_config.resolve())
+
+
 class TestGatewayConstruction:
     def test_default_init(self):
-        with patch("its_hub.core.gateway.OpenAICompatibleLanguageModel"):
-            gw = ITSGateway()
-        assert gw._algorithm is not None
+        gw = ITSGateway()
         assert gw._orchestrator is not None
-        assert gw._algorithm_name == "SelfConsistency"
+        # Stored default is partial; system defaults (alg, budget) materialize
+        # at resolve() time on ITSRequestConfig.
+        resolved = gw._default_config.merge(
+            ITSRequestConfigUpdate(api_endpoint="http://x/v1", model="m")
+        ).resolve()
+        assert resolved.alg == "self-consistency"
+        assert resolved.budget == 4
 
-    def test_custom_algorithm(self):
-        algo = MagicMock()
-        type(algo).__name__ = "CustomAlgo"
-        gw = ITSGateway(algorithm=algo)
-        assert gw._algorithm is algo
-        assert gw._algorithm_name == "CustomAlgo"
+    def test_custom_default_config(self):
+        config = ITSRequestConfigUpdate(
+            alg="beta-self-consistency",
+            api_endpoint="http://x/v1",
+            model="m",
+            api_key="k",
+        )
+        gw = ITSGateway(default_config=config)
+        assert gw._default_config is config
+        assert gw._default_config.alg == "beta-self-consistency"
 
-    def test_custom_orchestrator_passed_to_default_algorithm(self):
+    def test_custom_orchestrator_passed_to_algorithm(self):
         orch = MagicMock()
-        with patch("its_hub.core.gateway.SelfConsistency") as sc_cls:
-            ITSGateway(orchestrator=orch)
-            sc_cls.assert_called_once_with(orchestrator=orch)
+        gw = ITSGateway(orchestrator=orch)
+        assert gw._orchestrator is orch
+        algo = gw._build_algorithm(_make_config().resolve())
+        assert algo.orchestrator is orch
 
 
-class TestLMClientCaching:
+class TestLMClientLifecycle:
     @pytest.mark.asyncio
-    async def test_creates_new_client(self):
-        gw = ITSGateway(algorithm=MagicMock())
-        with patch("its_hub.core.gateway.OpenAICompatibleLanguageModel") as lm_cls:
-            lm_cls.return_value = MagicMock()
-            lm = await gw._get_or_create_lm("http://a/v1", "m1", "key1")
-            assert lm is lm_cls.return_value
-            lm_cls.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_reuses_cached_client(self):
-        gw = ITSGateway(algorithm=MagicMock())
-        with patch("its_hub.core.gateway.OpenAICompatibleLanguageModel") as lm_cls:
-            lm_cls.return_value = MagicMock()
-            lm1 = await gw._get_or_create_lm("http://a/v1", "m1", "key1")
-            lm2 = await gw._get_or_create_lm("http://a/v1", "m1", "key1")
-            assert lm1 is lm2
-            assert lm_cls.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_different_endpoint_creates_new_client(self):
-        gw = ITSGateway(algorithm=MagicMock())
-        with patch("its_hub.core.gateway.OpenAICompatibleLanguageModel") as lm_cls:
-            lm_cls.return_value = MagicMock()
-            await gw._get_or_create_lm("http://a/v1", "m1", "key1")
-            lm_cls.return_value = MagicMock()
-            await gw._get_or_create_lm("http://b/v1", "m1", "key1")
-            assert lm_cls.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_different_api_key_creates_new_client(self):
-        gw = ITSGateway(algorithm=MagicMock())
-        with patch("its_hub.core.gateway.OpenAICompatibleLanguageModel") as lm_cls:
-            lm_cls.return_value = MagicMock()
-            await gw._get_or_create_lm("http://a/v1", "m1", "key-A")
-            lm_cls.return_value = MagicMock()
-            await gw._get_or_create_lm("http://a/v1", "m1", "key-B")
-            assert lm_cls.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_ashutdown_closes_clients(self):
-        gw = ITSGateway(algorithm=MagicMock())
-        mock_lm = MagicMock()
-        mock_lm.close = AsyncMock()
-        with patch(
-            "its_hub.core.gateway.OpenAICompatibleLanguageModel", return_value=mock_lm
+    async def test_creates_new_lm_per_request(self):
+        gw = ITSGateway()
+        algo = MagicMock()
+        algo.ainfer = AsyncMock(return_value=_make_result())
+        with (
+            patch.object(gw, "_build_algorithm", return_value=algo),
+            patch.object(gw, "_build_lm", return_value=_mock_lm()) as build_lm,
         ):
-            await gw._get_or_create_lm("http://a/v1", "m1", "key1")
-        assert len(gw._lm_cache) == 1
-        await gw.ashutdown()
-        mock_lm.close.assert_awaited_once()
-        assert len(gw._lm_cache) == 0
+            await gw.arun_chat_completion(_make_config(), MESSAGES)
+            await gw.arun_chat_completion(_make_config(), MESSAGES)
+            assert build_lm.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_evicts_oldest_when_cache_full(self):
-        gw = ITSGateway(algorithm=MagicMock(), max_lm_cache_size=2)
-        mocks = []
-        with patch("its_hub.core.gateway.OpenAICompatibleLanguageModel") as lm_cls:
-            for i in range(3):
-                mock_lm = MagicMock()
-                mock_lm.close = AsyncMock()
-                lm_cls.return_value = mock_lm
-                mocks.append(mock_lm)
-                await gw._get_or_create_lm(f"http://host{i}/v1", "m1", "key1")
+    async def test_closes_lm_after_request(self):
+        gw = ITSGateway()
+        algo = MagicMock()
+        algo.ainfer = AsyncMock(return_value=_make_result())
+        lm = _mock_lm()
+        with (
+            patch.object(gw, "_build_algorithm", return_value=algo),
+            patch.object(gw, "_build_lm", return_value=lm),
+        ):
+            await gw.arun_chat_completion(_make_config(), MESSAGES)
+        lm.close.assert_awaited_once()
 
-        assert len(gw._lm_cache) == 2
-        mocks[0].close.assert_awaited_once()
+    @pytest.mark.asyncio
+    async def test_closes_lm_even_when_algorithm_raises(self):
+        gw = ITSGateway()
+        algo = MagicMock()
+        algo.ainfer = AsyncMock(side_effect=RuntimeError("boom"))
+        lm = _mock_lm()
+        with (
+            patch.object(gw, "_build_algorithm", return_value=algo),
+            patch.object(gw, "_build_lm", return_value=lm),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            await gw.arun_chat_completion(_make_config(), MESSAGES)
+        lm.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_different_models_do_not_interfere(self, llm_server):
+        gw = ITSGateway()
+
+        RecordingLLMHandler.hold()
+
+        config_a = _make_config(api_endpoint=f"{llm_server}/v1", model="model-A")
+        config_b = _make_config(api_endpoint=f"{llm_server}/v1", model="model-B")
+
+        task_a = asyncio.create_task(gw.arun_chat_completion(config_a, MESSAGES))
+        await RecordingLLMHandler.wait_for_bodies(3)
+
+        task_b = asyncio.create_task(gw.arun_chat_completion(config_b, MESSAGES))
+        await RecordingLLMHandler.wait_for_bodies(6)
+
+        RecordingLLMHandler.release()
+
+        result_a = await task_a
+        result_b = await task_b
+
+        assert result_a["message"]["content"] == "answer from model-A"
+        assert result_b["message"]["content"] == "answer from model-B"
+
+
+class TestGatewayShutdown:
+    @pytest.mark.asyncio
+    async def test_aclose_closes_pooled_connectors(self):
+        gw = ITSGateway()
+        c1 = gw._get_connector("http://upstream-a/v1")
+        c2 = gw._get_connector("http://upstream-b/v1")
+        assert not c1.closed
+        assert not c2.closed
+        assert len(gw._connector_pool) == 2
+
+        await gw.aclose()
+
+        assert c1.closed
+        assert c2.closed
+        assert len(gw._connector_pool) == 0
+
+    @pytest.mark.asyncio
+    async def test_aclose_is_idempotent(self):
+        gw = ITSGateway()
+        gw._get_connector("http://upstream/v1")
+        await gw.aclose()
+        await gw.aclose()  # second call must not raise
+
+    @pytest.mark.asyncio
+    async def test_get_connector_rebuilds_after_close(self):
+        """A request arriving after aclose() gets a fresh connector."""
+        gw = ITSGateway()
+        c1 = gw._get_connector("http://upstream/v1")
+        await gw.aclose()
+        assert c1.closed
+
+        c2 = gw._get_connector("http://upstream/v1")
+        assert not c2.closed
+        assert c2 is not c1
+        await gw.aclose()
 
 
 class TestRunChatCompletion:
@@ -135,8 +196,11 @@ class TestRunChatCompletion:
         usage = GenerationUsage(prompt_tokens=10, completion_tokens=20, num_calls=3)
         algo = MagicMock()
         algo.ainfer = AsyncMock(return_value=_make_result(usage))
-        gw = ITSGateway(algorithm=algo)
-        with patch.object(gw, "_get_or_create_lm", return_value=MagicMock()):
+        gw = ITSGateway()
+        with (
+            patch.object(gw, "_build_algorithm", return_value=algo),
+            _patch_build_lm(gw),
+        ):
             result = await gw.arun_chat_completion(_make_config(), MESSAGES)
         assert result["message"] == {"role": "assistant", "content": "answer"}
         assert result["usage"]["prompt_tokens"] == 10
@@ -149,8 +213,11 @@ class TestRunChatCompletion:
         usage = GenerationUsage(prompt_tokens=5, completion_tokens=10, num_calls=2)
         algo = MagicMock()
         algo.ainfer = AsyncMock(return_value=_make_result(usage))
-        gw = ITSGateway(algorithm=algo)
-        with patch.object(gw, "_get_or_create_lm", return_value=MagicMock()):
+        gw = ITSGateway()
+        with (
+            patch.object(gw, "_build_algorithm", return_value=algo),
+            _patch_build_lm(gw),
+        ):
             result = await gw.arun_chat_completion(
                 _make_config(), MESSAGES, return_response_only=False
             )
@@ -164,9 +231,12 @@ class TestRunChatCompletion:
     async def test_tools_forwarded(self):
         algo = MagicMock()
         algo.ainfer = AsyncMock(return_value=_make_result())
-        gw = ITSGateway(algorithm=algo)
+        gw = ITSGateway()
         tools = [{"type": "function", "function": {"name": "f"}}]
-        with patch.object(gw, "_get_or_create_lm", return_value=MagicMock()):
+        with (
+            patch.object(gw, "_build_algorithm", return_value=algo),
+            _patch_build_lm(gw),
+        ):
             await gw.arun_chat_completion(
                 _make_config(), MESSAGES, tools=tools, tool_choice="auto"
             )
@@ -176,18 +246,19 @@ class TestRunChatCompletion:
 
     @pytest.mark.asyncio
     async def test_missing_model_raises(self):
-        gw = ITSGateway(algorithm=MagicMock())
+        gw = ITSGateway()
         config = _make_config(model=None)
-        with pytest.raises(ValueError, match="Model must be specified"):
+        with pytest.raises(ValueError, match="model must be specified"):
             await gw.arun_chat_completion(config, MESSAGES)
 
     @pytest.mark.asyncio
     async def test_algorithm_exception_propagates(self):
         algo = MagicMock()
         algo.ainfer = AsyncMock(side_effect=RuntimeError("boom"))
-        gw = ITSGateway(algorithm=algo)
+        gw = ITSGateway()
         with (
-            patch.object(gw, "_get_or_create_lm", return_value=MagicMock()),
+            patch.object(gw, "_build_algorithm", return_value=algo),
+            _patch_build_lm(gw),
             pytest.raises(RuntimeError, match="boom"),
         ):
             await gw.arun_chat_completion(_make_config(), MESSAGES)
@@ -196,141 +267,190 @@ class TestRunChatCompletion:
     async def test_usage_empty_when_none(self):
         algo = MagicMock()
         algo.ainfer = AsyncMock(return_value=_make_result(usage=None))
-        gw = ITSGateway(algorithm=algo)
-        with patch.object(gw, "_get_or_create_lm", return_value=MagicMock()):
+        gw = ITSGateway()
+        with (
+            patch.object(gw, "_build_algorithm", return_value=algo),
+            _patch_build_lm(gw),
+        ):
             result = await gw.arun_chat_completion(_make_config(), MESSAGES)
         assert result["usage"] == {}
 
+    @pytest.mark.asyncio
+    async def test_temperature_forwarded_to_lm(self, llm_server):
+        gw = ITSGateway()
+        config = _make_config(api_endpoint=f"{llm_server}/v1", temperature=0.7)
+        await gw.arun_chat_completion(config, MESSAGES)
+        assert RecordingLLMHandler.received_bodies[-1].get("temperature") == 0.7
 
-class TestHashApiKey:
-    def test_same_key_same_hash(self):
-        assert ITSGateway._hash_api_key("sk-abc") == ITSGateway._hash_api_key("sk-abc")
+    @pytest.mark.asyncio
+    async def test_reconfigure_does_not_swap_in_flight_algorithm(self, llm_server):
+        """Reconfigure mid-request must not swap the algorithm used by the
+        in-flight request."""
+        gw = ITSGateway()
+        # `alg` is deliberately omitted from the per-request overlay so the
+        # algorithm is sourced from the (reconfigurable) service default —
+        # only then does a mid-flight /configure actually exercise the
+        # snapshot. With `alg` in the overlay, `result["alg"]` would be
+        # "self-consistency" regardless of any reconfigure.
+        base = ITSRequestConfigUpdate(
+            api_endpoint=f"{llm_server}/v1",
+            model="m",
+        )
+        gw.configure(base)
 
-    def test_different_keys_different_hash(self):
-        assert ITSGateway._hash_api_key("sk-abc") != ITSGateway._hash_api_key("sk-xyz")
+        RecordingLLMHandler.hold()
 
-    def test_none_key(self):
-        h = ITSGateway._hash_api_key(None)
-        assert isinstance(h, str)
-        assert len(h) == 16
+        task = asyncio.create_task(gw.arun_chat_completion(base, MESSAGES))
+        await RecordingLLMHandler.wait_for_bodies(1)
 
-    def test_hash_length(self):
-        assert len(ITSGateway._hash_api_key("sk-test")) == 16
+        gw.configure(
+            ITSRequestConfigUpdate(
+                alg="beta-self-consistency",
+            )
+        )
+
+        RecordingLLMHandler.release()
+        result = await task
+
+        assert result["alg"] == "self-consistency"
+        assert gw._default_config.alg == "beta-self-consistency"
 
 
 class TestConfigure:
     def test_configure_self_consistency(self):
-        gw = ITSGateway(algorithm=MagicMock())
+        gw = ITSGateway()
         gw.configure(
-            alg="self-consistency",
-            regex_patterns=[r"\\boxed{([^}]+)}"],
+            _make_config(alg="self-consistency", regex_patterns=[r"\\boxed{([^}]+)}"]),
         )
-        assert gw._algorithm_name == "SelfConsistency"
+        assert gw._default_config.alg == "self-consistency"
+        assert type(_algo(gw)).__name__ == "SelfConsistency"
 
     def test_configure_defaults_tool_vote_when_omitted(self):
-        """With neither regex nor tool_vote, the algorithm's DEFAULT_TOOL_VOTE applies."""
-        gw = ITSGateway(algorithm=MagicMock())
-        gw.configure(alg="self-consistency")
-        assert gw._algorithm.tool_vote == "tool_hierarchical"
+        gw = ITSGateway()
+        gw.configure(_make_config(alg="self-consistency"))
+        assert _algo(gw).tool_vote == "tool_hierarchical"
 
     def test_configure_with_tool_vote(self):
-        gw = ITSGateway(algorithm=MagicMock())
+        gw = ITSGateway()
         gw.configure(
-            alg="self-consistency",
-            regex_patterns=[r"\\boxed{([^}]+)}"],
-            tool_vote="tool_name",
-            exclude_tool_args=["timestamp"],
+            _make_config(
+                alg="self-consistency",
+                regex_patterns=[r"\\boxed{([^}]+)}"],
+                tool_vote="tool_name",
+                exclude_tool_args=["timestamp"],
+            ),
         )
-        assert gw._algorithm_name == "SelfConsistency"
+        algo = _algo(gw)
+        assert algo.tool_vote == "tool_name"
+        assert algo.exclude_args == ("timestamp",)
 
-    def test_configure_unsupported_algorithm(self):
-        gw = ITSGateway(algorithm=MagicMock())
+    def test_configure_tool_vote_persists_when_omitted(self):
+        """`None` means trickle down, so a /configure omitting tool_vote
+        cannot clear a previously-set value."""
+        gw = ITSGateway()
+        gw.configure(_make_config(alg="self-consistency", tool_vote="tool_name"))
+        gw.configure(_make_config(alg="self-consistency"))  # no tool_vote
+        assert _algo(gw).tool_vote == "tool_name"
+
+    def test_overlay_unsupported_algorithm(self):
+        gw = ITSGateway()
         with pytest.raises(ValueError, match="not supported"):
-            gw.configure(alg="beam-search")
+            gw.configure(_make_config(alg="beam-search"))
 
-    def test_configure_invalid_regex(self):
-        gw = ITSGateway(algorithm=MagicMock())
+    def test_overlay_invalid_regex(self):
+        gw = ITSGateway()
         with pytest.raises(ValueError, match="Invalid regex pattern"):
-            gw.configure(alg="self-consistency", regex_patterns=["[invalid("])
+            gw.configure(
+                _make_config(alg="self-consistency", regex_patterns=["[invalid("]),
+            )
 
     def test_configure_preserves_orchestrator(self):
         orch = MagicMock()
-        gw = ITSGateway(algorithm=MagicMock(), orchestrator=orch)
-        with patch("its_hub.core.gateway.SelfConsistency") as sc_cls:
-            sc_cls.return_value = MagicMock()
-            type(sc_cls.return_value).__name__ = "SelfConsistency"
-            gw.configure(
-                alg="self-consistency",
-                regex_patterns=[r"\\boxed{([^}]+)}"],
-            )
-            sc_cls.assert_called_once()
-            assert sc_cls.call_args.kwargs["orchestrator"] is orch
+        gw = ITSGateway(orchestrator=orch)
+        gw.configure(
+            _make_config(alg="self-consistency", regex_patterns=[r"\\boxed{([^}]+)}"]),
+        )
+        assert _algo(gw).orchestrator is orch
 
-    def test_configure_invalid_tool_vote(self):
-        gw = ITSGateway(algorithm=MagicMock())
+    def test_overlay_invalid_tool_vote(self):
+        gw = ITSGateway()
         with pytest.raises(ValueError, match="tool_vote must be one of"):
             gw.configure(
-                alg="self-consistency",
-                regex_patterns=[r"\\boxed{([^}]+)}"],
-                tool_vote="invalid",
+                _make_config(
+                    alg="self-consistency",
+                    regex_patterns=[r"\\boxed{([^}]+)}"],
+                    tool_vote="invalid",
+                ),
             )
 
+    def test_overlay_invalid_temperature(self):
+        gw = ITSGateway()
+        with pytest.raises(ValueError, match="temperature must be in"):
+            gw.configure(_make_config(temperature=3.0))
+
     def test_configure_adaptive_self_consistency(self):
-        gw = ITSGateway(algorithm=MagicMock())
+        gw = ITSGateway()
         gw.configure(
-            alg="adaptive-self-consistency",
-            regex_patterns=[r"\\boxed{([^}]+)}"],
+            _make_config(
+                alg="adaptive-self-consistency",
+                regex_patterns=[r"\\boxed{([^}]+)}"],
+            ),
         )
-        assert gw._algorithm_name == "AdaptiveSelfConsistency"
-        # Unset threshold falls back to the class default.
-        assert gw._algorithm.threshold == pytest.approx(0.75)
+        algo = _algo(gw)
+        assert type(algo).__name__ == "AdaptiveSelfConsistency"
+        assert algo.threshold == pytest.approx(0.75)
 
     def test_configure_adaptive_threshold_plumbed(self):
-        gw = ITSGateway(algorithm=MagicMock())
+        gw = ITSGateway()
         gw.configure(
-            alg="adaptive-self-consistency",
-            regex_patterns=[r"\\boxed{([^}]+)}"],
-            threshold=0.9,
+            _make_config(
+                alg="adaptive-self-consistency",
+                regex_patterns=[r"\\boxed{([^}]+)}"],
+                threshold=0.9,
+            ),
         )
-        assert gw._algorithm.threshold == pytest.approx(0.9)
+        assert _algo(gw).threshold == pytest.approx(0.9)
 
     def test_configure_beta_self_consistency(self):
-        gw = ITSGateway(algorithm=MagicMock())
+        gw = ITSGateway()
         gw.configure(
-            alg="beta-self-consistency",
-            regex_patterns=[r"\\boxed{([^}]+)}"],
+            _make_config(
+                alg="beta-self-consistency", regex_patterns=[r"\\boxed{([^}]+)}"]
+            ),
         )
-        assert gw._algorithm_name == "BetaSelfConsistency"
-        # Unset confidence_threshold falls back to the class default.
-        assert gw._algorithm.confidence_threshold == pytest.approx(0.95)
+        algo = _algo(gw)
+        assert type(algo).__name__ == "BetaSelfConsistency"
+        assert algo.confidence_threshold == pytest.approx(0.95)
 
     def test_configure_beta_confidence_threshold_plumbed(self):
-        gw = ITSGateway(algorithm=MagicMock())
+        gw = ITSGateway()
         gw.configure(
-            alg="beta-self-consistency",
-            regex_patterns=[r"\\boxed{([^}]+)}"],
-            confidence_threshold=0.8,
+            _make_config(
+                alg="beta-self-consistency",
+                regex_patterns=[r"\\boxed{([^}]+)}"],
+                confidence_threshold=0.8,
+            ),
         )
-        assert gw._algorithm.confidence_threshold == pytest.approx(0.8)
+        assert _algo(gw).confidence_threshold == pytest.approx(0.8)
 
     @pytest.mark.parametrize(
         "alg",
         ["adaptive-self-consistency", "beta-self-consistency"],
     )
     def test_configure_family_shares_tool_vote(self, alg):
-        """Adaptive/beta inherit the tool-vote voting surface from SelfConsistency."""
-        gw = ITSGateway(algorithm=MagicMock())
-        gw.configure(alg=alg, tool_vote="tool_name")
-        assert gw._algorithm.tool_vote == "tool_name"
+        gw = ITSGateway()
+        gw.configure(_make_config(alg=alg, tool_vote="tool_name"))
+        assert _algo(gw).tool_vote == "tool_name"
 
     def test_configure_preserves_orchestrator_for_family(self):
         orch = MagicMock()
-        gw = ITSGateway(algorithm=MagicMock(), orchestrator=orch)
+        gw = ITSGateway(orchestrator=orch)
         gw.configure(
-            alg="beta-self-consistency",
-            regex_patterns=[r"\\boxed{([^}]+)}"],
+            _make_config(
+                alg="beta-self-consistency", regex_patterns=[r"\\boxed{([^}]+)}"]
+            ),
         )
-        assert gw._algorithm.orchestrator is orch
+        assert _algo(gw).orchestrator is orch
 
 
 class TestSupportedAlgorithms:
@@ -350,7 +470,7 @@ class TestSupportedAlgorithms:
 class TestEndpointValidation:
     @pytest.mark.asyncio
     async def test_missing_endpoint_raises(self):
-        gw = ITSGateway(algorithm=MagicMock())
+        gw = ITSGateway()
         config = _make_config(api_endpoint="")
         with pytest.raises(ValueError, match="api_endpoint"):
             await gw.arun_chat_completion(config, MESSAGES)

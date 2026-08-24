@@ -168,6 +168,7 @@ and the pass-through fallback — is identical.
 - **Per-request configuration.** In Approach 1, all ITS parameters travel in `X-ITS-*` headers; no prior
   configuration is required. In Approach 2, the upstream LLM is configured once via `POST /configure`
   and each request supplies only its `budget` in the request body; `X-ITS-*` headers are also accepted
-  as per-request overrides (header > body > `/configure` default).
+  as per-request overrides. A field is applied if it is not `None`; otherwise the next tier down
+  (header > body > `/configure` default) supplies the value.
 - **Ports.** The values shown are defaults and may be changed: `:8108` (Envoy), `:50051` (ext_proc
   gRPC), `:8109` (IaaS service), and `:8100` (the upstream LLM / `llm_upstream`).

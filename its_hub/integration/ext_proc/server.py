@@ -82,8 +82,9 @@ async def serve(port: int = 50051):
         await server.wait_for_termination()
     except (KeyboardInterrupt, asyncio.CancelledError):
         logger.info("Received shutdown signal")
-        await processor.shutdown()
         await server.stop(grace=5)
+    finally:
+        await processor.gateway.aclose()
 
 
 def _print_config() -> None:

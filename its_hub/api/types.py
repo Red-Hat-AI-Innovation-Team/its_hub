@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, fields
+import re
+from dataclasses import dataclass, fields, replace
 from typing import Literal
 
 
@@ -18,7 +19,7 @@ class ChatMessage:
     """
 
     role: Literal["system", "user", "assistant", "tool"]
-    content: str | list[dict] | None
+    content: str | list[dict] | None = None
     tool_calls: list[dict] | None = None  # Store as plain dicts
     tool_call_id: str | None = None
 
@@ -164,26 +165,199 @@ class GenerationUsage:
         return self.prompt_tokens + self.completion_tokens
 
 
-@dataclass
-class ITSRequestConfig:
-    """Per-request configuration for ITS execution.
+SELF_CONSISTENCY_ALGORITHMS = frozenset(
+    {"self-consistency", "adaptive-self-consistency", "beta-self-consistency"}
+)
 
-    Can be constructed incrementally — headers provide budget/endpoint/api_key,
-    then model is set from the request body.
+# All currently supported algorithms are self-consistency variants.
+SUPPORTED_ALGORITHMS = SELF_CONSISTENCY_ALGORITHMS
+
+# Valid values for ITSRequestConfig.tool_vote / SelfConsistency.tool_vote.
+VALID_TOOL_VOTE_OPTIONS = frozenset(
+    {"tool_name", "tool_args", "tool_hierarchical", "tool_flat_all"}
+)
+
+
+def _validate_optional_fields(
+    budget: int | None,
+    alg: str | None,
+    regex_patterns: list[str] | None,
+    tool_vote: str | None,
+    threshold: float | None,
+    confidence_threshold: float | None,
+    temperature: float | None,
+) -> None:
+    """Validate the optional scaling fields. Shared by ITSRequestConfig and
+    ITSRequestConfigUpdate so the two cannot drift. Each check is guarded so
+    that ``None`` ("not supplied") is always accepted."""
+    if budget is not None and not (1 <= budget <= 1000):
+        raise ValueError("budget must be between 1 and 1000")
+    if alg is not None and alg not in SUPPORTED_ALGORITHMS:
+        raise ValueError(
+            f"Algorithm {alg!r} not supported. Choose from: {SUPPORTED_ALGORITHMS}"
+        )
+    if regex_patterns is not None:
+        for p in regex_patterns:
+            try:
+                re.compile(p)
+            except re.error as e:
+                raise ValueError(f"Invalid regex pattern {p!r}: {e}") from e
+    if threshold is not None and not (0.5 < threshold <= 1.0):
+        raise ValueError(f"threshold must be in (0.5, 1.0], got: {threshold}")
+    if confidence_threshold is not None and not (0.5 < confidence_threshold <= 1.0):
+        raise ValueError(
+            f"confidence_threshold must be in (0.5, 1.0], got: {confidence_threshold}"
+        )
+    if temperature is not None and not (0.0 <= temperature <= 2.0):
+        raise ValueError(f"temperature must be in [0.0, 2.0], got: {temperature}")
+    if tool_vote is not None and tool_vote not in VALID_TOOL_VOTE_OPTIONS:
+        raise ValueError(
+            f"tool_vote must be one of {VALID_TOOL_VOTE_OPTIONS}, got: {tool_vote}"
+        )
+
+
+def _freeze_list(value: list[str] | None) -> tuple[str, ...] | None:
+    """Copy a list into an immutable tuple; leave ``None`` unchanged."""
+    if value is None:
+        return None
+    return tuple(value)
+
+
+def _config_repr(obj: ITSRequestConfig | ITSRequestConfigUpdate) -> str:
+    return (
+        type(obj).__name__
+        + "("
+        + ", ".join(
+            f"{f.name}={'***' if f.name == 'api_key' else getattr(obj, f.name)!r}"
+            for f in fields(obj)
+        )
+        + ")"
+    )
+
+
+@dataclass(frozen=True)
+class ITSRequestConfig:
+    """A fully-resolved configuration snapshot, ready to drive one request.
+
+    ``api_endpoint`` and ``model`` are mandatory — constructing without them
+    raises. The remaining fields carry system defaults (``budget``, ``alg``,
+    ``api_key``) or are genuinely optional (``None`` is a meaningful "not set",
+    e.g. ``temperature=None`` means "don't send it upstream").
     """
 
-    budget: int
+    # LM target
     api_endpoint: str
-    model: str | None = None
+    model: str
     api_key: str | None = None
+    temperature: float | None = None
+    # Scaling parameters
+    budget: int = 4
+    alg: str = "self-consistency"
+    regex_patterns: tuple[str, ...] | None = None
+    tool_vote: str | None = None
+    exclude_tool_args: tuple[str, ...] | None = None
+    threshold: float | None = None
+    confidence_threshold: float | None = None
 
     def __post_init__(self):
-        if self.budget < 1 or self.budget > 1000:
-            raise ValueError("budget must be between 1 and 1000")
+        if not self.api_endpoint:
+            raise ValueError("api_endpoint must be specified")
+        if not self.model:
+            raise ValueError("model must be specified")
+        _validate_optional_fields(
+            self.budget,
+            self.alg,
+            self.regex_patterns,
+            self.tool_vote,
+            self.threshold,
+            self.confidence_threshold,
+            self.temperature,
+        )
+        # frozen=True blocks attribute rebinding, not mutation of a referenced
+        # list. Copy these into tuples so neither the source list nor the
+        # snapshot can be mutated after validation to affect an in-flight request.
+        object.__setattr__(self, "regex_patterns", _freeze_list(self.regex_patterns))
+        object.__setattr__(
+            self, "exclude_tool_args", _freeze_list(self.exclude_tool_args)
+        )
 
     def __repr__(self) -> str:
-        return (
-            f"ITSRequestConfig(budget={self.budget}, "
-            f"api_endpoint='{self.api_endpoint}', "
-            f"model={self.model!r}, api_key={'***' if self.api_key else None})"
+        return _config_repr(self)
+
+
+@dataclass
+class ITSRequestConfigUpdate:
+    """A partial configuration overlay.
+
+    Every field is ``Optional``: ``None`` means "not supplied — keep the value
+    below in the merge hierarchy". Because of this, ``tool_vote`` cannot be
+    cleared back to its default once set (pass the new value, or
+    ``"tool_hierarchical"`` explicitly); ``regex_patterns`` and
+    ``exclude_tool_args`` can be cleared by passing ``[]``.
+
+    Use :meth:`merge` to layer one update over another, and :meth:`resolve` to
+    materialize a complete :class:`ITSRequestConfig`; mandatory-field presence
+    is enforced by :class:`ITSRequestConfig` at construction time.
+    """
+
+    # LM target
+    api_endpoint: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    temperature: float | None = None
+    # Scaling parameters
+    budget: int | None = None
+    alg: str | None = None
+    regex_patterns: list[str] | None = None
+    tool_vote: str | None = None
+    exclude_tool_args: list[str] | None = None
+    threshold: float | None = None
+    confidence_threshold: float | None = None
+
+    def __post_init__(self):
+        _validate_optional_fields(
+            self.budget,
+            self.alg,
+            self.regex_patterns,
+            self.tool_vote,
+            self.threshold,
+            self.confidence_threshold,
+            self.temperature,
+        )
+
+    def __repr__(self) -> str:
+        return _config_repr(self)
+
+    def merge(self, overlay: ITSRequestConfigUpdate) -> ITSRequestConfigUpdate:
+        """Return a copy of ``self`` with non-``None`` fields of ``overlay``
+        applied. ``replace()`` re-fires ``__post_init__``, so the result is
+        format-validated."""
+        return replace(
+            self,
+            **{
+                f.name: getattr(overlay, f.name)
+                for f in fields(overlay)
+                if getattr(overlay, f.name) is not None
+            },
+        )
+
+    def resolve(self) -> ITSRequestConfig:
+        """Materialize a complete :class:`ITSRequestConfig`.
+
+        Optional fields are forwarded only when non-``None``; otherwise
+        the resolved config's defaults (``budget=4``,
+        ``alg="self-consistency"``, ``api_key=None``) apply. Mandatory-field
+        presence (``api_endpoint``, ``model``) is enforced by
+        :class:`ITSRequestConfig` itself at construction time.
+        """
+        optionals = {
+            f.name: getattr(self, f.name)
+            for f in fields(self)
+            if f.name not in {"api_endpoint", "model"}
+            and getattr(self, f.name) is not None
+        }
+        return ITSRequestConfig(
+            api_endpoint=self.api_endpoint,
+            model=self.model,
+            **optionals,
         )

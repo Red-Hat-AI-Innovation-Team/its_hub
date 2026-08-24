@@ -10,13 +10,11 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 
 from fastapi import FastAPI, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 
-from its_hub.api.types import ITSRequestConfig
-from its_hub.core.algorithms.self_consistency import SelfConsistency
+from its_hub.api.types import ITSRequestConfigUpdate
 from its_hub.core.gateway import ITSGateway
 from its_hub.integration.iaas.models import (
     ChatCompletionChoice,
@@ -29,28 +27,14 @@ from its_hub.integration.iaas.models import (
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class _ServiceConfig:
-    """Mutable service-level defaults set via /configure."""
-
-    endpoint: str = ""
-    model: str = ""
-    api_key: str | None = None
-    budget: int = 4
-    temperature: float | None = None
-    alg: str = "self-consistency"
-
-
 class _ServiceState:
     """Encapsulates all mutable service state (replaces module-level globals)."""
 
     def __init__(self):
-        self.gateway: ITSGateway = ITSGateway(algorithm=SelfConsistency())
-        self.config = _ServiceConfig()
+        self.gateway: ITSGateway = ITSGateway()
 
     def reset(self):
-        self.gateway = ITSGateway(algorithm=SelfConsistency())
-        self.config = _ServiceConfig()
+        self.gateway = ITSGateway()
 
 
 _state = _ServiceState()
@@ -59,7 +43,7 @@ _state = _ServiceState()
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
     yield
-    await _state.gateway.ashutdown()
+    await _state.gateway.aclose()
 
 
 app = FastAPI(
@@ -75,26 +59,19 @@ def _build_its_config(
     its_budget: int | None = None,
     its_endpoint: str | None = None,
     its_api_key: str | None = None,
-) -> ITSRequestConfig:
-    """Build ITSRequestConfig merging headers, body, and service defaults.
+) -> ITSRequestConfigUpdate:
+    """Build a per-request ITSRequestConfigUpdate overlay.
 
-    Priority: header > body > service default.
+    Only per-request fields (header > body) are populated; service-default
+    fields are left ``None`` for the gateway to merge.
     """
-    if its_budget is not None:
-        budget = its_budget
-    elif request.budget is not None:
-        budget = request.budget
-    else:
-        budget = _state.config.budget
-
-    api_endpoint = its_endpoint or _state.config.endpoint
-    api_key = its_api_key if its_api_key is not None else _state.config.api_key
-
-    return ITSRequestConfig(
+    budget = its_budget if its_budget is not None else request.budget
+    return ITSRequestConfigUpdate(
         budget=budget,
-        api_endpoint=api_endpoint,
+        api_endpoint=its_endpoint,
+        api_key=its_api_key,
         model=request.model,
-        api_key=api_key,
+        temperature=request.temperature,
     )
 
 
@@ -102,7 +79,12 @@ def _build_its_config(
 async def config_service(request: ConfigRequest) -> dict[str, str]:
     """Configure the IaaS service with language model and scaling algorithm."""
     try:
-        _state.gateway.configure(
+        config = ITSRequestConfigUpdate(
+            budget=request.budget,
+            api_endpoint=request.endpoint,
+            api_key=request.api_key,
+            model=request.model,
+            temperature=request.temperature,
             alg=request.alg,
             regex_patterns=request.regex_patterns,
             tool_vote=request.tool_vote,
@@ -110,20 +92,14 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
             threshold=request.threshold,
             confidence_threshold=request.confidence_threshold,
         )
-        _state.config.endpoint = request.endpoint
-        _state.config.model = request.model
-        _state.config.api_key = request.api_key
-        _state.config.alg = request.alg
-        if request.budget is not None:
-            _state.config.budget = request.budget
-        if request.temperature is not None:
-            _state.config.temperature = request.temperature
+        _state.gateway.configure(config)
 
+        resolved = _state.gateway._default_config
         logger.info(
             "Configured IaaS: model=%s, alg=%s, budget=%s",
-            request.model,
-            request.alg,
-            _state.config.budget,
+            resolved.model,
+            resolved.alg,
+            resolved.budget,
         )
         return {
             "status": "success",
@@ -145,11 +121,12 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
 @app.get("/v1/models")
 async def list_models() -> dict[str, list[dict[str, str]]]:
     """List available models (OpenAI-compatible endpoint)."""
-    if _state.config.model:
+    model = _state.gateway._default_config.model
+    if model:
         return {
             "data": [
                 {
-                    "id": _state.config.model,
+                    "id": model,
                     "object": "model",
                     "owned_by": "its_hub",
                 }
@@ -202,7 +179,7 @@ async def chat_completions(
         metadata = None
         if not request.return_response_only:
             metadata = {
-                "algorithm": _state.config.alg,
+                "algorithm": result["alg"],
                 "all_responses": result.get("responses"),
                 "response_counts": result.get("response_counts"),
                 "selected_index": result.get("selected_index"),
@@ -253,7 +230,7 @@ async def _stream_chat_completions(
 
         its_config = _build_its_config(request, its_budget, its_endpoint, its_api_key)
 
-        if not its_config.api_endpoint:
+        if not (its_config.api_endpoint or _state.gateway._default_config.api_endpoint):
             yield f"data: {json.dumps({'error': 'Service not configured'})}\n\n"
             yield "data: [DONE]\n\n"
             return

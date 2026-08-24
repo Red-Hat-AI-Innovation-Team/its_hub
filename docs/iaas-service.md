@@ -34,8 +34,9 @@ used.
 | Request body | `budget` | Compute budget | 2 |
 | `/configure` | `budget`, `endpoint`, `api_key` | Service defaults | 3 (lowest) |
 
-Priority chain: **header > body > service default**. Headers are intended for Envoy
-ext_proc routing but are also accepted on the standalone IaaS endpoint.
+Priority chain: **header > body > service default**. A field is applied if it is
+not `None`; otherwise the next tier down supplies the value. Headers are intended for
+Envoy ext_proc routing but are also accepted on the standalone IaaS endpoint.
 
 ### Algorithm Selection
 
@@ -57,6 +58,12 @@ tool calls using the `tool_hierarchical` strategy, and text responses fall back 
 exact-content matching. Supply `regex_patterns` to vote on extracted text answers, or
 set `tool_vote` to pick a different tool-voting strategy.
 
+> **Note on clearing optional fields.** Because `None` means "use the tier below," a
+> `/configure` call cannot explicitly reset `tool_vote` back to its default once set.
+> To switch voting strategies, supply the new value; to revert to the built-in default
+> (`tool_hierarchical`), pass `"tool_hierarchical"` explicitly. `regex_patterns` and
+> `exclude_tool_args` can be cleared by passing an empty list (`[]`).
+
 ## API Key Handling
 
 API keys can enter the system through three paths:
@@ -69,11 +76,12 @@ API keys can enter the system through three paths:
 **Security properties:**
 
 - Keys are **never logged** — the gateway logs endpoint and model but not credentials
-- Keys are **hashed** (SHA-256, truncated to 16 hex chars) in LM cache keys to prevent
-  credential cross-contamination between requests using different API keys
-- Keys are **not persisted** to disk — they exist only in memory for the lifetime of the
-  service process
-- On shutdown, all cached LM clients (and their associated keys) are cleared
+- Keys are **not persisted** to disk. A key supplied via the `X-ITS-API-Key` header is
+  request-scoped: it lives only for that request's LM client, which is closed when the
+  request completes. A key set via `/configure` remains in memory as a service default
+  (`ITSGateway._default_config`) until replaced or the process restarts.
+- Keys are **never shared between requests** — each request builds its own LM client, so
+  credentials supplied via header or `/configure` cannot cross-contaminate
 
 ## Prerequisites
 
@@ -181,7 +189,7 @@ All configurations support:
 - `endpoint`: OpenAI-compatible API endpoint URL
 - `api_key`: API key for the provider
 - `model`: Model identifier
-- `alg`: Algorithm name - `"self-consistency"` or `"best-of-n"`
+- `alg`: Algorithm name - `"self-consistency"`, `"adaptive-self-consistency"`, or `"beta-self-consistency"`
 
 ## Usage Examples
 
@@ -429,15 +437,15 @@ arrives as a burst rather than incrementally.
 
 ## Restart and Scaling
 
-- **State**: The service holds an in-memory LM client cache (LRU, default 64 entries),
-  a gateway instance, and the service config set via `/configure`. No state is persisted
+- **State**: The service holds a gateway instance and the service config set via
+  `/configure`. LM clients are created and discarded per request. No state is persisted
   to disk.
-- **Restart**: Restarting clears all cached LM clients and the service config.
-  `/configure` must be called again after restart.
+- **Restart**: Restarting clears the service config. `/configure` must be called again
+  after restart.
 - **Horizontal scaling**: Multiple IaaS instances can run independently. Each maintains
-  its own LM client cache, config, and gateway. There is no shared state between
-  instances. A load balancer must route `/configure` to all instances or each instance
-  must be configured independently.
+  its own config and gateway. There is no shared state between instances. A load
+  balancer must route `/configure` to all instances or each instance must be configured
+  independently.
 
 ## API Endpoints
 
@@ -450,7 +458,6 @@ arrives as a burst rather than incrementally.
 
 ### Health Check
 - `GET /docs` - API documentation
-- `GET /health` - Service health (if available)
 
 ## Troubleshooting
 
@@ -489,7 +496,7 @@ curl -X GET http://localhost:8109/docs
 **5. Slow Responses**
 - This is expected behavior for inference-time scaling
 - Reduce `budget` parameter for faster responses
-- Best-of-N with budget=4 typically takes 30-60 seconds
+- Self-consistency with budget=4 typically takes 30-60 seconds
 
 ### Log Files
 
