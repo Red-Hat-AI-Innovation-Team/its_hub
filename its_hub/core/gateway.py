@@ -68,7 +68,7 @@ class ITSGateway(AbstractGateway):
         # them. System defaults (budget=4, alg="self-consistency") are NOT
         # stored here — they live on ITSRequestConfig and are injected at
         # resolve() time.
-        self.default_config = default_config or ITSRequestConfigUpdate()
+        self._default_config = default_config or ITSRequestConfigUpdate()
         self._ssl_context = ssl.create_default_context(cafile=certifi.where())
         # One connection pool per upstream endpoint
         self._connector_pool: dict[str, aiohttp.TCPConnector] = {}
@@ -81,9 +81,9 @@ class ITSGateway(AbstractGateway):
         by ``merge``); not completeness-validated — ``api_endpoint``/``model``
         may remain absent until a request supplies them.
         """
-        self.default_config = self.default_config.merge(update)
+        self._default_config = self._default_config.merge(update)
         logger.info(
-            "ITSGateway reconfigured with default alg=%s", self.default_config.alg
+            "ITSGateway reconfigured with default alg=%s", self._default_config.alg
         )
 
     def _build_algorithm(self, config: ITSRequestConfig) -> AbstractScalingAlgorithm:
@@ -167,7 +167,7 @@ class ITSGateway(AbstractGateway):
         # (raises ValueError if api_endpoint/model are still absent). Nothing
         # on `self` is mutated, so a concurrent /configure cannot swap the
         # algorithm or close this request's HTTP session mid-flight.
-        resolved = self.default_config.merge(config).resolve()
+        resolved = self._default_config.merge(config).resolve()
 
         algorithm = self._build_algorithm(resolved)
         lm = self._build_lm(resolved, request_id)

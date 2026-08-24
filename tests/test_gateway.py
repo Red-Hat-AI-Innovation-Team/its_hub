@@ -54,7 +54,7 @@ def _patch_build_lm(gw):
 
 
 def _algo(gw):
-    return gw._build_algorithm(gw.default_config.resolve())
+    return gw._build_algorithm(gw._default_config.resolve())
 
 
 class TestGatewayConstruction:
@@ -63,7 +63,7 @@ class TestGatewayConstruction:
         assert gw._orchestrator is not None
         # Stored default is partial; system defaults (alg, budget) materialize
         # at resolve() time on ITSRequestConfig.
-        resolved = gw.default_config.merge(
+        resolved = gw._default_config.merge(
             ITSRequestConfigUpdate(api_endpoint="http://x/v1", model="m")
         ).resolve()
         assert resolved.alg == "self-consistency"
@@ -77,8 +77,8 @@ class TestGatewayConstruction:
             api_key="k",
         )
         gw = ITSGateway(default_config=config)
-        assert gw.default_config is config
-        assert gw.default_config.alg == "beta-self-consistency"
+        assert gw._default_config is config
+        assert gw._default_config.alg == "beta-self-consistency"
 
     def test_custom_orchestrator_passed_to_algorithm(self):
         orch = MagicMock()
@@ -313,7 +313,7 @@ class TestRunChatCompletion:
         result = await task
 
         assert result["alg"] == "self-consistency"
-        assert gw.default_config.alg == "beta-self-consistency"
+        assert gw._default_config.alg == "beta-self-consistency"
 
 
 class TestConfigure:
@@ -322,7 +322,7 @@ class TestConfigure:
         gw.configure(
             _make_config(alg="self-consistency", regex_patterns=[r"\\boxed{([^}]+)}"]),
         )
-        assert gw.default_config.alg == "self-consistency"
+        assert gw._default_config.alg == "self-consistency"
         assert type(_algo(gw)).__name__ == "SelfConsistency"
 
     def test_configure_defaults_tool_vote_when_omitted(self):

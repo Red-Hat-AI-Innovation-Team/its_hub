@@ -46,11 +46,11 @@ def vllm_endpoint(vllm_server):
 
 
 def _install_mock_gateway(mock_return=None, side_effect=None, default=None):
-    """Replace _state.gateway with a mock, preserving default_config for merging."""
+    """Replace _state.gateway with a mock, preserving _default_config for merging."""
     if default is None:
-        default = _state.gateway.default_config
+        default = _state.gateway._default_config
     mock_gw = MagicMock()
-    mock_gw.default_config = default
+    mock_gw._default_config = default
     if side_effect:
         mock_gw.arun_chat_completion = AsyncMock(side_effect=side_effect)
     else:
@@ -171,9 +171,9 @@ class TestConfiguration:
         assert response.status_code == 200
         assert _state.gateway is not None
         assert (
-            _state.gateway.default_config.model == TEST_CONSTANTS["DEFAULT_MODEL_NAME"]
+            _state.gateway._default_config.model == TEST_CONSTANTS["DEFAULT_MODEL_NAME"]
         )
-        assert _state.gateway.default_config.api_endpoint == vllm_endpoint
+        assert _state.gateway._default_config.api_endpoint == vllm_endpoint
 
     def test_configure_without_api_key(self, iaas_client, vllm_endpoint):
         """A no-auth local endpoint can be configured without an api_key."""
@@ -185,7 +185,7 @@ class TestConfiguration:
         response = iaas_client.post("/configure", json=config)
         assert response.status_code == 200
         assert _state.gateway is not None
-        assert _state.gateway.default_config.api_key is None
+        assert _state.gateway._default_config.api_key is None
 
     def test_models_endpoint_after_configure(self, iaas_client, vllm_endpoint):
         config = {
@@ -275,7 +275,7 @@ class TestSelfConsistencyToolVote:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
-            _state.gateway._build_algorithm(_state.gateway.default_config)
+            _state.gateway._build_algorithm(_state.gateway._default_config)
             mock_sc.assert_called_once()
             call_args = mock_sc.call_args
             assert call_args.kwargs["tool_vote"] == "tool_hierarchical"
@@ -300,7 +300,7 @@ class TestAdaptiveAndBetaSelfConsistency:
         response = iaas_client.post("/configure", json=config)
         assert response.status_code == 200
         assert "success" in response.json()["status"]
-        assert _state.gateway.default_config.alg == alg
+        assert _state.gateway._default_config.alg == alg
 
     def test_adaptive_threshold_forwarded_to_algorithm(
         self, iaas_client, vllm_endpoint
@@ -317,7 +317,7 @@ class TestAdaptiveAndBetaSelfConsistency:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
-            _state.gateway._build_algorithm(_state.gateway.default_config)
+            _state.gateway._build_algorithm(_state.gateway._default_config)
             mock_alg.assert_called_once()
             assert mock_alg.call_args.kwargs["threshold"] == 0.9
 
@@ -336,7 +336,7 @@ class TestAdaptiveAndBetaSelfConsistency:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
-            _state.gateway._build_algorithm(_state.gateway.default_config)
+            _state.gateway._build_algorithm(_state.gateway._default_config)
             mock_alg.assert_called_once()
             assert mock_alg.call_args.kwargs["confidence_threshold"] == 0.8
 
@@ -353,7 +353,7 @@ class TestAdaptiveAndBetaSelfConsistency:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
-            _state.gateway._build_algorithm(_state.gateway.default_config)
+            _state.gateway._build_algorithm(_state.gateway._default_config)
             assert "threshold" not in mock_alg.call_args.kwargs
 
     @pytest.mark.parametrize(
@@ -390,7 +390,7 @@ class TestAdaptiveAndBetaSelfConsistency:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
-            _state.gateway._build_algorithm(_state.gateway.default_config)
+            _state.gateway._build_algorithm(_state.gateway._default_config)
             assert mock_alg.call_args.kwargs["tool_vote"] == "tool_hierarchical"
             assert mock_alg.call_args.kwargs["exclude_args"] == ["timestamp"]
 

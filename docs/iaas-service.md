@@ -79,7 +79,7 @@ API keys can enter the system through three paths:
 - Keys are **not persisted** to disk. A key supplied via the `X-ITS-API-Key` header is
   request-scoped: it lives only for that request's LM client, which is closed when the
   request completes. A key set via `/configure` remains in memory as a service default
-  (`ITSGateway.default_config`) until replaced or the process restarts.
+  (`ITSGateway._default_config`) until replaced or the process restarts.
 - Keys are **never shared between requests** — each request builds its own LM client, so
   credentials supplied via header or `/configure` cannot cross-contaminate
 

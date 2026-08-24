@@ -94,7 +94,7 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
         )
         _state.gateway.configure(config)
 
-        resolved = _state.gateway.default_config
+        resolved = _state.gateway._default_config
         logger.info(
             "Configured IaaS: model=%s, alg=%s, budget=%s",
             resolved.model,
@@ -121,7 +121,7 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
 @app.get("/v1/models")
 async def list_models() -> dict[str, list[dict[str, str]]]:
     """List available models (OpenAI-compatible endpoint)."""
-    model = _state.gateway.default_config.model
+    model = _state.gateway._default_config.model
     if model:
         return {
             "data": [
@@ -230,7 +230,7 @@ async def _stream_chat_completions(
 
         its_config = _build_its_config(request, its_budget, its_endpoint, its_api_key)
 
-        if not (its_config.api_endpoint or _state.gateway.default_config.api_endpoint):
+        if not (its_config.api_endpoint or _state.gateway._default_config.api_endpoint):
             yield f"data: {json.dumps({'error': 'Service not configured'})}\n\n"
             yield "data: [DONE]\n\n"
             return
