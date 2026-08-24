@@ -302,3 +302,5 @@ class ITSGateway(AbstractGateway):
         for lm in self._lm_cache.values():
             await lm.close()
         self._lm_cache.clear()
+        if hasattr(self._orchestrator, "shutdown"):
+            self._orchestrator.shutdown()

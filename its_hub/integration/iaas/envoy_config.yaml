@@ -115,7 +115,8 @@ static_resources:
                   prefix: "/"
                   headers:
                   - name: X-ITS-Route
-                    exact_match: "its-service"
+                    string_match:
+                      exact: "its-service"
                 route:
                   cluster: iaas_upstream
                   timeout: 300s  # **CUSTOMIZE**: Timeout for ITS processing
