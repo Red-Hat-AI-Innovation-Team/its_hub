@@ -38,6 +38,9 @@ class _ThreadSafeAsyncSemaphore:
     def release(self):
         self._sem.release()
 
+    def shutdown(self):
+        self._executor.shutdown(wait=True)
+
     async def __aenter__(self):
         await self.acquire()
         return self
@@ -68,6 +71,10 @@ class LMOrchestrator(AbstractOrchestrator):
             if max_concurrency != -1
             else None
         )
+
+    def shutdown(self):
+        if self._semaphore is not None:
+            self._semaphore.shutdown()
 
     async def agenerate(
         self,
