@@ -275,7 +275,7 @@ class TestSelfConsistencyToolVote:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
-            _state.gateway._build_algorithm(_state.gateway._default_config)
+            _state.gateway._build_algorithm(_state.gateway._default_config.resolve())
             mock_sc.assert_called_once()
             call_args = mock_sc.call_args
             assert call_args.kwargs["tool_vote"] == "tool_hierarchical"
@@ -317,7 +317,7 @@ class TestAdaptiveAndBetaSelfConsistency:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
-            _state.gateway._build_algorithm(_state.gateway._default_config)
+            _state.gateway._build_algorithm(_state.gateway._default_config.resolve())
             mock_alg.assert_called_once()
             assert mock_alg.call_args.kwargs["threshold"] == 0.9
 
@@ -336,7 +336,7 @@ class TestAdaptiveAndBetaSelfConsistency:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
-            _state.gateway._build_algorithm(_state.gateway._default_config)
+            _state.gateway._build_algorithm(_state.gateway._default_config.resolve())
             mock_alg.assert_called_once()
             assert mock_alg.call_args.kwargs["confidence_threshold"] == 0.8
 
@@ -353,7 +353,7 @@ class TestAdaptiveAndBetaSelfConsistency:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
-            _state.gateway._build_algorithm(_state.gateway._default_config)
+            _state.gateway._build_algorithm(_state.gateway._default_config.resolve())
             assert "threshold" not in mock_alg.call_args.kwargs
 
     @pytest.mark.parametrize(
@@ -390,7 +390,7 @@ class TestAdaptiveAndBetaSelfConsistency:
             }
             response = iaas_client.post("/configure", json=config)
             assert response.status_code == 200
-            _state.gateway._build_algorithm(_state.gateway._default_config)
+            _state.gateway._build_algorithm(_state.gateway._default_config.resolve())
             assert mock_alg.call_args.kwargs["tool_vote"] == "tool_hierarchical"
             assert mock_alg.call_args.kwargs["exclude_args"] == ["timestamp"]
 
