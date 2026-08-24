@@ -282,8 +282,8 @@ class ITSRequestConfigUpdate:
     ``exclude_tool_args`` can be cleared by passing ``[]``.
 
     Use :meth:`merge` to layer one update over another, and :meth:`resolve` to
-    materialize a complete :class:`ITSRequestConfig` (the only point at which
-    mandatory-field presence is checked).
+    materialize a complete :class:`ITSRequestConfig`; mandatory-field presence
+    is enforced by :class:`ITSRequestConfig` at construction time.
     """
 
     # LM target
@@ -330,16 +330,12 @@ class ITSRequestConfigUpdate:
     def resolve(self) -> ITSRequestConfig:
         """Materialize a complete :class:`ITSRequestConfig`.
 
-        Raises ``ValueError`` if ``api_endpoint`` or ``model`` are absent;
-        this is the single point at which mandatory-field presence is
-        checked. Optional fields are forwarded only when non-``None``;
-        otherwise the resolved config's defaults (``budget=4``,
-        ``alg="self-consistency"``, ``api_key=None``) apply.
+        Optional fields are forwarded only when non-``None``; otherwise
+        the resolved config's defaults (``budget=4``,
+        ``alg="self-consistency"``, ``api_key=None``) apply. Mandatory-field
+        presence (``api_endpoint``, ``model``) is enforced by
+        :class:`ITSRequestConfig` itself at construction time.
         """
-        if not self.api_endpoint:
-            raise ValueError("api_endpoint must be specified")
-        if not self.model:
-            raise ValueError("model must be specified")
         optionals = {
             f.name: getattr(self, f.name)
             for f in fields(self)
