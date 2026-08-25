@@ -190,6 +190,18 @@ results/
 
 .its-hub/
 .claude/worktrees/
+.lattice/*
+!.lattice/packs/
+!.lattice/scope-map.yaml
+!.lattice/version.yaml
+!.lattice/*.md
+!.lattice/bin/
+# Working-history / meta-harness notes are kept locally but never committed;
+# the committed lattice reflects only current state.
+.lattice/history/
+# but never track runtime traces or bytecode
+.lattice/traces/
+.lattice/bin/__pycache__/
 
 # Generated Envoy proto files
 its_hub/integration/proto/

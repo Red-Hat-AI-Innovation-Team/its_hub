@@ -1,0 +1,310 @@
+name: praxis-domain
+layer: domain
+portable: true
+metadata:
+  description: "Praxis proxy framework domain rules"
+  domain: "High-performance, security-first proxy framework with composable filter pipeline"
+  repository: "praxis-proxy/praxis"
+
+rules:
+  # ---------------------------------------------------------------------------
+  # Checks (deterministic gates)
+  # ---------------------------------------------------------------------------
+
+  - id: PRAXIS-CHK-001
+    kind: check
+    statement: >
+      Example configs must have matching integration tests. Every config file in
+      examples/configs/ must have a corresponding functional integration test in
+      tests/integration/tests/suite/examples/. The xtask lint-example-tests
+      command enforces this. Run `cargo xtask sync-example-readme --fix` to
+      regenerate examples/README.md.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    provenance:
+      - type: config-import
+        link: "Makefile lint target"
+        note: "cargo xtask lint-example-tests runs in CI lint step"
+      - type: doc-citation
+        link: "docs/developing/conventions.md — Testing"
+        note: "A feature without tests and an example is not complete"
+      - type: mined-review
+        link: "PR #861 — fix(filter): reject unknown fields in empty filter configs"
+        note: "Review called out missing filter-level rejection tests; factory tests alone insufficient"
+
+  - id: PRAXIS-CHK-002
+    kind: check
+    statement: >
+      Filter documentation must be auto-generated and kept in sync. Run
+      `cargo xtask generate-filter-docs` to regenerate per-filter markdown
+      under docs/filters/ and the reference table at docs/filters/reference.md.
+      The xtask lint-filter-docs command verifies sync in CI.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    provenance:
+      - type: config-import
+        link: "Makefile lint/generate-filter-docs targets"
+        note: "cargo xtask lint-filter-docs in lint; cargo xtask generate-filter-docs for regeneration"
+      - type: doc-citation
+        link: "docs/developing/adding-filters.md step 7"
+        note: "Run cargo xtask generate-filter-docs to regenerate filter docs"
+
+  - id: PRAXIS-CHK-003
+    kind: check
+    statement: >
+      Container image must build cleanly. CI builds via Containerfile with
+      podman or docker. Test container builds via Containerfile.test for
+      running the test suite in an isolated environment.
+    scope: "**"
+    state: warn-only
+    tier: deep
+    provenance:
+      - type: config-import
+        link: "Makefile container/test-container targets"
+        note: "Container build and test-container targets in Makefile"
+      - type: config-import
+        link: ".github/workflows/container.yaml"
+        note: "CI builds container image on push/PR to main"
+
+  - id: PRAXIS-CHK-004
+    kind: check
+    statement: >
+      Crate packaging must validate for crates.io publication. Run
+      `make publish-dry-run` to verify all workspace crates package cleanly.
+      Publish order: praxis-proxy-tls, praxis-proxy-core, praxis-proxy-filter,
+      praxis-proxy-protocol, praxis-proxy.
+    scope: "**"
+    state: warn-only
+    tier: deep
+    provenance:
+      - type: config-import
+        link: "Makefile publish-dry-run target"
+        note: "Ordered crate packaging validation for all workspace crates"
+      - type: config-import
+        link: ".github/workflows/publish-dry-run.yaml"
+        note: "CI runs publish-dry-run workflow"
+
+  # ---------------------------------------------------------------------------
+  # Instructions (guidance)
+  # ---------------------------------------------------------------------------
+
+  - id: PRAXIS-INS-001
+    kind: instruction
+    statement: >
+      Filter-first architecture: every behavior is a filter. Built-in filters
+      use the same HttpFilter and TcpFilter traits as user-provided filters.
+      Filters are organized by protocol (http/tcp) and category
+      (observability, security, traffic_management, transformation,
+      payload_processing) under filter/src/builtins/.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "docs/architecture/overview.md — Filter-First Design"
+        note: "Everything is a filter; built-in and user filters use same traits"
+      - type: doc-citation
+        link: "docs/architecture/crate-layout.md"
+        note: "filter/src/builtins organized by protocol and category"
+
+  - id: PRAXIS-INS-002
+    kind: instruction
+    statement: >
+      Crate responsibility separation: praxis (binary entrypoint), praxis-core
+      (config, validation, errors), praxis-filter (pipeline engine, filter
+      traits, builtins), praxis-protocol (protocol adapters to Pingora),
+      praxis-tls (TLS config and runtime). Each crate has a single responsibility.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "docs/architecture/crate-layout.md — Workspace Crates"
+        note: "Five main crates with clear responsibility separation"
+      - type: config-import
+        link: "Cargo.toml [workspace] members"
+        note: "Workspace members: server, core, filter, protocol, tls plus test/tool crates"
+
+  - id: PRAXIS-INS-003
+    kind: instruction
+    statement: >
+      Use #[serde(deny_unknown_fields)] on all config structs by default.
+      Use enums over strings for fixed value sets. Use structs over maps for
+      known key sets. Use enums over multiple Option<T> fields when exactly
+      one must be set. Make invalid states unrepresentable at the type level.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "docs/developing/type-design.md"
+        note: "Full type design guide: deny_unknown_fields, enums over strings, structs over maps"
+      - type: mined-review
+        link: "PR #861 — reject unknown fields in empty filter configs"
+        note: "Added EmptyFilterConfig with deny_unknown_fields for no-config filters"
+
+  - id: PRAXIS-INS-004
+    kind: instruction
+    statement: >
+      New filters must follow the complete checklist: (1) implement HttpFilter
+      or TcpFilter trait, (2) add from_config factory, (3) register in
+      filter/src/registry.rs, (4) add unit tests and doctests, (5) add example
+      config in examples/configs/, (6) add integration test in
+      tests/integration/tests/suite/examples/, (7) run generate-filter-docs,
+      (8) run sync-example-readme.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "docs/developing/adding-filters.md"
+        note: "8-step checklist for adding built-in filters"
+      - type: doc-citation
+        link: "docs/developing/conventions.md — Testing"
+        note: "A feature without tests and an example is not complete"
+
+  - id: PRAXIS-INS-005
+    kind: instruction
+    statement: >
+      New capabilities require all of: unit tests, integration tests, an
+      example config, a functional integration test for the example config,
+      example README sync, and benchmarks for significant changes. This is
+      not optional. Prefer assertion messages over inline comments in tests.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "docs/developing/conventions.md — Testing"
+        note: "5-point testing requirement plus benchmarks for significant changes"
+      - type: mined-review
+        link: "PR #824 — add HTTP Basic Authentication filter"
+        note: "Review required: multi-credential testing, header stripping verification, integration test for example config"
+      - type: mined-review
+        link: "PR #861 — reject unknown fields in empty filter configs"
+        note: "Review: missing per-filter rejection tests; factory tests alone insufficient"
+
+  - id: PRAXIS-INS-006
+    kind: instruction
+    statement: >
+      Sensitive values must use SecretString (from the zeroize crate) for
+      in-memory representation. Expose secrets only at the injection boundary.
+      Borrow rather than clone secret values. Never log or serialize secret
+      values in plaintext.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: mined-review
+        link: "PR #815 — protect inline credential config values"
+        note: "Migrated inline credential values from String to SecretString; expose only at injection boundary"
+      - type: config-import
+        link: "Cargo.toml [workspace.dependencies]"
+        note: "zeroize = 1.9.0 in workspace dependencies"
+
+  - id: PRAXIS-INS-007
+    kind: instruction
+    statement: >
+      Config validation must happen at parse time, not runtime. Use
+      #[serde(try_from)] for constrained numerics, custom Deserialize impls
+      for complex invariants, and a dedicated validate() pass after
+      deserialization. Wire validation into the server startup path so invalid
+      configs fail fast.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "docs/developing/type-design.md"
+        note: "#[serde(try_from)] for constrained numerics; validation at parse time"
+      - type: mined-review
+        link: "PR #881 — add per-peer circuit breaker"
+        note: "Review: config validation method exists but never called in startup path; invalid configs create broken circuit breaker"
+
+  - id: PRAXIS-INS-008
+    kind: instruction
+    statement: >
+      Attribute formatting: order items within #[derive(...)] alphabetically.
+      Order parameters within #[serde(...)] alphabetically. File ordering:
+      constants (top), public types/impls, private types/impls, private
+      helpers, #[cfg(test)] mod tests (always last). Fields and methods:
+      alphabetical with name pinned first on structs, new()/name() pinned
+      first in impl blocks.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "docs/developing/conventions.md — Additional Coding Conventions"
+        note: "Detailed ordering rules for derives, serde attrs, file sections, fields, methods"
+
+  - id: PRAXIS-INS-009
+    kind: instruction
+    statement: >
+      Protocol implementation must cite governing RFCs. Use reference-style
+      rustdoc links to IETF datatracker. Conformance tests live in
+      tests/conformance/. When in doubt about edge cases, the RFC is the
+      authority, not other proxy implementations.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "docs/developing/conventions.md — RFC Conformance"
+        note: "Cite RFC number and section; reference-style rustdoc links to IETF datatracker"
+
+  - id: PRAXIS-INS-010
+    kind: instruction
+    statement: >
+      Dynamic config reload must not disrupt in-flight requests. Use
+      Arc<ArcSwap<FilterPipeline>> so each request pins its pipeline snapshot.
+      New pipelines are swapped atomically; in-flight requests drain on the old
+      pipeline. Validate new config before swapping; if validation fails,
+      nothing changes.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "docs/architecture/overview.md — Dynamic Configuration Reload"
+        note: "ArcSwap-based atomic pipeline swap; file watcher with 500ms debounce"
+      - type: mined-review
+        link: "PR #857 — race condition between config file and watcher setup"
+        note: "Fixed race by adding initial_content_hash before watcher thread spawns"
+
+  - id: PRAXIS-INS-011
+    kind: check
+    statement: >
+      No AI tool authorship in commits. Shares the git_no_ai_attribution check
+      with REPO-INS-002 (deduped by command; each rule keeps its own trace).
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "sh .lattice/bin/checks/git_no_ai_attribution.sh"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: ".github/workflows/conventions.yaml authorship-check"
+        note: "CI checks for AI tool emails, names, and credit trailers; rejects on detection"
+      - type: doc-citation
+        link: "docs/developing/conventions.md — Code Responsibility"
+        note: "PRs from bots will not be accepted; submitter must review every line"
+
+  - id: PRAXIS-INS-012
+    kind: check
+    statement: >
+      Small, composable, single-purpose functions. The mechanizable part is
+      length/complexity, enforced via clippy too_many_lines + cognitive_complexity
+      on rust/ (shares the command with RUST-INS-013). "Composable / pure / single
+      purpose" is not machine-checkable and stays a review value.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D clippy::too_many_lines -D clippy::cognitive_complexity"
+    expected_exit: 0
+    provenance:
+      - type: doc-citation
+        link: "docs/developing/conventions.md — General Principles"
+        note: "Brevity, composability, single-purpose, minimize side effects, pure transformations"

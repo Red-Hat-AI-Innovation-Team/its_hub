@@ -4,5 +4,18 @@
       "Bash(rg:*)"
     ],
     "deny": []
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --with pyyaml python .lattice/bin/run_check.py --tier inner --event posttooluse"
+          }
+        ]
+      }
+    ]
   }
 }

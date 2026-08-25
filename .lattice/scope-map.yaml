@@ -1,0 +1,18 @@
+bindings:
+  - pack_name: core
+    path_pattern: "**"
+
+  - pack_name: python
+    path_pattern: "**"
+
+  - pack_name: its-domain
+    path_pattern: "**"
+
+  - pack_name: repo
+    path_pattern: "**"
+
+  - pack_name: rust
+    path_pattern: "rust/**"
+
+  - pack_name: praxis-domain
+    path_pattern: "rust/**"
