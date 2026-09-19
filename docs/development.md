@@ -4,13 +4,7 @@
 
 ### Development Installation
 
-Requires a Rust toolchain — the project uses [maturin](https://www.maturin.rs/) to build an extension from `rust/`.
-
 ```bash
-# Install Rust (if not already installed)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-. "$HOME/.cargo/env"
-
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 cd its_hub
 pip install -e ".[dev]"
@@ -18,7 +12,6 @@ pip install -e ".[dev]"
 
 The development installation includes:
 - All core dependencies
-- Rust native extension
 - Testing frameworks (pytest, coverage)
 - Code formatting and linting tool (ruff)
 - Development tools and scripts
@@ -103,7 +96,6 @@ class AbstractProcessRewardModel:
 ```
 its_hub/
 ├── __init__.py             # Top-level exports (import from here)
-├── _rust.*                 # Native extension (built by maturin)
 ├── algorithms/__init__.py  # Deprecated, backward compatibility only
 ├── api/                    # Public interfaces (stable API)
 │   ├── lm.py              # AbstractLanguageModel
@@ -134,6 +126,9 @@ rust/
 └── src/
     └── lib.rs              # PyLMOrchestrator (PyO3 native extension)
 ```
+
+> A Rust implementation of the orchestrator lives under `rust/` but is not
+> built or shipped today — the package is pure Python.
 
 ## Adding New Algorithms
 
@@ -454,46 +449,29 @@ def optimize_gpu_memory():
 
 ## Release Process
 
-### Version Bumping
+### Versioning
 
-The package version comes from `rust/Cargo.toml` (maturin reads it from there):
-
-```toml
-[package]
-version = "0.2.0"
-```
-
-This value is the **next unreleased version** — it should always be one step
-ahead of the latest published release. Bump it as soon as you cut a release so
-`main` starts building dev versions toward the next one (see below).
+The package version is derived from git tags by
+[setuptools_scm](https://setuptools-scm.readthedocs.io/) and written to
+`its_hub/_version.py` at build time (gitignored).
 
 ### Dev versions on `main`
 
-Every push to `main` publishes to Test PyPI. Because (Test) PyPI releases are
-write-once, the `set-dev-version` composite action rewrites the version to a
-unique `<version>.devN` (where `N` is the commit count) before each build on
-`main`, so every upload is a brand-new release and never collides or hits Test
-PyPI's "no new files on releases older than 14 days" rule. Tag builds skip this
-step and use the static `rust/Cargo.toml` version as-is.
+Every push to `main` publishes to Test PyPI. setuptools_scm automatically stamps
+each build after the latest tag with a unique `<next>.devN` version (where `N` is
+the commit distance), so every upload is a brand-new release and never collides
+or hits Test PyPI's "no new files on releases older than 14 days" rule. A tagged
+commit gets that exact clean version.
 
-So with `version = "1.2.1"` in `Cargo.toml`, merges to `main` publish
-`1.2.1.dev1`, `1.2.1.dev2`, … to Test PyPI, and tagging `v1.2.1` publishes the
-clean `1.2.1` to PyPI.
+So after tag `v1.2.0`, merges to `main` publish `1.2.0.dev1`, `1.2.0.dev2`, … to
+Test PyPI, and tagging `v1.2.1` publishes the clean `1.2.1` to PyPI.
 
 ### Creating Releases
 
-1. Make sure `rust/Cargo.toml` holds the exact version you're releasing (it
-   should already, since it tracks the next unreleased version)
-2. Update CHANGELOG.md
-3. Create git tag: `git tag -a v1.2.1 -m "Release v1.2.1"`
-4. Push tag: `git push origin v1.2.1` (or publish a GitHub Release)
-5. GitHub Actions will handle PyPI publishing
-6. Bump `rust/Cargo.toml` to the next version (e.g. `1.2.2`) and merge to `main`
-   so dev builds move on to `1.2.2.devN`
-
-> The release workflow's `check-version` job fails the build if the release tag
-> (e.g. `v1.2.1`) doesn't match the version in `rust/Cargo.toml`, so keep the two
-> in sync when bumping.
+1. Update CHANGELOG.md
+2. Create git tag: `git tag -a v1.2.1 -m "Release v1.2.1"`
+3. Push tag: `git push origin v1.2.1` (or publish a GitHub Release)
+4. GitHub Actions will handle PyPI publishing
 
 ## Contributing
 
