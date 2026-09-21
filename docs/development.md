@@ -463,7 +463,7 @@ the commit distance), so every upload is a brand-new release and never collides
 or hits Test PyPI's "no new files on releases older than 14 days" rule. A tagged
 commit gets that exact clean version.
 
-So after tag `v1.2.0`, merges to `main` publish `1.2.0.dev1`, `1.2.0.dev2`, … to
+So after tag `v1.2.0`, merges to `main` publish `1.2.1.dev1`, `1.2.1.dev2`, … to
 Test PyPI, and tagging `v1.2.1` publishes the clean `1.2.1` to PyPI.
 
 ### Creating Releases
