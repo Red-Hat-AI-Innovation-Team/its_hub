@@ -1,0 +1,53 @@
+# Build/venv artifacts
+.venv/
+target/
+rust/target/
+dist/
+build/
+wheels/
+*.egg-info/
+*.so
+
+# Python and Rust caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Ignore documentation
+.*
+docs/
+*.md
+
+# ...but ship the legal files the runtime image must carry
+!LICENSE
+
+# ...and keep README.md: the build backend needs it (pyproject readme field)
+!README.md
+
+# Not needed for the IaaS image (no grpc/proto/Envoy in the [iaas] extra)
+third_party/
+its_hub/integration/proto/
+tests/
+
+# Ignore dev tools
+Makefile
+examples/
+notebooks/
+benchmarking/
+eval/
+scripts/
+
+# VCS / tooling / local
+.git/
+.github/
+.devcontainer/
+.claude/
+.claude-plugin/
+.codex-plugin/
+.factory/
+.env
+*.log
+.sentrux

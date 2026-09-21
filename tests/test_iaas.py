@@ -103,6 +103,11 @@ def _mock_gateway_full_result(content="answer", usage=None):
 
 
 class TestIaaSAPIEndpoints:
+    def test_health_endpoint(self, iaas_client):
+        response = iaas_client.get("/health")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
     def test_models_endpoint_empty(self, iaas_client):
         response = iaas_client.get("/v1/models")
         assert response.status_code == 200
@@ -1110,6 +1115,28 @@ class TestAppServer:
         assert args.log_level == "INFO"
         assert args.dev is False
         assert args.print_config is False
+
+    def test_parse_args_env_defaults(self, monkeypatch):
+        from its_hub.integration.iaas.app_server import _parse_args
+
+        monkeypatch.setenv("ITS_IAAS_HOST", "0.0.0.0")
+        monkeypatch.setenv("ITS_IAAS_PORT", "9000")
+        monkeypatch.setenv("ITS_LOG_LEVEL", "DEBUG")
+        with patch("sys.argv", ["its-iaas"]):
+            args = _parse_args()
+        assert args.host == "0.0.0.0"
+        assert args.port == 9000
+        assert args.log_level == "DEBUG"
+
+    def test_parse_args_flags_override_env(self, monkeypatch):
+        from its_hub.integration.iaas.app_server import _parse_args
+
+        monkeypatch.setenv("ITS_IAAS_HOST", "0.0.0.0")
+        monkeypatch.setenv("ITS_IAAS_PORT", "9000")
+        with patch("sys.argv", ["its-iaas", "--host", "127.0.0.1", "--port", "8109"]):
+            args = _parse_args()
+        assert args.host == "127.0.0.1"
+        assert args.port == 8109
 
     def test_print_config(self, capsys):
         from its_hub.integration.iaas.app_server import _print_config
