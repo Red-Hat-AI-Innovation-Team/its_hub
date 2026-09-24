@@ -17,8 +17,9 @@ ITS HTTP service: {{ include "its-hub.service.name" . }}:{{ .Values.service.port
    Additional overrides: X-ITS-Endpoint (upstream URL), X-ITS-API-Key (upstream key).
 
 {{ if not .Values.config.enabled -}}
-Startup defaults are disabled, so /ready reports 503 until configured. Supply
-X-ITS-Endpoint on inference requests or configure this pod using POST /configure.
+Startup defaults are disabled. /ready reports 200 after initialization even though
+no service-wide endpoint/model is set. Supply X-ITS-Endpoint on inference requests
+or configure this pod using POST /configure.
 Manual configuration is lost on restart.
 {{ end -}}
 The /configure endpoint is unauthenticated. Public routes expose only /v1/;
