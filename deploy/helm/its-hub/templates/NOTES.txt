@@ -1,9 +1,9 @@
-ITS HTTP service: {{ include "its-hub.fullname" . }}:{{ .Values.service.port }}
+ITS HTTP service: {{ include "its-hub.service.name" . }}:{{ .Values.service.port }}
 
 1. Port-forward and check status. /health returns 200 once the process serves;
    /ready returns 503 until startup configuration is applied.
 
-   kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "its-hub.fullname" . }} 8109:{{ .Values.service.port }}
+   kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "its-hub.service.name" . }} 8109:{{ .Values.service.port }}
    curl http://localhost:8109/ready
 
 2. Send an inference request. Per-request overrides use headers (they take

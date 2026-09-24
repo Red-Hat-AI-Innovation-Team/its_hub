@@ -10,6 +10,31 @@
 {{- end -}}
 {{- end -}}
 
+{{- /*
+Per-resource names. The Deployment keeps the bare fullname as the primary object;
+other resources carry a short kind suffix. Each is truncated to 63 characters.
+*/ -}}
+{{- define "its-hub.service.name" -}}
+{{- printf "%s-svc" (include "its-hub.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "its-hub.configmap.name" -}}
+{{- printf "%s-config" (include "its-hub.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "its-hub.route.name" -}}
+{{- printf "%s-route" (include "its-hub.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "its-hub.ingress.name" -}}
+{{- printf "%s-ingress" (include "its-hub.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "its-hub.hpa.name" -}}
+{{- printf "%s-hpa" (include "its-hub.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "its-hub.pdb.name" -}}
+{{- printf "%s-pdb" (include "its-hub.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "its-hub.networkpolicy.name" -}}
+{{- printf "%s-netpol" (include "its-hub.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 {{- define "its-hub.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "its-hub.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
@@ -23,7 +48,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 
 {{- define "its-hub.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
-{{- default (include "its-hub.fullname" .) .Values.serviceAccount.name -}}
+{{- default (printf "%s-sa" (include "its-hub.fullname" .) | trunc 63 | trimSuffix "-") .Values.serviceAccount.name -}}
 {{- else -}}
 {{- default "default" .Values.serviceAccount.name -}}
 {{- end -}}

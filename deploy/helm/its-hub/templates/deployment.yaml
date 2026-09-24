@@ -104,7 +104,7 @@ spec:
         {{- if .Values.config.enabled }}
         - name: config
           configMap:
-            name: {{ include "its-hub.fullname" . }}
+            name: {{ include "its-hub.configmap.name" . }}
         {{- if .Values.config.apiKeySecret.name }}
         - name: credentials
           secret:

@@ -59,6 +59,11 @@ class ChartTests(unittest.TestCase):
             docs["Service"]["spec"]["selector"],
             docs["Deployment"]["spec"]["selector"]["matchLabels"],
         )
+        # Deployment keeps the bare fullname; others carry a kind suffix.
+        self.assertEqual(docs["Deployment"]["metadata"]["name"], "test-its-hub")
+        self.assertEqual(docs["Service"]["metadata"]["name"], "test-its-hub-svc")
+        self.assertEqual(docs["ServiceAccount"]["metadata"]["name"], "test-its-hub-sa")
+        self.assertEqual(pod["serviceAccountName"], "test-its-hub-sa")
         self.assertNotIn("ConfigMap", docs)
         self.assertNotIn("Secret", docs)
 
@@ -72,10 +77,13 @@ class ChartTests(unittest.TestCase):
                 "replicaCount": 2,
             }
         )
+        self.assertEqual(docs["ConfigMap"]["metadata"]["name"], "test-its-hub-config")
         self.assertEqual(
             json.loads(docs["ConfigMap"]["data"]["config.json"]), CONFIG["settings"]
         )
         pod = docs["Deployment"]["spec"]["template"]["spec"]
+        config_vol = next(v["configMap"] for v in pod["volumes"] if "configMap" in v)
+        self.assertEqual(config_vol["name"], "test-its-hub-config")
         secret = next(v["secret"] for v in pod["volumes"] if "secret" in v)
         self.assertEqual(secret["secretName"], "provider")
         self.assertEqual(secret["items"], [{"key": "token", "path": "api-key"}])
@@ -115,6 +123,17 @@ class ChartTests(unittest.TestCase):
         self.assertNotIn("replicas", docs["Deployment"]["spec"])
         self.assertIn("HorizontalPodAutoscaler", docs)
         self.assertIn("PodDisruptionBudget", docs)
+        hpa = docs["HorizontalPodAutoscaler"]
+        self.assertEqual(hpa["metadata"]["name"], "test-its-hub-hpa")
+        # HPA must target the Deployment by its bare name.
+        self.assertEqual(hpa["spec"]["scaleTargetRef"]["name"], "test-its-hub")
+        self.assertEqual(docs["Ingress"]["metadata"]["name"], "test-its-hub-ingress")
+        self.assertEqual(
+            docs["Ingress"]["spec"]["rules"][0]["http"]["paths"][0]["backend"][
+                "service"
+            ]["name"],
+            "test-its-hub-svc",
+        )
         self.assertNotIn("Route", docs)
         self.assertEqual(
             docs["Ingress"]["spec"]["rules"][0]["http"]["paths"][0]["path"], "/v1"
@@ -135,6 +154,8 @@ class ChartTests(unittest.TestCase):
             ],
         )
         self.assertNotIn("Ingress", docs)
+        self.assertEqual(docs["Route"]["metadata"]["name"], "test-its-hub-route")
+        self.assertEqual(docs["Route"]["spec"]["to"]["name"], "test-its-hub-svc")
         self.assertEqual(docs["Route"]["spec"]["path"], "/v1/")
 
     def test_expose_kind_forces_ingress_on_openshift(self):

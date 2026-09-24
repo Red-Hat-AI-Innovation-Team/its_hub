@@ -5,7 +5,7 @@
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: {{ include "its-hub.fullname" . }}
+  name: {{ include "its-hub.route.name" . }}
   labels:
     {{- include "its-hub.labels" . | nindent 4 }}
   {{- with .Values.expose.route.annotations }}
@@ -19,7 +19,7 @@ spec:
   path: /v1/
   to:
     kind: Service
-    name: {{ include "its-hub.fullname" . }}
+    name: {{ include "its-hub.service.name" . }}
   port:
     targetPort: http
   tls:

@@ -16,7 +16,7 @@ helm upgrade --install its deploy/helm/its-hub \
   --namespace its --create-namespace \
   --set-string image.tag=YOUR_PUBLISHED_TAG \
   -f deploy/helm/its-hub/examples/configured.yaml --wait --timeout 5m
-kubectl -n its port-forward service/its-its-hub 8109:8109
+kubectl -n its port-forward service/its-its-hub-svc 8109:8109
 curl http://localhost:8109/ready
 curl http://localhost:8109/v1/chat/completions \
   -H 'Content-Type: application/json' \

@@ -2,7 +2,7 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "its-hub.fullname" . }}
+  name: {{ include "its-hub.pdb.name" . }}
   labels:
     {{- include "its-hub.labels" . | nindent 4 }}
 spec:
