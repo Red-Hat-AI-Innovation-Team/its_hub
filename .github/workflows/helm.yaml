@@ -1,0 +1,130 @@
+name: Helm
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - deploy/helm/**
+      - tests/helm/**
+      - its_hub/**
+      - Containerfile
+      - .containerignore
+      - pyproject.toml
+      - .github/workflows/helm.yaml
+  push:
+    branches: [main]
+    paths:
+      - deploy/helm/**
+      - tests/helm/**
+      - its_hub/**
+      - Containerfile
+      - .containerignore
+      - pyproject.toml
+      - .github/workflows/helm.yaml
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the tested chart to GHCR (main only)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install validation tools
+        run: |
+          curl -fsSLo /tmp/helm-v3.18.6-linux-amd64.tar.gz https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz
+          curl -fsSLo /tmp/helm-v3.18.6-linux-amd64.tar.gz.sha256 https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz.sha256sum
+          (cd /tmp && sha256sum --check helm-v3.18.6-linux-amd64.tar.gz.sha256)
+          tar -xzf /tmp/helm-v3.18.6-linux-amd64.tar.gz -C /tmp
+          sudo install /tmp/linux-amd64/helm /usr/local/bin/helm
+          go install sigs.k8s.io/kind@v0.27.0
+          go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          python -m pip install pyyaml
+      - name: Lint, render, and validate Kubernetes schemas
+        run: |
+          python tests/helm/test_chart.py
+          helm lint deploy/helm/its-hub --strict --set image.tag=helm-ci
+          helm lint deploy/helm/its-hub --strict --set image.tag=helm-ci -f deploy/helm/its-hub/examples/authenticated.yaml
+          helm template smoke deploy/helm/its-hub --set image.tag=helm-ci \
+            -f deploy/helm/its-hub/examples/authenticated.yaml \
+            --set expose.enabled=true --set expose.host=its.example.com \
+            --set autoscaling.enabled=true --set podDisruptionBudget.enabled=true \
+            --set networkPolicy.enabled=true --set networkPolicy.restrictEgress=true \
+            | kubeconform -strict -summary -kubernetes-version 1.32.0
+          helm template smoke deploy/helm/its-hub --set image.tag=helm-ci \
+            -f deploy/helm/its-hub/examples/authenticated.yaml \
+            -f deploy/helm/its-hub/examples/openshift.yaml --api-versions route.openshift.io/v1 > /tmp/openshift.yaml
+          # Route semantics are covered by render tests; validate core resources here.
+          kubeconform -strict -summary -skip Route /tmp/openshift.yaml
+          helm package deploy/helm/its-hub --destination /tmp/charts
+      - name: Build service image
+        run: docker build -f Containerfile -t its-hub:helm-ci .
+      - name: Create disposable cluster
+        run: |
+          kind create cluster --name its-helm --wait 120s
+          kind load docker-image its-hub:helm-ci --name its-helm
+      - name: Test deployment lifecycle and inference
+        run: bash tests/helm/smoke.sh
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide || true
+          kubectl -n its-helm-smoke get events --sort-by=.metadata.creationTimestamp || true
+          kubectl -n its-helm-smoke logs -l app.kubernetes.io/instance=smoke --all-containers --tail=100 || true
+      - name: Delete cluster
+        if: always()
+        run: kind delete cluster --name its-helm
+
+  publish:
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - name: Install Helm
+        run: |
+          curl -fsSLo /tmp/helm-v3.18.6-linux-amd64.tar.gz https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz
+          curl -fsSLo /tmp/helm-v3.18.6-linux-amd64.tar.gz.sha256 https://get.helm.sh/helm-v3.18.6-linux-amd64.tar.gz.sha256sum
+          (cd /tmp && sha256sum --check helm-v3.18.6-linux-amd64.tar.gz.sha256)
+          tar -xzf /tmp/helm-v3.18.6-linux-amd64.tar.gz -C /tmp
+          sudo install /tmp/linux-amd64/helm /usr/local/bin/helm
+      - name: Resolve application version
+        id: version
+        run: |
+          app_version=$(uv run --no-project --with setuptools-scm python -m setuptools_scm)
+          echo "value=$app_version" >> "$GITHUB_OUTPUT"
+      - name: Publish OCI chart
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_ACTOR: ${{ github.actor }}
+          GH_OWNER: ${{ github.repository_owner }}
+          APP_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "$GH_ACTOR" --password-stdin
+          helm package deploy/helm/its-hub --destination /tmp/charts --app-version "$APP_VERSION"
+          helm push /tmp/charts/its-hub-*.tgz "oci://ghcr.io/${GH_OWNER,,}/charts"

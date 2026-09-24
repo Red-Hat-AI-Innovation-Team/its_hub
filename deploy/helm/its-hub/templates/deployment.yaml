@@ -1,0 +1,132 @@
+{{- if and (or .Values.autoscaling.enabled (gt (int .Values.replicaCount) 1)) (not .Values.config.enabled) }}
+{{- fail "Multiple replicas and autoscaling require config.enabled=true so every pod loads the same defaults" }}
+{{- end }}
+{{- if gt (int .Values.autoscaling.minReplicas) (int .Values.autoscaling.maxReplicas) }}
+{{- fail "autoscaling.minReplicas must not exceed maxReplicas" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "its-hub.fullname" . }}
+  labels:
+    {{- include "its-hub.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "its-hub.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "its-hub.selectorLabels" . | nindent 8 }}
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "its-hub.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: its-hub
+          image: {{ include "its-hub.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8109
+          env:
+            - name: ITS_IAAS_HOST
+              value: "0.0.0.0"
+            - name: ITS_IAAS_PORT
+              value: "8109"
+            - name: ITS_LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            {{- if .Values.config.enabled }}
+            - name: ITS_IAAS_CONFIG_FILE
+              value: /etc/its-hub/config/config.json
+            {{- if .Values.config.apiKeySecret.name }}
+            - name: ITS_IAAS_API_KEY_FILE
+              value: /etc/its-hub/credentials/api-key
+            {{- end }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            {{- toYaml .Values.probes.startup | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            {{- toYaml .Values.probes.liveness | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            {{- toYaml .Values.probes.readiness | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.config.enabled }}
+            - name: config
+              mountPath: /etc/its-hub/config
+              readOnly: true
+            {{- if .Values.config.apiKeySecret.name }}
+            - name: credentials
+              mountPath: /etc/its-hub/credentials
+              readOnly: true
+            {{- end }}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        {{- if .Values.config.enabled }}
+        - name: config
+          configMap:
+            name: {{ include "its-hub.fullname" . }}
+        {{- if .Values.config.apiKeySecret.name }}
+        - name: credentials
+          secret:
+            secretName: {{ .Values.config.apiKeySecret.name }}
+            items:
+              - key: {{ .Values.config.apiKeySecret.key | quote }}
+                path: api-key
+        {{- end }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

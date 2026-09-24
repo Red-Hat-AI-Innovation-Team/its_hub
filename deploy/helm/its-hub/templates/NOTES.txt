@@ -1,0 +1,25 @@
+ITS HTTP service: {{ include "its-hub.fullname" . }}:{{ .Values.service.port }}
+
+1. Port-forward and check status. /health returns 200 once the process serves;
+   /ready returns 503 until startup configuration is applied.
+
+   kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "its-hub.fullname" . }} 8109:{{ .Values.service.port }}
+   curl http://localhost:8109/ready
+
+2. Send an inference request. Per-request overrides use headers (they take
+   precedence over startup defaults and body fields):
+
+   curl http://localhost:8109/v1/chat/completions \
+     -H 'Content-Type: application/json' \
+     -H 'X-ITS-Budget: 8' \
+     -d '{"model":"your-model","messages":[{"role":"user","content":"2+2?"}]}'
+
+   Additional overrides: X-ITS-Endpoint (upstream URL), X-ITS-API-Key (upstream key).
+
+{{ if not .Values.config.enabled -}}
+Startup defaults are disabled, so /ready reports 503 until configured. Supply
+X-ITS-Endpoint on inference requests or configure this pod using POST /configure.
+Manual configuration is lost on restart.
+{{ end -}}
+The /configure endpoint is unauthenticated. Public routes expose only /v1/;
+add client authentication at your gateway before allowing untrusted callers.

@@ -1,0 +1,27 @@
+{{- if eq (include "its-hub.exposeKind" .) "route" }}
+{{- if not (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
+{{- fail "expose.kind=route requires the OpenShift route.openshift.io/v1 API" }}
+{{- end }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "its-hub.fullname" . }}
+  labels:
+    {{- include "its-hub.labels" . | nindent 4 }}
+  {{- with .Values.expose.route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.expose.host }}
+  host: {{ . | quote }}
+  {{- end }}
+  path: /v1/
+  to:
+    kind: Service
+    name: {{ include "its-hub.fullname" . }}
+  port:
+    targetPort: http
+  tls:
+    {{- toYaml .Values.expose.route.tls | nindent 4 }}
+{{- end }}

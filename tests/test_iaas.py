@@ -11,6 +11,7 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 from httpx import ASGITransport
 
+from its_hub import __version__
 from its_hub.api.types import ChatMessage, ITSRequestConfigUpdate
 from its_hub.integration.iaas.app import _state, app
 from its_hub.integration.iaas.models import (
@@ -124,7 +125,7 @@ class TestIaaSAPIEndpoints:
         assert response.status_code == 200
         spec = response.json()
         assert spec["info"]["title"] == "its_hub Inference-as-a-Service"
-        assert spec["info"]["version"] == "0.1.0-alpha"
+        assert spec["info"]["version"] == __version__
         paths = spec["paths"]
         assert "/configure" in paths
         assert "/v1/models" in paths

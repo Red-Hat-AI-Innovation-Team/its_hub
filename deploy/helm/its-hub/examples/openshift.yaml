@@ -1,0 +1,7 @@
+# Layer over configured.yaml or authenticated.yaml.
+# On OpenShift, expose.kind=auto detects route.openshift.io/v1 and renders a
+# Route automatically; no host is required (the cluster assigns one).
+securityContext:
+  runAsUser: null
+expose:
+  enabled: true
