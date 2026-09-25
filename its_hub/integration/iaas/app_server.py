@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import os
 import sys
 from importlib import resources
 
@@ -32,19 +33,21 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="ITS Inference-as-a-Service")
     parser.add_argument(
         "--host",
-        default="127.0.0.1",
-        help="Host to bind the server to (default: 127.0.0.1)",
+        default=os.environ.get("ITS_IAAS_HOST", "127.0.0.1"),
+        help="Host to bind the server to "
+        "(default: 127.0.0.1, or $ITS_IAAS_HOST if set)",
     )
     parser.add_argument(
         "--port",
         type=int,
-        default=8109,
-        help="Port to bind the server (default: 8109)",
+        default=os.environ.get("ITS_IAAS_PORT", "8109"),
+        help="Port to bind the server (default: 8109, or $ITS_IAAS_PORT if set)",
     )
     parser.add_argument(
         "--log-level",
-        default="INFO",
-        help="Logging level (e.g., DEBUG, INFO, WARNING)",
+        default=os.environ.get("ITS_LOG_LEVEL", "INFO"),
+        help="Logging level, e.g. DEBUG, INFO, WARNING "
+        "(default: INFO, or $ITS_LOG_LEVEL if set)",
     )
     parser.add_argument(
         "--dev",

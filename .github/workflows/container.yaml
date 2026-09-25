@@ -1,0 +1,62 @@
+name: Container
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - "Containerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "its_hub/**"
+      - ".github/workflows/container.yaml"
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-run:
+    name: Build and smoke-test image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: "Harden Runner"
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: "Checkout"
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: "Build container image"
+        run: docker build -f Containerfile -t its-hub:ci .
+
+      - name: "Run container"
+        run: docker run -d --name its-hub its-hub:ci
+
+      - name: "Wait for healthy"
+        run: |
+          for i in $(seq 1 30); do
+            status=$(docker inspect --format='{{.State.Health.Status}}' its-hub 2>/dev/null || echo "starting")
+            if [ "${status}" = "healthy" ]; then
+              echo "Container is healthy"
+              exit 0
+            fi
+            echo "Waiting for container health (${i}/30): ${status}"
+            sleep 2
+          done
+          echo "::error::Container failed to become healthy"
+          docker inspect --format='{{json .State.Health}}' its-hub
+          docker logs its-hub
+          exit 1
+
+      - name: "Stop container"
+        if: always()
+        run: docker rm -f its-hub
