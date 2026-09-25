@@ -53,6 +53,9 @@ IMAGE_TAG ?= $(ITS_HUB_VERSION)
 PUBLISH_ADDR ?= 127.0.0.1
 HOST_PORT ?= 8109
 CONTAINER_NAME ?= its-hub
+# Podman defaults to the OCI image format, which silently drops the Containerfile
+# HEALTHCHECK. Force the Docker format so locally built images keep it
+CONTAINER_BUILD_FLAGS ?= $(if $(findstring podman,$(CONTAINER_ENGINE)),--format docker,)
 
 # Proto source directories
 ENVOY_API := $(THIRD_PARTY)/envoy-data-plane-api
@@ -238,7 +241,7 @@ envoy-health:
 
 # Build the IaaS container image
 container:
-	$(CONTAINER_ENGINE) build -f Containerfile \
+	$(CONTAINER_ENGINE) build $(CONTAINER_BUILD_FLAGS) -f Containerfile \
 		--build-arg ITS_HUB_VERSION=$(ITS_HUB_VERSION) \
 		-t $(IMAGE_NAME):$(IMAGE_TAG) .
 	@echo "✓ Built $(IMAGE_NAME):$(IMAGE_TAG) (version $(ITS_HUB_VERSION))"

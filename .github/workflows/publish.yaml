@@ -17,6 +17,7 @@ permissions:
 jobs:
   container:
     name: Build and publish image to GHCR
+    if: ${{ (github.repository_owner == 'Red-Hat-AI-Innovation-Team') && ((github.ref == 'refs/heads/main') || startsWith(github.ref, 'refs/tags/v')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -42,7 +43,7 @@ jobs:
 
       - name: "Compute version"
         id: version
-        # .git is excluded from the container build context (.containerignore),
+        # .git is excluded from the container build context (.dockerignore),
         # so resolve the setuptools_scm version here and pass it as a build-arg.
         # The CLI reads [tool.setuptools_scm] from pyproject.toml, so it honors
         # local_scheme = "no-local-version" (matching the published wheel).

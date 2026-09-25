@@ -39,6 +39,6 @@ EXPOSE 8109
 USER its
 
 HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8109/health')" || exit 1
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://localhost:%s/health' % os.environ.get('ITS_IAAS_PORT', '8109'))" || exit 1
 
 CMD ["its-iaas"]

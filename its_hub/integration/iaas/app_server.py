@@ -40,7 +40,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.environ.get("ITS_IAAS_PORT", "8109")),
+        default=os.environ.get("ITS_IAAS_PORT", "8109"),
         help="Port to bind the server (default: 8109, or $ITS_IAAS_PORT if set)",
     )
     parser.add_argument(
