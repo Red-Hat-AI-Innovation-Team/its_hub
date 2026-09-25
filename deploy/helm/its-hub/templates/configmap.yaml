@@ -1,0 +1,10 @@
+{{- if .Values.config.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "its-hub.configmap.name" . }}
+  labels:
+    {{- include "its-hub.labels" . | nindent 4 }}
+data:
+  config.json: {{ .Values.config.settings | toJson | quote }}
+{{- end }}

@@ -18,6 +18,15 @@ The IaaS service provides an OpenAI-compatible API with inference-time scaling a
 └──────────────┘    └─────────────────┘    └──────────────────┘
 ```
 
+## Kubernetes and OpenShift
+
+Use the [ITS Helm Chart](../deploy/helm/its-hub/README.md) to deploy the
+microservice with startup configuration, an optional existing API-key Secret, and
+readiness probes. `GET /ready` returns 200 after initialization and 503 before
+initialization or during lifespan teardown; it does not check the upstream LLM.
+`ITS_IAAS_CONFIG_FILE` loads defaults from JSON at startup, and
+`ITS_IAAS_API_KEY_FILE` optionally supplies a credential from a mounted file.
+
 ## Activation Model
 
 ITS activation is conveyed **in-band** via the request body and optional HTTP headers.

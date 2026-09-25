@@ -7,13 +7,16 @@ following the same adapter pattern as the Envoy ext_proc integration.
 
 import json
 import logging
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 
+from its_hub import __version__
 from its_hub.api.types import ITSRequestConfigUpdate
 from its_hub.core.gateway import ITSGateway
 from its_hub.integration.iaas.models import (
@@ -32,9 +35,11 @@ class _ServiceState:
 
     def __init__(self):
         self.gateway: ITSGateway = ITSGateway()
+        self.ready = False
 
     def reset(self):
         self.gateway = ITSGateway()
+        self.ready = False
 
 
 _state = _ServiceState()
@@ -42,14 +47,20 @@ _state = _ServiceState()
 
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
-    yield
-    await _state.gateway.aclose()
+    _state.ready = False
+    try:
+        _load_startup_config()
+        _state.ready = True
+        yield
+    finally:
+        _state.ready = False
+        await _state.gateway.aclose()
 
 
 app = FastAPI(
     title="its_hub Inference-as-a-Service",
     description="OpenAI-compatible API for inference-time scaling algorithms",
-    version="0.1.0-alpha",
+    version=__version__,
     lifespan=_lifespan,
 )
 
@@ -75,23 +86,54 @@ def _build_its_config(
     )
 
 
+def _configuration_update(request: ConfigRequest) -> ITSRequestConfigUpdate:
+    """Share configuration conversion between startup and the HTTP API."""
+    return ITSRequestConfigUpdate(
+        budget=request.budget,
+        api_endpoint=request.endpoint,
+        api_key=request.api_key,
+        model=request.model,
+        temperature=request.temperature,
+        alg=request.alg,
+        regex_patterns=request.regex_patterns,
+        tool_vote=request.tool_vote,
+        exclude_tool_args=request.exclude_tool_args,
+        threshold=request.threshold,
+        confidence_threshold=request.confidence_threshold,
+    )
+
+
+def _load_startup_config() -> None:
+    """Load optional defaults before accepting traffic, without logging secrets."""
+    config_file = os.environ.get("ITS_IAAS_CONFIG_FILE")
+    key_file = os.environ.get("ITS_IAAS_API_KEY_FILE")
+    if not config_file:
+        if key_file:
+            raise RuntimeError("ITS_IAAS_API_KEY_FILE requires ITS_IAAS_CONFIG_FILE")
+        return
+    try:
+        data = json.loads(Path(config_file).read_text())
+        request = ConfigRequest.model_validate(data)
+        if key_file:
+            key = Path(key_file).read_text().strip()
+            if not key:
+                raise ValueError("Empty API key")
+            request.api_key = key
+        config = _configuration_update(request)
+        config.resolve()  # Check completeness as well as field-level validation.
+        _state.gateway.configure(config)
+    except (OSError, ValueError, TypeError):
+        # Validation errors may contain the input (including credentials).
+        raise RuntimeError(
+            "Unable to load ITS startup configuration; check configuration and Secret files"
+        ) from None
+
+
 @app.post("/configure", status_code=status.HTTP_200_OK)
 async def config_service(request: ConfigRequest) -> dict[str, str]:
     """Configure the IaaS service with language model and scaling algorithm."""
     try:
-        config = ITSRequestConfigUpdate(
-            budget=request.budget,
-            api_endpoint=request.endpoint,
-            api_key=request.api_key,
-            model=request.model,
-            temperature=request.temperature,
-            alg=request.alg,
-            regex_patterns=request.regex_patterns,
-            tool_vote=request.tool_vote,
-            exclude_tool_args=request.exclude_tool_args,
-            threshold=request.threshold,
-            confidence_threshold=request.confidence_threshold,
-        )
+        config = _configuration_update(request)
         _state.gateway.configure(config)
 
         resolved = _state.gateway._default_config
@@ -116,6 +158,20 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Configuration failed. Check server logs for details.",
         ) from e
+
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    """Liveness probe. Returns 200 as soon as the app is serving."""
+    return {"status": "ok"}
+
+
+@app.get("/ready")
+async def ready() -> dict[str, str]:
+    """Ready after initialization, independently of upstream availability."""
+    if not _state.ready:
+        raise HTTPException(status_code=503, detail="Service is not ready")
+    return {"status": "ready"}
 
 
 @app.get("/v1/models")
