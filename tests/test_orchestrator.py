@@ -1,4 +1,4 @@
-"""Tests for LMOrchestrator, RustLMOrchestrator, and _ThreadSafeAsyncSemaphore."""
+"""Tests for LMOrchestrator and _ThreadSafeAsyncSemaphore."""
 
 import asyncio
 import threading
@@ -9,14 +9,12 @@ from its_hub.api.orchestrator import AbstractOrchestrator
 from its_hub.api.types import ChatMessage
 from its_hub.core.orchestrator import (
     LMOrchestrator,
-    RustLMOrchestrator,
     _ThreadSafeAsyncSemaphore,
 )
 
 
 @pytest.fixture(params=[
     pytest.param(LMOrchestrator, id="python"),
-    pytest.param(RustLMOrchestrator, id="rust-abc"),
 ])
 def orchestrator_cls(request):
     """Return each orchestrator implementation so shared tests run against both."""
@@ -95,28 +93,15 @@ def _make_batch(n: int) -> list[list[ChatMessage]]:
     ]
 
 
-def _unwrap(orchestrator):
-    """Get the innermost implementation (unwrap Layer 3 wrapper if present)."""
-    return orchestrator._inner if hasattr(orchestrator, "_inner") else orchestrator
-
-
 def _sem_value(orchestrator) -> int:
-    """Read the semaphore counter (works for Python, raw Rust, and wrapped Rust)."""
-    inner = _unwrap(orchestrator)
-    if hasattr(inner, "_semaphore_value"):
-        val = inner._semaphore_value()
-        assert val is not None
-        return val
-    assert inner._semaphore is not None
-    return inner._semaphore._sem._value
+    """Read the semaphore counter."""
+    assert orchestrator._semaphore is not None
+    return orchestrator._semaphore._sem._value
 
 
 def _has_semaphore(orchestrator) -> bool:
     """Check whether the orchestrator has a semaphore."""
-    inner = _unwrap(orchestrator)
-    if hasattr(inner, "_has_semaphore"):
-        return inner._has_semaphore()
-    return inner._semaphore is not None
+    return orchestrator._semaphore is not None
 
 
 # ===========================================================================
@@ -724,7 +709,6 @@ class TestThreadSafeAsyncSemaphore:
 
 @pytest.fixture(params=[
     pytest.param(LMOrchestrator, id="python"),
-    pytest.param(RustLMOrchestrator, id="rust-abc"),
 ])
 def abc_orchestrator_cls(request):
     """Orchestrator classes that should satisfy the ABC contract."""
