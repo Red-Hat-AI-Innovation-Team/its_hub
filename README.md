@@ -59,8 +59,6 @@ Adds: Process reward models, beam search, particle filtering algorithms
 
 ### Development Installation
 
-Requires a [Rust toolchain](https://rustup.rs/) (the build backend compiles our rust code into a python module).
-
 ```bash
 git clone https://github.com/Red-Hat-AI-Innovation-Team/its_hub.git
 cd its_hub

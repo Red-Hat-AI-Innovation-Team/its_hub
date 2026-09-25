@@ -1,0 +1,2 @@
+# Keep the deferred Rust implementation out of source distributions.
+prune rust
