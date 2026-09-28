@@ -118,6 +118,12 @@ async def config_service(request: ConfigRequest) -> dict[str, str]:
         ) from e
 
 
+@app.get("/health")
+async def health() -> dict[str, str]:
+    """Liveness probe. Returns 200 as soon as the app is serving."""
+    return {"status": "ok"}
+
+
 @app.get("/v1/models")
 async def list_models() -> dict[str, list[dict[str, str]]]:
     """List available models (OpenAI-compatible endpoint)."""
