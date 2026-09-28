@@ -1,0 +1,507 @@
+name: rust
+layer: language
+portable: true
+metadata:
+  description: "Rust toolchain checks and conventions mined from Praxis"
+  rust_edition: "2024"
+  msrv: "1.96"
+  toolchain: "clippy, rustfmt (nightly), cargo-deny, cargo-audit, cargo-machete, cargo-semver-checks"
+
+rules:
+  # ---------------------------------------------------------------------------
+  # Checks (deterministic gates)
+  # ---------------------------------------------------------------------------
+
+  - id: RUST-CHK-001
+    kind: check
+    statement: >
+      Clippy must pass with zero warnings: `cargo clippy --workspace --all-targets
+      -- -D warnings`. The workspace defines deny-level lints for async safety,
+      memory efficiency, cast safety, API design, code clarity, import hygiene,
+      diagnostic hygiene (no panic, no expect, no indexing_slicing), and boolean
+      hygiene. See workspace.lints.clippy in Cargo.toml for the full set.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "Cargo.toml [workspace.lints.clippy]"
+        note: "~120 clippy lints at deny level covering async, memory, cast, API, clarity, diagnostics"
+      - type: config-import
+        link: "Makefile lint target"
+        note: "cargo clippy --workspace --all-targets -- -D warnings"
+      - type: policy-decision
+        link: "rust/Cargo.toml"
+        note: >
+          Adapted --workspace → --manifest-path rust/Cargo.toml (its_hub rust/ is a
+          single crate, not a workspace). Needs a cargo toolchain on the runner,
+          which install_checks.py adds to the generated workflow.
+
+  - id: RUST-CHK-002
+    kind: check
+    statement: >
+      Code must be formatted: `cargo fmt --all -- --check`. The ideal is nightly
+      rustfmt (rustfmt.toml uses nightly-only options such as group_imports,
+      imports_granularity, wrap_comments); where nightly is unavailable this runs
+      stable fmt, which still validates core formatting (see provenance).
+    scope: "**"
+    state: warn-only
+    tier: inner
+    check_command: "cargo fmt --manifest-path rust/Cargo.toml --all -- --check"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "rustfmt.toml"
+        note: "Nightly-only features: group_imports, imports_granularity, format_macro_matchers, etc."
+      - type: policy-decision
+        link: "rustfmt.toml"
+        note: >
+          Uses STABLE `cargo fmt --check`; nightly-only rustfmt options are not
+          exercised where nightly is unavailable. Stable still validates core
+          formatting. Nightly is the ideal.
+      - type: config-import
+        link: "Makefile fmt/lint targets"
+        note: "cargo +nightly fmt --all (format); --check in lint"
+
+  - id: RUST-CHK-003
+    kind: check
+    statement: >
+      All workspace tests must pass: `cargo test --workspace`. Benchmark crates
+      build-test via `cargo build --workspace --benches`. CI runs unit, schema,
+      integration, conformance, security, and resilience test suites.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "cargo test --manifest-path rust/Cargo.toml"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "Makefile test target"
+        note: "cargo test --workspace; separate targets for unit, schema, integration, conformance, security, resilience"
+      - type: config-import
+        link: ".github/workflows/tests.yaml"
+        note: "CI runs make lint + make test-unit on push/PR to main"
+
+  - id: RUST-CHK-004
+    kind: check
+    statement: >
+      Supply chain audit must pass: `cargo audit` for known vulnerabilities and
+      `cargo deny check` for license compliance, banned dependencies, and source
+      restrictions. Allowed licenses: Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause,
+      ISC, Zlib, CC0-1.0, Unlicense, and others specified in deny.toml. Unknown
+      registries and git sources are denied.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    provenance:
+      - type: config-import
+        link: "deny.toml"
+        note: "License allowlist, ban wildcards, deny unknown registries/git sources"
+      - type: config-import
+        link: ".github/workflows/supply-chain.yaml"
+        note: "CI runs supply-chain-audit action on push/PR to main"
+      - type: config-import
+        link: "Makefile audit target"
+        note: "cargo audit + cargo deny check"
+
+  - id: RUST-CHK-005
+    kind: check
+    statement: >
+      No unused dependencies: `cargo machete` must pass. Detects dependencies
+      declared in Cargo.toml but not actually used in source code.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    provenance:
+      - type: config-import
+        link: "Makefile lint target"
+        note: "cargo machete runs as part of make lint"
+      - type: config-import
+        link: ".github/workflows/tests.yaml lint job"
+        note: "cargo-machete installed and run in CI lint step"
+
+  - id: RUST-CHK-006
+    kind: check
+    statement: >
+      Documentation must build without warnings: `RUSTDOCFLAGS='-D warnings'
+      cargo doc --workspace --no-deps --document-private-items`. Rustdoc lints
+      at deny level: broken_intra_doc_links, private_intra_doc_links,
+      invalid_codeblock_attributes, redundant_explicit_links, unescaped_backticks,
+      bare_urls, invalid_html_tags, missing_crate_level_docs.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "sh -c 'RUSTDOCFLAGS=\"-D warnings\" cargo doc --manifest-path rust/Cargo.toml --no-deps --document-private-items'"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "Cargo.toml [workspace.lints.rustdoc]"
+        note: "8 rustdoc lints at deny level"
+      - type: config-import
+        link: ".cargo/config.toml"
+        note: "rustdocflags = [\"-D\", \"warnings\"]"
+      - type: config-import
+        link: "Makefile doc target"
+        note: "RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --document-private-items"
+
+  - id: RUST-CHK-007
+    kind: check
+    statement: >
+      Line coverage must meet or exceed 96%: `cargo llvm-cov --workspace
+      --fail-under-lines 96`. Excludes benchmarks, conformance tests, xtask,
+      test directories, and server main.rs from coverage measurement.
+    scope: "**"
+    state: warn-only
+    tier: deep
+    provenance:
+      - type: config-import
+        link: "Makefile coverage/coverage-check targets"
+        note: "--fail-under-lines 96 with exclusions for benchmarks, conformance, xtask, tests"
+      - type: config-import
+        link: ".github/workflows/coverage.yaml"
+        note: "CI runs coverage-check action on push/PR to main"
+
+  - id: RUST-CHK-008
+    kind: check
+    statement: >
+      MSRV must be enforced: the rust-toolchain.toml pins channel 1.96.0,
+      clippy.toml sets msrv = "1.96", and workspace Cargo.toml declares
+      rust-version = "1.96". CI verifies MSRV via a dedicated workflow.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    provenance:
+      - type: config-import
+        link: "rust-toolchain.toml"
+        note: "channel = 1.96.0 with clippy and rust-analyzer components"
+      - type: config-import
+        link: "clippy.toml"
+        note: "msrv = 1.96"
+      - type: config-import
+        link: "Cargo.toml [workspace.package]"
+        note: "rust-version = 1.96"
+      - type: config-import
+        link: ".github/workflows/msrv.yaml"
+        note: "Dedicated CI workflow for MSRV verification"
+
+  - id: RUST-CHK-009
+    kind: check
+    statement: >
+      Workspace dependency versions must use three-component semver
+      (MAJOR.MINOR.PATCH). CI rejects version specs like "1.0" or "1". The
+      xtask lint-deps command enforces this programmatically, and a CI workflow
+      checks on every PR.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    provenance:
+      - type: config-import
+        link: ".github/workflows/conventions.yaml dep-version-check job"
+        note: "Parses Cargo.toml and rejects non-three-component semver versions"
+      - type: config-import
+        link: "Makefile lint target"
+        note: "cargo xtask lint-deps runs as part of make lint"
+
+  - id: RUST-CHK-010
+    kind: check
+    statement: >
+      SemVer compatibility must be verified before release: `cargo semver-checks`
+      detects breaking API changes in public crate interfaces.
+    scope: "**"
+    state: warn-only
+    tier: deep
+    provenance:
+      - type: config-import
+        link: "Makefile semver target"
+        note: "cargo semver-checks"
+      - type: doc-citation
+        link: "docs/developing/conventions.md — Important Tools"
+        note: "cargo-semver-checks listed as required tooling"
+
+  # ---------------------------------------------------------------------------
+  # Instructions (guidance)
+  # ---------------------------------------------------------------------------
+
+  - id: RUST-INS-001
+    kind: check
+    statement: >
+      Use Rust edition 2024. Asserts rust/Cargo.toml sets edition = "2024".
+    scope: "**"
+    state: warn-only
+    tier: inner
+    check_command: "sh .lattice/bin/checks/rust_edition.sh"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "Cargo.toml [workspace.package]"
+        note: "edition = 2024"
+
+  - id: RUST-INS-002
+    kind: check
+    statement: >
+      Unsafe code is denied. Enforced by compiling the crate with `-D unsafe_code`;
+      any unsafe block fails.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "cargo clippy --manifest-path rust/Cargo.toml -- -D unsafe_code"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "Cargo.toml [workspace.lints.rust]"
+        note: "unsafe_code = deny"
+      - type: doc-citation
+        link: "docs/developing/conventions.md — Rules, Practices & Lints"
+        note: "#![deny(unsafe_code)] in all crate roots (no exceptions; unsafe belongs upstream)"
+
+  - id: RUST-INS-003
+    kind: check
+    statement: >
+      Errors via thiserror, logging via tracing. Use thiserror for error type
+      definitions and tracing for structured logging. Do not use println!,
+      eprintln!, or dbg! in production code (print_stdout, print_stderr,
+      dbg_macro all denied by clippy).
+    scope: "**"
+    state: warn-only
+    tier: inner
+    check_command: "sh .lattice/bin/checks/rust_no_debug_macros.sh"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "Cargo.toml [workspace.lints.clippy]"
+        note: "dbg_macro, print_stderr, print_stdout all denied"
+      - type: doc-citation
+        link: "docs/developing/conventions.md — Rules, Practices & Lints"
+        note: "Errors via thiserror, logging via tracing"
+
+  - id: RUST-INS-004
+    kind: check
+    statement: >
+      Do not hold synchronization guards across .await points. Holding Mutex,
+      RefCell, or RwLock guards across suspension points risks deadlocks.
+      The await_holding_lock and await_holding_refcell_ref lints enforce this.
+      Drop the guard before awaiting.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "cargo clippy --manifest-path rust/Cargo.toml -- -D clippy::await_holding_lock"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "Cargo.toml [workspace.lints.clippy]"
+        note: "await_holding_lock = deny, await_holding_refcell_ref = deny"
+      - type: doc-citation
+        link: "docs/developing/conventions.md — Async Safety"
+        note: "Drop guard before awaiting; detailed code examples provided"
+
+  - id: RUST-INS-005
+    kind: check
+    statement: >
+      Never use .unwrap(), .expect(), panic!(), or direct indexing (s[n..m])
+      in production code. These are all denied by clippy (unwrap_used,
+      expect_used, panic, indexing_slicing). Use .get(), pattern matching,
+      or combinator chains for fallible access.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "cargo clippy --manifest-path rust/Cargo.toml -- -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::indexing_slicing"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "Cargo.toml [workspace.lints.clippy]"
+        note: "unwrap_used, expect_used, panic, indexing_slicing all denied"
+      - type: doc-citation
+        link: "docs/developing/conventions.md — String Safety"
+        note: "Use .get(range), .chars().nth(), .char_indices() for safe access"
+
+  - id: RUST-INS-006
+    kind: check
+    statement: >
+      Use #[expect(lint, reason = "...")] instead of #[allow(lint)] for
+      suppressing lints. The allow_attributes and allow_attributes_without_reason
+      lints enforce this. Every suppression must include a reason string.
+      #[expect] is self-cleaning: the compiler warns if the suppressed lint
+      stops firing.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "cargo clippy --manifest-path rust/Cargo.toml -- -D clippy::allow_attributes"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "Cargo.toml [workspace.lints.clippy]"
+        note: "allow_attributes = deny, allow_attributes_without_reason = deny"
+      - type: doc-citation
+        link: "docs/developing/conventions.md — Lint Suppression Policy"
+        note: "Use #[expect(...)] with reason; #[allow] is denied mechanically"
+
+  - id: RUST-INS-007
+    kind: instruction
+    statement: >
+      Use workspace dependencies: define dependency versions in
+      [workspace.dependencies] and reference them in member crates via
+      dependency.workspace = true. This keeps versions consistent across crates.
+      Keep dependencies light; avoid new dependencies when feasible and only add
+      well-established packages.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: config-import
+        link: "Cargo.toml [workspace.dependencies]"
+        note: "All external dependencies centralized in workspace"
+      - type: doc-citation
+        link: "docs/developing/conventions.md — Rules, Practices & Lints"
+        note: "Use workspace dependencies to keep versions consistent; keep deps light"
+
+  - id: RUST-INS-008
+    kind: check
+    statement: >
+      All public items must have documentation. The workspace denies
+      missing_docs and missing_docs_in_private_items. Document errors with
+      missing_errors_doc and panics with missing_panics_doc. Use doc_markdown
+      for proper casing of identifiers in docs.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "cargo clippy --manifest-path rust/Cargo.toml -- -D missing_docs"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "Cargo.toml [workspace.lints.rust]"
+        note: "missing_docs = deny"
+      - type: config-import
+        link: "Cargo.toml [workspace.lints.clippy]"
+        note: "missing_docs_in_private_items, missing_errors_doc, missing_panics_doc, doc_markdown all denied"
+
+  - id: RUST-INS-009
+    kind: instruction
+    statement: >
+      Import traits with `as _` when only using their methods, not naming the
+      trait type. The unused_trait_names lint enforces this. Group imports as
+      StdExternalCrate (std first, then external, then crate-local) and use
+      crate-level import granularity. No glob imports (enum_glob_use and
+      wildcard_imports denied).
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: config-import
+        link: "Cargo.toml [workspace.lints.clippy]"
+        note: "unused_trait_names, enum_glob_use, wildcard_imports all denied"
+      - type: config-import
+        link: "rustfmt.toml"
+        note: "group_imports = StdExternalCrate, imports_granularity = Crate"
+      - type: doc-citation
+        link: "docs/developing/conventions.md — Trait Import Convention"
+        note: "use std::io::Write as _ when importing for methods only"
+
+  - id: RUST-INS-010
+    kind: check
+    statement: >
+      No todo!(), unimplemented!(), or std::process::exit() in production code.
+      These are all denied by clippy. No mem::forget (prevent resource leaks).
+      No std::thread::sleep in async context (use tokio::time::sleep). No
+      interactive stdin reading.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "cargo clippy --manifest-path rust/Cargo.toml -- -D clippy::todo -D clippy::unimplemented -D clippy::exit"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "Cargo.toml [workspace.lints.clippy]"
+        note: "todo, unimplemented, exit, mem_forget all denied"
+      - type: config-import
+        link: "clippy.toml disallowed-methods"
+        note: "std::thread::sleep (use tokio), std::io::stdin and Stdin::read_line banned"
+
+  - id: RUST-INS-011
+    kind: instruction
+    statement: >
+      Comments answer "why?", never "what?". Runtime narration belongs in
+      tracing calls (debug!, trace!, info!), not comments. If removing the
+      comment would not confuse a future reader, do not write it. Well-named
+      identifiers explain what the code does.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "docs/developing/conventions.md — Comments vs Tracing"
+        note: "Comments = why (hidden constraints, invariants); tracing = what (runtime narration)"
+
+  - id: RUST-INS-012
+    kind: check
+    statement: >
+      Release profile must enable LTO (lto = true), single codegen unit
+      (codegen-units = 1), overflow checks (overflow-checks = true), and symbol
+      stripping (strip = true). panic = abort is intentionally NOT required: this
+      crate is a PyO3 cdylib and PyO3 unwinds panics into Python exceptions, so
+      abort would break that — the praxis binary rule is adapted here.
+    scope: "**"
+    state: warn-only
+    tier: inner
+    check_command: "sh .lattice/bin/checks/rust_release_profile.sh"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "Cargo.toml [profile.release]"
+        note: "codegen-units = 1, lto = true, overflow-checks = true, strip = true (panic left as unwind for PyO3)"
+
+  - id: RUST-INS-013
+    kind: check
+    statement: >
+      Function complexity thresholds: max 30 lines per function
+      (too_many_lines), max 25 cognitive complexity (cognitive-complexity),
+      max 5 function parameters (too-many-arguments), max 2 bool params per
+      function, max 2 bool fields per struct. Enum variant size threshold
+      is 128 bytes; future size threshold is 4096 bytes; stack size threshold
+      is 16384 bytes.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D clippy::too_many_lines -D clippy::cognitive_complexity"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "clippy.toml"
+        note: "too-many-lines-threshold = 30, cognitive-complexity-threshold = 25, too-many-arguments-threshold = 5, etc."
+      - type: config-import
+        link: "Cargo.toml [workspace.lints.clippy]"
+        note: "too_many_lines, cognitive_complexity, too_many_arguments, fn_params_excessive_bools, struct_excessive_bools all denied"
+
+  - id: RUST-INS-014
+    kind: instruction
+    statement: >
+      All commits must be cryptographically signed. CI checks for unsigned
+      commits on PRs and rejects them. Commits must also include Signed-off-by
+      trailers (DCO requirement).
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: config-import
+        link: ".github/workflows/conventions.yaml signed-commits-check"
+        note: "CI rejects PRs with unsigned commits"
+      - type: doc-citation
+        link: "CONTRIBUTING.md — Developer Certificate of Origin"
+        note: "All commits must be signed off per DCO; git commit -s"
+
+  - id: RUST-INS-015
+    kind: check
+    statement: >
+      PR size limit: max 750 added lines (excluding Cargo files, tests, docs,
+      examples, benchmarks, and markdown). CI posts a warning comment and fails
+      PRs exceeding this limit. Add skip/pr-conventions label to override.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "sh .lattice/bin/checks/git_pr_size.sh"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: ".github/workflows/conventions.yaml pr-size-check"
+        note: "MAX_ADDITIONS = 750; excludes Cargo, tests, docs, examples, benchmarks, .md"

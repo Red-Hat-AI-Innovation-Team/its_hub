@@ -1,0 +1,239 @@
+name: its-domain
+layer: domain
+portable: false
+metadata:
+  description: "Inference-time scaling (ITS) domain rules"
+  domain: "LLM inference-time scaling for mathematical reasoning"
+  spec_ref: "SPEC.md (its_hub)"
+
+rules:
+  - id: ITS-INS-001
+    kind: check
+    statement: >
+      Public interfaces live in its_hub/api/; implementations live in
+      its_hub/core/. Enforced by dependency direction: nothing under api/ may
+      import its_hub.core (interface must not depend on implementation).
+    scope: "its_hub/**"
+    state: warn-only
+    tier: inner
+    check_command: "uv run --extra dev python .lattice/bin/checks/its_api_no_core_import.py"
+    expected_exit: 0
+    provenance:
+      - type: doc-citation
+        link: "CLAUDE.md — Architecture Overview"
+        note: "its_hub separates public interfaces (api/) from implementations (core/)"
+
+  - id: ITS-INS-002
+    kind: check
+    statement: >
+      All scaling algorithms must implement the AbstractScalingAlgorithm
+      interface: async ainfer() as the primary method and infer() as the sync
+      wrapper. Verified by runtime introspection of every subclass.
+    scope: "its_hub/core/algorithms/**"
+    state: warn-only
+    tier: gate
+    check_command: "uv run --extra dev python .lattice/bin/checks/its_algo_interface.py"
+    expected_exit: 0
+    provenance:
+      - type: doc-citation
+        link: "CLAUDE.md — Key Base Classes"
+        note: "AbstractScalingAlgorithm with ainfer() async and infer() sync wrapper"
+      - type: doc-citation
+        link: "SPEC.md §5 — Scaling algorithm contracts"
+
+  - id: ITS-INS-003
+    kind: instruction
+    statement: >
+      The budget parameter must be a positive integer. Different algorithms
+      interpret it differently: Self-Consistency/Best-of-N use it as parallel
+      generation count; Beam Search divides by beam width for search depth;
+      Particle Filtering uses it as particle count.
+    scope: "its_hub/**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "CLAUDE.md — Budget Interpretation"
+        note: "Budget controls computational resources; must be positive integer"
+      - type: doc-citation
+        link: "SPEC.md §5.3 — Budget MUST be a positive integer"
+
+  - id: ITS-INS-004
+    kind: check
+    statement: >
+      Language model classes must implement AbstractLanguageModel with async
+      generation methods: agenerate() and agenerate_single(). Verified by runtime
+      introspection of every subclass under its_hub/core/lms/.
+    scope: "its_hub/core/lms/**"
+    state: warn-only
+    tier: gate
+    check_command: "uv run --extra dev python .lattice/bin/checks/its_lm_interface.py"
+    expected_exit: 0
+    provenance:
+      - type: doc-citation
+        link: "CLAUDE.md — Key Base Classes"
+        note: "AbstractLanguageModel: async LM generation (agenerate, agenerate_single)"
+
+  - id: ITS-INS-005
+    kind: instruction
+    statement: >
+      OpenAICompatibleLanguageModel requires explicit resource cleanup.
+      Use async context manager (async with) or call await lm.close()
+      after use. Failing to close leaves connections open.
+    scope: "its_hub/core/lms/**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "CLAUDE.md — Language Models"
+        note: "Supports async context manager; requires close() for cleanup"
+
+  - id: ITS-INS-006
+    kind: instruction
+    statement: >
+      StepGeneration enables incremental text generation for reasoning tasks.
+      Configure step tokens (e.g., newlines for reasoning steps), max steps,
+      and stop conditions. Apply post-processing for clean output.
+    scope: "its_hub/core/lms/**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "CLAUDE.md — Step Generation Pattern"
+        note: "Configurable step tokens, max steps, stop conditions"
+
+  - id: ITS-INS-007
+    kind: instruction
+    statement: >
+      Cancelled async tasks must be awaited before returning from any method.
+      Calling task.cancel() only requests cancellation; without awaiting the
+      cancelled tasks, the caller can return while tasks are still pending,
+      leaking resources and causing warnings.
+    scope: "its_hub/**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: mined-review
+        link: "PR #266 — BetaSelfConsistency"
+        note: "Review: cancelled tasks are never awaited before returning"
+      - type: mined-defect
+        link: "Issue #220 — StepMockLanguageModel concurrency race"
+        note: "Concurrency race in mocks caused by unmanaged async task lifecycle"
+
+  - id: ITS-INS-008
+    kind: check
+    statement: >
+      Algorithm results must include token usage tracking (GenerationUsage).
+      Deterministic proxy: every module under its_hub/core/algorithms/ must
+      reference token usage; a module that never mentions `usage` is not
+      threading it through its result.
+    scope: "its_hub/core/algorithms/**"
+    state: warn-only
+    tier: inner
+    check_command: "uv run --extra dev python .lattice/bin/checks/its_result_usage.py"
+    expected_exit: 0
+    provenance:
+      - type: mined-review
+        link: "PR #246 — tool_flat_all voting mode and token usage tracking"
+        note: "Added token usage tracking to self-consistency and best-of-n"
+      - type: mined-review
+        link: "PR #237 — SPEC.md review comments by beatsmonster"
+        note: "Multiple comments: usage should be MUST not OPTIONAL (L311, L329, L472, L810)"
+
+  - id: ITS-INS-009
+    kind: instruction
+    statement: >
+      Algorithms must handle partial LM failures gracefully. When generating
+      N responses, if some succeed and some fail, proceed with the successful
+      subset. Fail only when zero responses succeed. Never silently drop
+      failures — log them for diagnostics.
+    scope: "its_hub/core/algorithms/**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: mined-review
+        link: "PR #237 — SPEC.md review by beatsmonster on L589"
+        note: "Gap: partial failure rules not implemented; algorithms don't handle partial LM failures"
+      - type: mined-review
+        link: "PR #233 — Refactor error handling for taskgroups"
+        note: "Improved error handling; labeled more exceptions as retryable"
+
+  - id: ITS-INS-010
+    kind: check
+    statement: >
+      SelfConsistency variants must inherit from SelfConsistency rather than
+      reimplementing voting/orchestration. Verified by introspection: any class
+      named *SelfConsistency (other than the base) must subclass SelfConsistency.
+    scope: "its_hub/core/algorithms/**"
+    state: warn-only
+    tier: gate
+    check_command: "uv run --extra dev python .lattice/bin/checks/its_variant_inherits.py"
+    expected_exit: 0
+    provenance:
+      - type: mined-review
+        link: "PR #262 — AdaptiveSelfConsistency"
+        note: "Refactored to inherit from SelfConsistency (commit 717c4d2)"
+      - type: mined-review
+        link: "PR #266 — BetaSelfConsistency"
+        note: "Inherits from SelfConsistency, sharing voting and orchestrator logic"
+
+  - id: ITS-INS-011
+    kind: instruction
+    statement: >
+      All concurrent LM calls within an algorithm must go through the
+      orchestrator. Accepting an orchestrator in __init__ but bypassing it
+      with direct asyncio calls defeats concurrency limiting and error
+      propagation. If an orchestrator is provided, use it.
+    scope: "its_hub/core/algorithms/**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: mined-review
+        link: "PR #266 — BetaSelfConsistency review"
+        note: "Review: orchestrator accepted but never used — no concurrency limiting"
+      - type: mined-review
+        link: "Issue #269 — Consider adding more generation methods to LMOrchestrator"
+        note: "Request for iterator-based orchestrator to support streaming algorithms"
+
+  - id: ITS-INS-012
+    kind: check
+    statement: >
+      Dependencies must only be imported from the extras group that declares
+      them. AST check: no module in its_hub/ may import an optional-extra package
+      (scipy, transformers, reward_hub, math_verify, datasets, matplotlib) at
+      module scope; guard with try/except or a lazy import inside a function.
+    scope: "its_hub/**"
+    state: warn-only
+    tier: inner
+    check_command: "uv run --extra dev python .lattice/bin/checks/its_extras_imports.py"
+    expected_exit: 0
+    provenance:
+      - type: mined-review
+        link: "PR #266 — BetaSelfConsistency review"
+        note: >
+          Critical: scipy imported unconditionally but only in experimental extra —
+          broke CI on all Python versions. Resolved when #266 merged by promoting
+          scipy into the dev extra; the rule stands, its original instance does not.
+      - type: config-import
+        link: "pyproject.toml [project.optional-dependencies]"
+        note: "Extras: lm, iaas, envoy-iaas, ext_proc, dev, experimental, research"
+
+  - id: ITS-CHK-001
+    kind: check
+    statement: >
+      Package must build cleanly as sdist and wheel. Since the Rust extension
+      landed the build is a maturin/PyO3 build, so this check also proves the
+      Rust toolchain and `rust/Cargo.toml` are consistent with the Python
+      package. Build artifacts must pass inspection before release.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "uv build"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: ".github/workflows/release.yaml"
+        note: "PyO3/maturin-action builds wheels; manylinux cross-compile per target"
+      - type: config-import
+        link: "pyproject.toml [build-system]"
+        note: "maturin>=1.9,<2 backend; [tool.maturin] manifest-path = rust/Cargo.toml"

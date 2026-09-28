@@ -1,0 +1,175 @@
+name: core
+layer: core
+portable: true
+metadata:
+  description: "Universal policy decisions for agent-assisted development"
+  policy_session: "Yi Zheng, 2026-07-21"
+  spec_ref: "SPEC.md §4.6 — ten policy dimensions"
+
+rules:
+  - id: CORE-INS-001
+    kind: instruction
+    statement: >
+      Agent must escalate when modifying public API signatures, deleting files,
+      or changing security-critical code. If the same check fails twice on one
+      task, the agent must stop and ask before retrying.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: policy-decision
+        link: "11-impl-plan-v1.html §7, policy 1"
+        note: "Yi policy decision 2026-07-21: strict escalation boundary"
+
+  - id: CORE-INS-002
+    kind: check
+    statement: >
+      Forbidden zones — changes to CI workflows, lockfiles, SPEC.md, and
+      release/version files require explicit permission. The check detects such
+      changes across origin/main..HEAD and surfaces them for human review; it
+      flags the trigger, it cannot verify that permission was granted.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "sh .lattice/bin/checks/forbidden_zones.sh"
+    expected_exit: 0
+    provenance:
+      - type: policy-decision
+        link: "11-impl-plan-v1.html §7, policy 2"
+        note: "Yi policy decision 2026-07-21: four forbidden zones"
+
+  - id: CORE-INS-003
+    kind: instruction
+    statement: >
+      Tests may only be weakened with human sign-off and a rationale explaining
+      why the test is no longer valid. Any deletion, skip, xfail, or
+      assertion-loosening stops the task for human review.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: policy-decision
+        link: "11-impl-plan-v1.html §7, policy 3"
+        note: "Yi policy decision 2026-07-21: always human sign-off for test weakening"
+
+  - id: CORE-INS-004
+    kind: instruction
+    statement: >
+      Definition of done: all tests pass, linting passes, touched documentation
+      is updated in the same PR, and the change is reviewed.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: policy-decision
+        link: "11-impl-plan-v1.html §7, policy 4"
+        note: "Yi policy decision 2026-07-21: checks + conformance + docs"
+
+  - id: CORE-INS-005
+    kind: check
+    statement: >
+      Prefer small, focused changes: <= ~400 changed lines and <= ~10 files across
+      origin/main..HEAD (lockfiles and generated files excluded). Larger changes
+      should be split into smaller PRs.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "sh .lattice/bin/checks/change_size.sh"
+    expected_exit: 0
+    provenance:
+      - type: policy-decision
+        link: "11-impl-plan-v1.html §7, policy 5"
+        note: "Yi policy decision 2026-07-21: ~400 line / ~10 file diff budget"
+
+  - id: CORE-INS-006
+    kind: instruction
+    statement: >
+      All new code must have tests. Target 100% coverage. For bugfixes, write
+      a failing test first; features carry tests in the same PR, order free.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: policy-decision
+        link: "11-impl-plan-v1.html §7, policy 6"
+        note: "Yi policy decision 2026-07-21: failing test first for bugfixes"
+
+  - id: CORE-INS-007
+    kind: check
+    statement: >
+      New dependencies require justification. The check detects added dependency
+      requirements in pyproject.toml across origin/main..HEAD and surfaces them
+      for human approval; it flags additions, it cannot verify the justification.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "uv run --extra dev python .lattice/bin/checks/deps_added.py"
+    expected_exit: 0
+    provenance:
+      - type: policy-decision
+        link: "11-impl-plan-v1.html §7, policy 7"
+        note: "Yi policy decision 2026-07-21: ask first, always"
+
+  - id: CORE-INS-008
+    kind: check
+    statement: >
+      Commit subjects follow conventional format (accepts both "type: desc" and
+      this repo's "(type) desc" style) across origin/main..HEAD. The "why, not
+      what" quality of the body remains a human judgment, not machine-checked.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "sh .lattice/bin/checks/commit_format.sh"
+    expected_exit: 0
+    provenance:
+      - type: policy-decision
+        link: "11-impl-plan-v1.html §7, policy 8"
+        note: "Yi policy decision 2026-07-21: conventional commits, one per logical change"
+
+  - id: CORE-INS-009
+    kind: instruction
+    statement: >
+      Per-task resource cap: 60 minutes or ~$10, whichever comes first. Then
+      checkpoint — commit WIP, write status, wait for human direction.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: policy-decision
+        link: "11-impl-plan-v1.html §7, policy 9"
+        note: "Yi policy decision 2026-07-21: 60 min/$10 cap"
+
+  - id: CORE-INS-010
+    kind: instruction
+    statement: >
+      Changes to security-critical code, public APIs, and configuration files
+      require human review even when all checks pass.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: policy-decision
+        link: "11-impl-plan-v1.html §7, policy 10"
+        note: "Yi policy decision 2026-07-21: mandatory human review triggers"
+
+  - id: CORE-CHK-001
+    kind: check
+    statement: >
+      Generated enforcement artifacts must stay in sync with .lattice/packs/.
+      Editing a pack without re-running the installer leaves CI running a stale
+      step list, so every other check silently stops meaning what it claims.
+      The installer re-renders in memory and diffs against what is committed.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "uv run --with pyyaml python .lattice/bin/install_checks.py --verify"
+    expected_exit: 0
+    provenance:
+      - type: policy-decision
+        link: "SPEC.md §5.2 — check installation"
+        note: >
+          Installation of checks is the lattice builder's job, but the repo must
+          detect when materialization has fallen behind the packs.
+      - type: doc-citation
+        link: "SPEC.md §5.2 — check installation is deterministic and re-runnable"
+        note: "Deterministic rendering is what makes drift detectable at all"

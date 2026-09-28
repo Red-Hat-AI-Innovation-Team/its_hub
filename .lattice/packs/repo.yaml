@@ -1,0 +1,167 @@
+name: repo
+layer: repo
+portable: false
+metadata:
+  description: "Repository-specific rules for its_hub (its_harness)"
+  repository: "Red-Hat-AI-Innovation-Team/its_harness"
+
+rules:
+  - id: REPO-INS-001
+    kind: check
+    statement: >
+      All git commits must be signed off (DCO). Verified across origin/main..HEAD;
+      any commit missing a `Signed-off-by:` trailer fails.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "sh .lattice/bin/checks/git_signoff.sh"
+    expected_exit: 0
+    provenance:
+      - type: doc-citation
+        link: "CLAUDE.md — Git Workflow"
+        note: "git commit -s -m for all commits"
+
+  - id: REPO-INS-002
+    kind: check
+    statement: >
+      No AI-authorship attribution in commit metadata across origin/main..HEAD:
+      no "generated with", no Claude/Anthropic co-author trailers, no robot emoji.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "sh .lattice/bin/checks/git_no_ai_attribution.sh"
+    expected_exit: 0
+    provenance:
+      - type: doc-citation
+        link: "CLAUDE.md — Contribution"
+        note: "Never mention it is by ClaudeCode; don't mention claude"
+
+  - id: REPO-INS-003
+    kind: instruction
+    statement: >
+      Use uv as the package manager. Initialize environments with
+      uv sync --extra dev. Run tools via uv run (e.g., uv run pytest,
+      uv run ruff). Prefer rg over grep when available.
+    scope: "**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: doc-citation
+        link: "CLAUDE.md — Additional Tips"
+        note: "Use uv for Python environment management"
+      - type: config-import
+        link: ".github/workflows/tests.yaml"
+        note: "All CI workflows use uv for install and run"
+
+  - id: REPO-INS-004
+    kind: check
+    statement: >
+      Generated files must not be committed: its_hub/_version.py (build-generated),
+      its_hub/integration/proto/ (generated protobuf modules, produced by
+      `make proto-compile`), and environment files (.env, .its-hub/). The check
+      asserts none of these are git-tracked.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "sh .lattice/bin/checks/no_generated_tracked.sh"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: ".gitignore"
+        note: "_version.py, its_hub/integration/proto/, .env, .its-hub/ all in gitignore"
+      - type: config-import
+        link: "pyproject.toml [build-system]"
+        note: >
+          Version is dynamic. The [tool.setuptools_scm] section this rule
+          originally cited no longer exists — the build moved to maturin when the
+          Rust extension landed.
+      - type: config-import
+        link: "Makefile — proto-compile target"
+        note: "Protobuf modules are generated into its_hub/integration/proto/, never committed"
+
+  - id: REPO-INS-005
+    kind: check
+    statement: >
+      Linting and formatting scope is its_hub/ only. Asserts lint.yaml keeps ruff
+      pointed at its_hub/ and never at tests/, scripts/, or benchmarking/.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "sh .lattice/bin/checks/lint_scope.sh"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: ".github/workflows/lint.yaml"
+        note: "ruff check its_hub/ and ruff format --check its_hub/"
+      - type: config-import
+        link: "ruff.toml"
+        note: "extend-exclude = [_version.py]"
+
+  - id: REPO-INS-006
+    kind: check
+    statement: >
+      Coverage target is 100% for *new* code. diff-cover compares coverage.xml
+      against origin/main and fails if any changed line is uncovered. Deep tier:
+      it reruns pytest with coverage (slow) and its purpose is trend evidence,
+      not a merge gate on an unvalidated whole-repo number (see PYTHON-CHK-005).
+    scope: "**"
+    state: warn-only
+    tier: deep
+    check_command: "sh -c 'make proto-compile && uv run --extra dev python -m pytest tests/ --ignore=tests/e2e --cov=its_hub --cov-report=xml -q >/dev/null && uv run --with diff-cover diff-cover coverage.xml --compare-branch origin/main --fail-under 100'"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: ".github/workflows/tests.yaml"
+        note: "--cov=its_hub --cov-report=xml; uploads to Codecov"
+      - type: doc-citation
+        link: "CLAUDE.md — REPO-INS-905"
+        note: "Target 100% coverage for new code"
+
+  - id: REPO-CHK-001
+    kind: check
+    statement: >
+      Jupyter notebooks and their paired .py files in notebooks/ must stay
+      in sync. CI auto-syncs via jupytext on PR changes to notebooks/.
+    scope: "notebooks/**"
+    state: warn-only
+    tier: gate
+    check_command: "uv run jupytext --sync --pipe-fmt py:percent notebooks/**/*.ipynb"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: ".github/workflows/sync-notebooks.yaml"
+        note: "Auto-syncs .py and .ipynb via jupytext, commits back to PR"
+
+  - id: REPO-CHK-002
+    kind: check
+    statement: >
+      Package must build cleanly as an sdist and a wheel via `uv build` (maturin
+      backend, PyO3 extension). CI builds per-target wheels for release; this
+      check verifies the build succeeds.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "uv build"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: ".github/workflows/release.yaml"
+        note: "PyO3/maturin-action builds per-target wheels; manylinux cross-compile"
+
+  - id: REPO-CHK-003
+    kind: check
+    statement: >
+      Sentrux architectural quality score must not decrease between base and
+      head on pull requests. The CI workflow compares scores and posts a PR
+      comment. Thresholds: max function length 200 lines, max file length
+      1000 lines, max cyclomatic complexity 30, max cognitive complexity 50.
+    scope: "its_hub/**"
+    state: warn-only
+    tier: gate
+    provenance:
+      - type: config-import
+        link: ".github/workflows/sentrux.yaml"
+        note: "Sentrux quality gate compares base vs head score on PRs"
+      - type: config-import
+        link: ".sentrux/rules.toml"
+        note: "max_function_length=200, max_file_length=1000, max_cyclomatic=30, max_cognitive=50"

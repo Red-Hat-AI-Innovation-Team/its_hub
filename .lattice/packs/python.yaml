@@ -1,0 +1,233 @@
+name: python
+layer: language
+portable: true
+metadata:
+  description: "Python toolchain checks and conventions"
+  target_version: "3.11"
+  toolchain: "ruff >= 0.10.0, pytest >= 7.0.0, uv"
+
+rules:
+  - id: PYTHON-CHK-001
+    kind: check
+    statement: >
+      Ruff linting must pass: `uv run --extra dev ruff check its_hub/`. Rule sets
+      enabled: E, W, F, I, N, UP, B, C4, SIM, TID, RUF. Ignored: E501, B008, B905.
+      F401 is suppressed in __init__.py files. `--extra dev` is load-bearing: without
+      it `uv run` silently falls back to a PATH-resolved ruff outside the project.
+    scope: "its_hub/**"
+    state: warn-only
+    tier: inner
+    check_command: "uv run --extra dev ruff check its_hub/"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "ruff.toml"
+        note: "Ruff lint configuration; select and ignore rules"
+      - type: config-import
+        link: ".github/workflows/lint.yaml"
+        note: "CI enforces ruff check on push/PR to main"
+
+  - id: PYTHON-CHK-002
+    kind: check
+    statement: >
+      Ruff formatting must pass: `uv run --extra dev ruff format --check its_hub/`.
+      Double quotes, space indentation, line length 88, auto line endings.
+    scope: "its_hub/**"
+    state: warn-only
+    tier: inner
+    check_command: "uv run --extra dev ruff format --check its_hub/"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "ruff.toml [format]"
+        note: "quote-style = double, indent-style = space, line-length = 88"
+      - type: config-import
+        link: ".github/workflows/lint.yaml"
+        note: "CI enforces ruff format --check on push/PR to main"
+
+  - id: PYTHON-CHK-003
+    kind: check
+    statement: >
+      Unit tests must pass. The command runs `make proto-compile` first — the
+      same generated-protobuf precondition CI runs via its "Compile Envoy proto
+      files" step — then pytest. `make proto-compile` inits the required
+      submodules and runs codegen, and is idempotent (marker-file cached), so the
+      check is self-contained: it does not assume an externally prepared tree.
+      `python -m` plus `--extra dev` keeps pytest inside the project environment.
+    scope: "**"
+    state: warn-only
+    tier: gate
+    check_command: "sh -c 'make proto-compile && uv run --extra dev python -m pytest tests/ --ignore=tests/e2e'"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: ".github/workflows/tests.yaml"
+        note: "Matrix: python-version [3.11, 3.12, 3.13] (3.14 dropped for PyO3)"
+      - type: config-import
+        link: ".github/actions/compile-protos/action.yml"
+        note: "CI compiles Envoy protos (make proto-compile) before pytest"
+      - type: config-import
+        link: "pyproject.toml [project.optional-dependencies] dev"
+        note: "pytest >= 7.0.0, pytest-asyncio >= 0.21.0"
+      - type: policy-decision
+        link: "Makefile — proto-compile target"
+        note: >
+          Command is self-contained by design: `make proto-compile` supplies the
+          generated its_hub.integration.proto modules pytest imports, and
+          `uv run --extra dev python -m pytest` keeps execution inside the project
+          environment rather than resolving a pytest from PATH.
+
+  - id: PYTHON-CHK-004
+    kind: check
+    statement: >
+      Code must be compatible with Python >=3.11,<3.14. Ruff target-version is
+      py311. The upper bound is not a style choice: PyO3 0.24.2 does not support
+      3.14, so the Rust extension cannot build there.
+    scope: "its_hub/**"
+    state: warn-only
+    tier: gate
+    check_command: "uv run --with vermin vermin -t=3.11- --no-tips --violations its_hub/"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "ruff.toml"
+        note: "target-version = py311"
+      - type: config-import
+        link: "pyproject.toml"
+        note: "requires-python = >=3.11, <3.14 — PyO3 0.24.2 lacks 3.14 support"
+      - type: policy-decision
+        link: "pyproject.toml"
+        note: >
+          vermin proves the >=3.11 floor (min required feature version). The <3.14
+          ceiling is a PyO3 build constraint the CI matrix owns, not expressible in
+          a single static command; the check covers the floor, CI owns the ceiling.
+
+  - id: PYTHON-CHK-005
+    kind: check
+    statement: >
+      Test coverage of the its_hub package is measured and recorded. CORE-INS-006
+      and REPO-INS-006 both assert a 100% target, but no rule currently produces
+      evidence for or against it. This check exists to accumulate that evidence
+      on a schedule; it does not assert a threshold until the traces justify one.
+    scope: "**"
+    state: warn-only
+    tier: deep
+    check_command: "sh -c 'make proto-compile && uv run --extra dev python -m pytest tests/ --ignore=tests/e2e --cov=its_hub --cov-report=term-missing'"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: ".github/workflows/tests.yaml"
+        note: "--cov=its_hub --cov-report=xml; uploads to Codecov"
+      - type: policy-decision
+        link: "CORE-INS-006 / REPO-INS-006"
+        note: >
+          Deep tier chosen over gate deliberately: the 100% target is aspirational
+          and unmeasured, so blocking on it pre-merge would encode a number nobody
+          has validated. Schedule it, gather traces, decide later.
+
+  - id: PYTHON-CHK-006
+    kind: check
+    statement: >
+      Installed dependencies must be free of known published advisories.
+      CORE-INS-007 governs *adding* dependencies; nothing re-examines them
+      afterwards, so an approved dependency can silently become a liability.
+    scope: "**"
+    state: warn-only
+    tier: deep
+    check_command: "uv run --with pip-audit pip-audit"
+    expected_exit: 0
+    provenance:
+      - type: policy-decision
+        link: "CORE-INS-007 — dependency policy"
+        note: >
+          Run ephemerally via `uv run --with` so the audit tool never enters
+          pyproject.toml or the lockfile — satisfies CORE-INS-007 without
+          triggering it.
+      - type: doc-citation
+        link: "CORE-INS-007 — dependency policy"
+        note: "Advisory drift is the time-dimension of the dependency policy"
+
+  - id: PYTHON-CHK-007
+    kind: check
+    statement: >
+      Static type checking with ty (Astral's Rust-based type checker):
+      `uv run --with ty ty check its_hub/`. Deep tier and warn-only on purpose —
+      the tree currently reports ~186 diagnostics, so this accumulates a trend
+      toward a clean baseline rather than gating merges on an unvalidated count.
+      Run ephemerally via `uv run --with` so ty never enters the project deps.
+    scope: "its_hub/**"
+    state: warn-only
+    tier: deep
+    check_command: "uv run --with ty ty check its_hub/"
+    expected_exit: 0
+    provenance:
+      - type: mined-defect
+        link: "Issue #293 — Adopt `ty` for type checking"
+        note: >
+          Requests ty in the dev toolchain (baseline ~190 diagnostics). Lock types
+          down before the rewrite. Deep/warn-only mirrors the coverage decision
+          (PYTHON-CHK-005): measure first, gate later.
+
+  # Id keeps the INS label for continuity; kind is authoritative (check).
+  - id: PYTHON-INS-001
+    kind: check
+    statement: >
+      Use double-quoted strings consistently (ruff Q rules). The formatter also
+      enforces quote-style = "double"; this check gives the convention its own
+      verdict and trace.
+    scope: "its_hub/**"
+    state: warn-only
+    tier: inner
+    check_command: "uv run --extra dev ruff check --select Q its_hub/"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "ruff.toml [format]"
+        note: "quote-style = double"
+
+  - id: PYTHON-INS-002
+    kind: check
+    statement: >
+      Import ordering follows isort conventions via ruff (I rules). The its_hub
+      package is first-party (known-first-party = ["its_hub"]).
+    scope: "its_hub/**"
+    state: warn-only
+    tier: inner
+    check_command: "uv run --extra dev ruff check --select I its_hub/"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "ruff.toml [lint.isort]"
+        note: "known-first-party = [its_hub]"
+
+  - id: PYTHON-INS-003
+    kind: check
+    statement: >
+      Line length convention is 88 characters. E501 is intentionally suppressed
+      in ruff lint; the formatter owns wrapping, so `ruff format --check` is the
+      honest deterministic test for this convention (dedupes with PYTHON-CHK-002).
+    scope: "its_hub/**"
+    state: warn-only
+    tier: inner
+    check_command: "uv run --extra dev ruff format --check its_hub/"
+    expected_exit: 0
+    provenance:
+      - type: config-import
+        link: "ruff.toml"
+        note: "line-length = 88, E501 in ignore list"
+
+  - id: PYTHON-INS-004
+    kind: instruction
+    statement: >
+      Prefer async patterns (async def, await, asyncio) for I/O-bound
+      operations. The library is async-first with pytest-asyncio for testing.
+    scope: "its_hub/**"
+    state: warn-only
+    tier: null
+    provenance:
+      - type: config-import
+        link: "pyproject.toml [project.optional-dependencies] dev"
+        note: "pytest-asyncio >= 0.21.0 included in dev deps"
+      - type: doc-citation
+        link: "CLAUDE.md — Architecture Overview"
+        note: "Async-first design with concurrency limits"
