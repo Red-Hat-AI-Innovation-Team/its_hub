@@ -1,0 +1,10 @@
+config:
+  enabled: true
+  settings:
+    endpoint: https://api.openai.com/v1
+    model: your-model
+    alg: self-consistency
+    budget: 4
+  apiKeySecret:
+    name: its-upstream
+    key: api-key

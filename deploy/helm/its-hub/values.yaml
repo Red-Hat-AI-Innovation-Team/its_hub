@@ -1,0 +1,109 @@
+# An image containing startup configuration and /ready support is required.
+# Set an explicitly published tag or immutable digest; there is no latest fallback.
+image:
+  repository: ghcr.io/red-hat-ai-innovation-team/its_hub
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+replicaCount: 1
+
+# When disabled, clients must supply the upstream endpoint per request or use
+# /configure on every pod. Managed configuration is recommended for replicas.
+config:
+  enabled: false
+  settings: {}
+  # settings:
+  #   endpoint: https://api.openai.com/v1
+  #   model: your-model
+  #   alg: self-consistency
+  #   budget: 4
+  apiKeySecret:
+    name: ""
+    key: api-key
+
+logLevel: INFO
+service:
+  port: 8109
+  annotations: {}
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+podAnnotations: {}
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  # The prerequisite image uses a named USER. Kubernetes needs a numeric UID
+  # to verify runAsNonRoot. On OpenShift set this to null and let SCC assign it.
+  runAsUser: 1001
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+terminationGracePeriodSeconds: 330
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+probes:
+  startup:
+    periodSeconds: 2
+    timeoutSeconds: 2
+    failureThreshold: 60
+  liveness:
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# External access to /v1 only; these resources add no client authentication.
+# Disabled by default. When enabled with kind=auto (the default), the chart
+# renders an OpenShift Route on clusters that expose route.openshift.io/v1 and
+# an Ingress everywhere else. Force one with kind: route | ingress.
+expose:
+  enabled: false
+  kind: auto
+  # Required for Ingress; optional for Route (OpenShift assigns a host if empty).
+  host: ""
+  ingress:
+    className: ""
+    annotations: {}
+    tls: []
+  route:
+    annotations:
+      haproxy.router.openshift.io/timeout: 300s
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+podDisruptionBudget:
+  enabled: false
+  maxUnavailable: 1
+
+networkPolicy:
+  enabled: false
+  # Supply peers allowed to connect to ITS; empty denies ingress.
+  ingressFrom: []
+  # Egress is unrestricted unless explicitly enabled. When enabled, provide
+  # DNS and upstream LLM rules appropriate for your cluster.
+  restrictEgress: false
+  egress: []

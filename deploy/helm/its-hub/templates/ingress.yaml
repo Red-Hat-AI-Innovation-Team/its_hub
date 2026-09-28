@@ -1,0 +1,31 @@
+{{- if eq (include "its-hub.exposeKind" .) "ingress" }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "its-hub.ingress.name" . }}
+  labels:
+    {{- include "its-hub.labels" . | nindent 4 }}
+  {{- with .Values.expose.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.expose.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.expose.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ required "expose.host is required for Ingress" .Values.expose.host | quote }}
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "its-hub.service.name" . }}
+                port:
+                  name: http
+{{- end }}
