@@ -3,7 +3,7 @@
 
 .PHONY: help setup setup-envoy upgrade-protos proto-compile proto-clean submodule-init \
         iaas-start iaas-health envoy-stack envoy-stack-stop envoy-start envoy-grpc envoy-test envoy-health \
-        envoy-iaas-stack envoy-iaas-stack-stop test
+        envoy-iaas-stack envoy-iaas-stack-stop test container container-run container-stop
 
 # Default target
 help:
@@ -33,12 +33,29 @@ help:
 	@echo "Testing Commands:"
 	@echo "  make test           - Run all pytest tests"
 	@echo ""
+	@echo "Container Commands:"
+	@echo "  make container      - Build the IaaS container image, tagged its-hub:<version>"
+	@echo "  make container-run  - Run the image detached, publishing 127.0.0.1:8109"
+	@echo "  make container-stop - Stop the running container (CONTAINER_NAME=its-hub)"
+	@echo ""
 	@echo "Maintenance Commands:"
 	@echo "  make upgrade-protos - Restore proto submodules to pinned commits from .gitmodules"
 
 # Directories
 PROTO_OUT_DIR := its_hub/integration/proto
 THIRD_PARTY := third_party
+
+# Container settings
+CONTAINER_ENGINE ?= podman
+IMAGE_NAME ?= its-hub
+ITS_HUB_VERSION ?= $(shell uv run python -c "from importlib.metadata import version; print(version('its_hub'))" 2>/dev/null || echo 0.0.0)
+IMAGE_TAG ?= $(ITS_HUB_VERSION)
+PUBLISH_ADDR ?= 127.0.0.1
+HOST_PORT ?= 8109
+CONTAINER_NAME ?= its-hub
+# Podman defaults to the OCI image format, which silently drops the Containerfile
+# HEALTHCHECK. Force the Docker format so locally built images keep it
+CONTAINER_BUILD_FLAGS ?= $(if $(findstring podman,$(CONTAINER_ENGINE)),--format docker,)
 
 # Proto source directories
 ENVOY_API := $(THIRD_PARTY)/envoy-data-plane-api
@@ -217,6 +234,30 @@ envoy-health:
 	@echo ""
 	@echo "=== ext_proc Statistics ==="
 	@curl -s http://localhost:9901/stats | grep ext_proc || echo "No ext_proc stats found"
+
+# =============================================================================
+# Container
+# =============================================================================
+
+# Build the IaaS container image
+container:
+	$(CONTAINER_ENGINE) build $(CONTAINER_BUILD_FLAGS) -f Containerfile \
+		--build-arg ITS_HUB_VERSION=$(ITS_HUB_VERSION) \
+		-t $(IMAGE_NAME):$(IMAGE_TAG) .
+	@echo "✓ Built $(IMAGE_NAME):$(IMAGE_TAG) (version $(ITS_HUB_VERSION))"
+
+# Run the IaaS container image detached
+container-run:
+	$(CONTAINER_ENGINE) run -d --rm \
+		--name $(CONTAINER_NAME) \
+		-p $(PUBLISH_ADDR):$(HOST_PORT):8109 \
+		$(IMAGE_NAME):$(IMAGE_TAG)
+	@echo "✓ Started $(CONTAINER_NAME) at http://$(PUBLISH_ADDR):$(HOST_PORT)"
+	@echo "  logs: $(CONTAINER_ENGINE) logs -f $(CONTAINER_NAME)   stop: make container-stop"
+
+# Stop the running container
+container-stop:
+	$(CONTAINER_ENGINE) stop $(CONTAINER_NAME) || echo "Container $(CONTAINER_NAME) not running"
 
 # =============================================================================
 # Testing
