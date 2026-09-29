@@ -12,7 +12,6 @@ import certifi
 from its_hub.api import (
     RETRYABLE_ERRORS,
     AbstractLanguageModel,
-    APIError,
     ChatMessage,
     GenerationUsage,
     enhanced_on_backoff,
@@ -50,6 +49,14 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         assert max_concurrency == -1 or max_concurrency > 0, (
             "max_concurrency must be -1 (unlimited concurrency) or a positive integer"
         )
+        if replace_error_with_message is not None:
+            warnings.warn(
+                "replace_error_with_message is deprecated and ignored because synthetic "
+                "filler candidates violate the generation result contract; API and "
+                "transport errors now propagate to the caller",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         # Warn about deprecated is_async parameter
         if is_async is not False:
@@ -69,7 +76,9 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
         self.is_async = is_async
         self.max_tries = max_tries
         self.max_concurrency = max_concurrency
-        self.replace_error_with_message = replace_error_with_message
+        # Compatibility attribute; remove with the constructor argument in the
+        # next breaking release.
+        self.replace_error_with_message = None
 
         # runtime parameters
         self.stop = stop
@@ -338,27 +347,6 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                             )
                         return message
 
-            async def safe_fetch_response(
-                messages: list[ChatMessage], _temperature: float | None
-            ) -> dict:
-                if self.replace_error_with_message is not None:
-                    try:
-                        return await fetch_response(messages, _temperature)
-                    except (aiohttp.ClientError, TimeoutError) as e:
-                        logging.error(f"Network error during async generation: {e}")
-                        return {
-                            "role": "assistant",
-                            "content": self.replace_error_with_message,
-                        }
-                    except APIError as e:
-                        logging.error(f"API error during async generation: {e}")
-                        return {
-                            "role": "assistant",
-                            "content": self.replace_error_with_message,
-                        }
-                else:
-                    return await fetch_response(messages, _temperature)
-
             # gather all responses asynchronously, with concurrency limited to max_concurrency
             temperature_lst = (
                 temperature
@@ -367,7 +355,7 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
             )
             return await asyncio.gather(
                 *(
-                    safe_fetch_response(messages, _temperature)
+                    fetch_response(messages, _temperature)
                     for messages, _temperature in zip(messages_lst, temperature_lst)
                 )
             )
@@ -497,25 +485,4 @@ class OpenAICompatibleLanguageModel(AbstractLanguageModel):
                     )
                 return message
 
-        async def safe_fetch_response(
-            messages: list[ChatMessage], _temperature: float | None
-        ) -> dict:
-            if self.replace_error_with_message is not None:
-                try:
-                    return await fetch_response(messages, _temperature)
-                except (aiohttp.ClientError, TimeoutError) as e:
-                    logging.error(f"Network error during async generation: {e}")
-                    return {
-                        "role": "assistant",
-                        "content": self.replace_error_with_message,
-                    }
-                except APIError as e:
-                    logging.error(f"API error during async generation: {e}")
-                    return {
-                        "role": "assistant",
-                        "content": self.replace_error_with_message,
-                    }
-            else:
-                return await fetch_response(messages, _temperature)
-
-        return await safe_fetch_response(messages, temperature)
+        return await fetch_response(messages, temperature)

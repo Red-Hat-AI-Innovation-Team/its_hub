@@ -4,6 +4,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
+from its_hub.api import AuthenticationError
 from its_hub.api.types import ChatMessage
 from its_hub.core.lms.openai_lm import OpenAICompatibleLanguageModel
 
@@ -48,6 +49,16 @@ class TestConstructor:
                 max_completion_tokens=500,
                 max_tokens=500,
             )
+
+    def test_replace_error_with_message_warns_and_is_ignored(self):
+        with pytest.warns(DeprecationWarning, match="synthetic filler candidates"):
+            lm = OpenAICompatibleLanguageModel(
+                endpoint="http://localhost:8000/v1",
+                api_key="test",
+                model_name="test",
+                replace_error_with_message="generation failed",
+            )
+        assert lm.replace_error_with_message is None
 
 
 class TestRequestBodyKey:
@@ -142,3 +153,42 @@ async def test_agenerate_single_honors_env_proxy(monkeypatch):
         await stand_in_proxy.close()
 
     assert response["content"] == "ok"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("generation_path", ["single", "batch"])
+async def test_authentication_errors_propagate(generation_path):
+    async def unauthorized_handler(request):
+        return web.json_response(
+            {"error": {"message": "invalid API key"}},
+            status=401,
+        )
+
+    api_app = web.Application()
+    api_app.router.add_route("*", "/{tail:.*}", unauthorized_handler)
+    api_server = TestServer(api_app)
+    await api_server.start_server()
+
+    with pytest.warns(DeprecationWarning, match="synthetic filler candidates"):
+        lm = OpenAICompatibleLanguageModel(
+            endpoint=f"http://127.0.0.1:{api_server.port}/v1",
+            api_key="invalid",
+            model_name="test",
+            max_tries=1,
+            replace_error_with_message="synthetic fallback",
+        )
+    messages = [ChatMessage(role="user", content="hi")]
+
+    try:
+        if generation_path == "single":
+            with pytest.raises(AuthenticationError):
+                await lm.agenerate_single(messages)
+        else:
+            with (
+                pytest.warns(DeprecationWarning, match=r"agenerate\(\) is deprecated"),
+                pytest.raises(AuthenticationError),
+            ):
+                await lm.agenerate([messages])
+    finally:
+        await lm.close()
+        await api_server.close()
